@@ -30,6 +30,7 @@ Contas idênticas ao Power BI (ver as queries M de referência):
 Foco V1: Altair (mas o seletor lista todas as usinas que têm tabela diária).
 Recarrega sozinho pelo TTL do `fonte_api`; o botão Atualizar derruba o cache. Porta 5080.
 """
+import io
 import os
 import re
 import json
@@ -40,7 +41,7 @@ import datetime as dt
 from calendar import monthrange
 
 from openpyxl.utils import range_boundaries
-from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, send_file, session
 
 import fonte_api             # leitura pelo PostgreSQL (Gridco Performance API) — ÚNICA fonte
 import fonte_operacao        # Operação no Mês (08/10/2026): leitura própria, recarga em segundo plano
@@ -51,6 +52,7 @@ import contestacao           # rodada 4: a contestação do cliente sobre um dia
 import contestacao_banco     # rodada 5 (13/10/2026): ... e fica no banco, cifrada, para o Nexus (Contratos e clientes)
 import acessos               # login por pessoa (14/10/2026): as contas vêm do Nexus, a senha o 5080 grava (o banco)
 import geracao_possivel      # 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário (puro)
+import trip_os               # 23/10/2026: o trip das OS no comentário do dia, lido do Fracttal (nada roda no import)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -1065,7 +1067,7 @@ def _portao():
     fora = jsonify({"ok": False, "erro": "Esta usina não está no seu acesso."}), 403
     if ep in _POR_USINA and not _pode(request.args.get("usina", "")):
         return fora
-    if ep == "geral" and request.args.get("carteira", "Thopen") not in _carteiras_vistas():
+    if ep in ("geral", "registros", "registros_xlsx") and request.args.get("carteira", "Thopen") not in _carteiras_vistas():
         return fora
     if ep == "api_contestar" and not _pode(str((request.get_json(silent=True) or {}).get("usina") or "").strip()):
         return fora
@@ -1500,6 +1502,97 @@ def geral():
     return jsonify(out)
 
 
+def _registros(carteira, ano, mes):
+    """A aba Registros (Levi, 23/10/2026: drill-down carteira → usinas → dias; "Geração e irradiação continua sendo da
+    BD_Thopen, disponibilidade vai ser da forma nova!"): cada usina da carteira com o mês dia a dia. A geração e o IPOA
+    do BD_Thopen; a disponibilidade de 10/2026 em diante a das OS do Fracttal (a mesma do card do Diário e da Visão
+    Geral, `_disp_dias`, em fração como a do BD), antes a do BD_Thopen. Dia sem nenhum dos três fica fora; usina sem dia
+    no mês também. As usinas fora do cálculo da Visão Geral (Piancó) entram: aqui é o registro, não o resumo."""
+    _wb()
+    disponiveis = {_NOME_CANON.get(u, u) for u in
+                   (set(_state["daily"].keys()) | set(_polaris_records().keys())
+                    | set(_sheet_records().keys()))} - FORA_DO_RELATORIO
+    so_os, hoje = _so_os_fracttal(ano, mes), dt.date.today()
+    usinas = []
+    for u in sorted(x for x in set(CARTEIRAS.get(carteira, [])) if x in disponiveis):
+        recs = {r["data"]: r for r in _daily_records(u) if (r["data"].year, r["data"].month) == (ano, mes)}
+        dsp = (_disp_dias(u, ano, mes) or {}) if so_os else {}
+        # o BD nasce com o mês pré-criado: o dia ainda não coletado vem com geração 0 e nada mais (em 23/10/2026 a
+        # Altair tinha 22 e 23/10 assim, com 22/10 já a 100% nas OS). Depois do último dia coletado, esse 0 é "sem
+        # dado" (—), não geração zero; no meio do mês, o 0 é o que a usina gerou
+        coletados = [d for d, r in recs.items() if (r.get("ger") or 0) > 0 or r.get("ipoa") is not None]
+        ultimo = max(coletados) if coletados else None
+        dias = []
+        for d in sorted(set(recs) | {x for x in dsp if x <= hoje}):
+            r = recs.get(d) or {}
+            ger = None if (not r.get("ger") and r.get("ipoa") is None and (ultimo is None or d > ultimo)) else r.get("ger")
+            disp = (dsp[d] / 100.0 if dsp.get(d) is not None else None) if so_os else r.get("disp")
+            if ger is None and r.get("ipoa") is None and disp is None:
+                continue
+            dias.append({"data": d.isoformat(), "ger": ger, "ipoa": r.get("ipoa"), "disp": disp})
+        if not dias:
+            continue
+        soma = lambda k: (sum(x[k] for x in dias if x[k] is not None)                 # noqa: E731
+                          if any(x[k] is not None for x in dias) else None)
+        dv = [x["disp"] for x in dias if x["disp"] is not None]
+        usinas.append({"usina": u, "ger": soma("ger"), "ipoa": soma("ipoa"),
+                       "disp": (sum(dv) / len(dv)) if dv else None, "dias": dias})
+    carregando = so_os and (os.environ.get("THOPEN_OPERACAO", "1").strip() == "0" or not fonte_operacao.dados())
+    return {"carteira": carteira, "ano": ano, "mes": mes, "fonte_disp": "os" if so_os else "bd",
+            "disp_carregando": bool(carregando), "usinas": usinas}
+
+
+def _carteira_ano_mes():
+    """(carteira, ano, mes, None) ou (..., resposta 400)."""
+    carteira = request.args.get("carteira", "")
+    try:
+        ano, mes = int(request.args.get("ano", "")), int(request.args.get("mes", ""))
+    except ValueError:
+        ano = mes = 0
+    if carteira not in CARTEIRAS or not 1 <= mes <= 12 or not 2000 <= ano <= 2100:
+        return None, None, None, (jsonify({"ok": False, "erro": "carteira, ano ou mês inválido"}), 400)
+    return carteira, ano, mes, None
+
+
+@app.route("/api/t/registros")
+def registros():
+    carteira, ano, mes, erro = _carteira_ano_mes()
+    return erro or jsonify(_registros(carteira, ano, mes))
+
+
+@app.route("/api/t/registros.xlsx")
+def registros_xlsx():
+    """O Exportar da aba Registros: só Usina, Data, Geração, Irradiação e Disponibilidade, a carteira no mês (Levi,
+    23/10/2026). A disponibilidade vai como fração com formato de %: soma e média funcionam no Excel."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    carteira, ano, mes, erro = _carteira_ano_mes()
+    if erro:
+        return erro
+    d = _registros(carteira, ano, mes)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Registros"
+    ws.append(["Usina", "Data", "Geração (kWh)", "Irradiação (kWh/m²)", "Disponibilidade (%)"])
+    for c in ws[1]:
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F2E6E")
+    for u in d["usinas"]:
+        for x in u["dias"]:
+            ws.append([u["usina"], dt.date.fromisoformat(x["data"]), x["ger"], x["ipoa"], x["disp"]])
+    for linha in ws.iter_rows(min_row=2):
+        linha[1].number_format, linha[2].number_format = "dd/mm/yyyy", "#,##0.00"
+        linha[3].number_format, linha[4].number_format = "0.00", "0.00%"
+    for col, larg in zip("ABCDE", (28, 12, 16, 20, 20)):
+        ws.column_dimensions[col].width = larg
+    ws.freeze_panes, ws.auto_filter.ref = "A2", ws.dimensions
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    nome = "Registros_%s_%d-%02d.xlsx" % (re.sub(r"[^A-Za-z0-9]+", "_", carteira), ano, mes)
+    return send_file(buf, as_attachment=True, download_name=nome,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 @app.route("/api/t/fonte")
 def fonte():
     """Saúde da fonte de dados — de onde veio o que está na tela e há quanto tempo.
@@ -1522,9 +1615,20 @@ def fonte():
     })
 
 
+def _trips_da_tela(dados, usina, ano, mes):
+    """({nº da OS: trip}, buscando?) das OS da usina no mês. A rota nunca espera o Fracttal: o que falta vai para a linha
+    em segundo plano (trip_os) e a tela relê enquanto `buscando`."""
+    if not dados or not trip_os.ligado() or (ano, mes) < operacao_mes.DESDE:
+        return {}, False
+    achou, falta = trip_os.guardados(operacao_mes.os_desligamento_do_mes(dados, usina, ano, mes))
+    return achou, trip_os.em_segundo_plano(falta) if falta else False
+
+
 @app.route("/api/t/reload")
 def reload_bd():
-    """Força reler a fonte (limpa o cache) — usado pelo botão Atualizar."""
+    """Força reler a fonte (limpa o cache) — usado pelo botão Atualizar. Com ?usina=&ano=&mes= (a usina na tela), busca
+    de novo no Fracttal o trip das OS dela no mês (Levi, 23/10/2026: "GOSTARIA QUE O BOTÃO ATUALIZAR PUXASSE
+    DIRETAMENTE"); o que não couber em trip_os.LIMITE_ATUALIZAR segue em segundo plano."""
     if fonte_api is not None:
         fonte_api.invalidar()      # derruba o TTL: o botão tem de buscar o banco AGORA
     with _lock:
@@ -1534,6 +1638,15 @@ def reload_bd():
         _state["polaris"] = None   # força reler os registros da Polaris também
         _state["sheets"] = None    # e as planilhas externas (Matrix, Copel)
     _wb()  # recarrega agora (chamado FORA do lock — _wb() readquire o lock)
+    usina = (request.args.get("usina") or "").strip()
+    try:
+        ano, mes = int(request.args.get("ano", 0)), int(request.args.get("mes", 0))
+    except ValueError:
+        ano = mes = 0
+    if usina and 1 <= mes <= 12 and trip_os.ligado() and (ano, mes) >= operacao_mes.DESDE             and os.environ.get("THOPEN_OPERACAO", "1").strip() != "0":
+        oss = operacao_mes.os_desligamento_do_mes(fonte_operacao.dados(), usina, ano, mes)
+        trip_os.buscar(oss, forcar=True, limite_s=trip_os.LIMITE_ATUALIZAR)
+        trip_os.em_segundo_plano(oss)
     return jsonify({"ok": True, "planilha_em": _planilha_em(),
                     "atualizado_em": dt.datetime.now().strftime("%H:%M:%S")})
 
@@ -1559,7 +1672,10 @@ def api_operacao():
         r = operacao_mes.resposta(None, usina, ano, mes, hoje)
         r["motivo"] = "desligado"
         return jsonify(r)
-    r = operacao_mes.resposta(fonte_operacao.dados(), usina, ano, mes, hoje)
+    dados = fonte_operacao.dados()
+    trips, buscando = _trips_da_tela(dados, usina, ano, mes)
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips)
+    r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None
     return jsonify(r)

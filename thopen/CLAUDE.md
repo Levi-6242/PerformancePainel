@@ -2,7 +2,7 @@
 
 Flask na porta **5080**. Réplica do Power BI "Performance da Usina" que o cliente Thopen acessa. **Com login por pessoa
 desde 16/10/2026** (seção abaixo; até então público, sem senha): com `THOPEN_LOGIN=1` cada conta entra com usuário (o de
-hoje do cliente, ou um e-mail) e senha e vê só as carteiras dela. O app são treze arquivos (a lista no `deploy/_package_thopen.py`, `ITENS`). Lê tudo do PostgreSQL pela
+hoje do cliente, ou um e-mail) e senha e vê só as carteiras dela. O app são catorze arquivos (a lista no `deploy/_package_thopen.py`, `ITENS`). Lê tudo do PostgreSQL pela
 Gridco Performance API; não abre planilha nenhuma. Ver o `CLAUDE.md` da raiz para as convenções gerais.
 
 **É produto de cliente, não ferramenta interna.** Mudança aqui é visível para fora: teste antes
@@ -22,7 +22,7 @@ e evite alterar layout sem pedido.
 - **Railway: fora do ar** (404 em 08/10/2026). `railway.toml` e `render.yaml` da RAIZ continuam descrevendo o deploy de
   nuvem (`gunicorn dashboard_thopen:app --chdir thopen ... --workers 1`, 334 MB de pico por worker);
   `deploy/Procfile` e `deploy/railway.toml` daqui nunca foram lidos (o Railway lê a raiz).
-- **Instalador por zip** (`python thopen/deploy/_package_thopen.py` → `deploy/thopen-app.zip`): os 13 arquivos do app +
+- **Instalador por zip** (`python thopen/deploy/_package_thopen.py` → `deploy/thopen-app.zip`): os 14 arquivos do app +
   `requirements-thopen.txt`, `railway.toml`, `render.yaml` e um LEIAME com as variáveis; aborta se um segredo entrar.
   Arquivo novo que o dashboard importa entra em `ITENS` — o `tests/test_thopen_operacao_rota.py` confere ITENS contra
   os imports (o zip só com os 3 arquivos de antes de 08/10 nem subia).
@@ -131,6 +131,31 @@ a ser `date`) — por isso todos os leitores continuam sendo código de workshee
   Para achar o próximo caso: nomes de `Produzida (...)` da `Historico` que não estão em `/api/t/usinas`. (Esta regra
   está na `main` desde `fb322ce`; o worktree da rodada 3–5 nasceu antes dela e só a recebeu em 16/10/2026, quando a
   Nova Londrina apareceu sem 2025 no link de teste.)
+
+## Registros (23/10/2026)
+
+Levi, 23/10/2026: "no botão ao lado de metodologia eu quero um de Registros / Quero uma visão de drill down / Carteira,
+usinas, ao expandir usinas aparece as colunas que tem no anexo / a pessoa vai poder exportar, ao exportar vai ter só
+usina/data/geração/irradiação/disponibilidade / Geração e irradiação continua sendo da BD_Thopen, disponibilidade vai ser
+da forma nova! / quero que a visão seja em corner-shape bevel conforme referências".
+
+- **Rotas.** `GET /api/t/registros?carteira=&ano=&mes=` (`_registros`): cada usina da carteira com o mês (soma da
+  geração e do IPOA, média da disponibilidade) e os dias `{data, ger, ipoa, disp}`. `GET /api/t/registros.xlsx` (mesmos
+  parâmetros): o Excel só com Usina, Data, Geração (kWh), Irradiação (kWh/m²) e Disponibilidade (%), a disponibilidade em
+  fração com formato de %. Carteira fora da conta: 403 (o portão, como a Visão Geral); parâmetro inválido: 400.
+- **De onde.** Geração e IPOA do `_daily_records` (o BD_Thopen, com a correção da Polaris e as planilhas de Copel e
+  Matrix, como o resto do painel). Disponibilidade de 10/2026 em diante pelas OS do Fracttal (`_disp_dias`, a mesma do
+  card do Diário), antes a do BD. Sem a leitura das OS: `disp_carregando` e a tela avisa (nunca um 0).
+- **O 0 do dia não coletado.** O BD nasce com o mês pré-criado: depois do último dia com geração ou IPOA, a geração 0
+  sem IPOA é "sem dado" (—, célula vazia no Excel), não geração zero (em 23/10 a Altair tinha 22/10 assim, já com 100%
+  nas OS). No meio do mês, o 0 é o que a usina gerou. Dia sem nenhum dos três fica fora.
+- **Tela.** Aba ao lado da Metodologia; carteira e mês da barra do topo (o seletor de usina some, como na Visão Geral).
+  Cartão da carteira, a lista das usinas e, ao expandir, a tabela dos dias. Cantos em `corner-shape: bevel` dentro de
+  `@supports` (sem suporte, Firefox e Safari em 10/2026: os mesmos cartões arredondados). Fora do Ctrl+P, do Baixar PDF
+  e do PDF Carteira, como a Metodologia. Em 375 px a linha da usina põe os três números embaixo do nome, com rótulo. (A
+  barra do topo do painel inteiro não quebra linha: o painel é de tela larga, de antes.)
+- **Medido em 23/10/2026** (cópia de prova): Thopen de outubro com 59 usinas e 1.289 linhas no Excel; a Altair com 22
+  dias, 13/10 a 73,56% (a mesma conta do card do Diário).
 
 ## Acoplamento com a plataforma
 
@@ -246,7 +271,9 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
     linha do dia só sai onde a OS tirou hora na conta (os trechos); o trecho do dia e a parte da potência saíram do texto
     (até 15/10 de manhã: "Cabine 2 parada o dia todo, 20% da potência da usina (...)"), e dias seguidos com o mesmo
     texto e a mesma disponibilidade viram uma linha. Duas OS de usina inteira para a mesma parada (Mandaguaçu 11/10: OS
-    abertas uma por cima da outra) dividem a parcela: a que cabe nos trechos de outra não vira linha.
+    abertas uma por cima da outra) dividem a parcela: a que cabe nos trechos de outra não vira linha. **O trip** (23/10/2026,
+    seção "Trip das OS"): com `trips` ({nº da OS: "27/86"}), a proteção entra depois do que parou — "Desligamento Usina
+    Trip 27/86 de 13/10 às 17:02h a 14/10 às 07:29h; religamento, OS 16249"; sem proteção, a frase de sempre.
   - `os` no `por_dia`: lista no dia abaixo de 100%; `[]` no dia de 100%; **None** = a parcela ainda não publicada no mês
     (coluna vazia na `atualizacao`; índice de antes do deploy da plataforma) — a tela diz "ainda não foi publicado",
     nunca um dia "sem OS".
@@ -307,9 +334,11 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
 400 se faltar usina ou ano/mês inválido. Devolve exatamente `CHAVES`: `disponivel, motivo, usina, ano, mes, strings,
 trackers, zeladoria {data, sujidade {nivel, frase}, vegetacao {nivel, frase}} | {sem_cadastro}, regua, parcial_ate,
 atualizado_em, por_dia [{dia "DD/MM", strings, trackers, disp, ronda {sujidade, vegetacao} | null}], avisos [texto],
-disponibilidade, contestar {performance, cos, zeladoria}`. `contestar` diz que setores a janela pode oferecer: todos com
-o banco configurado (19/10/2026); sem ele, só o que tem fluxo do Teams (item sem destino fica desabilitado). Nunca número de OS, técnico ou texto da OS (o 5080 é público). Chave
-nova na resposta = entrar em `CHAVES` + teste.
+disponibilidade, contestar {performance, cos, zeladoria}, trip_pendente`. `contestar` diz que setores a janela pode oferecer: todos com
+o banco configurado (19/10/2026); sem ele, só o que tem fluxo do Teams (item sem destino fica desabilitado). `trip_pendente`: o trip de alguma OS do mês
+ainda vem do Fracttal em segundo plano (a tela relê a cada 6 s por até 1 min). Nunca técnico nem texto da OS (o 5080 é
+de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o trip. Chave nova na resposta = entrar em
+`CHAVES` + teste.
 
 ### Tela (`dashboard_thopen.html`)
 
@@ -440,7 +469,9 @@ nova na resposta = entrar em `CHAVES` + teste.
 - `THOPEN_OPERACAO_TTL` (600 s) — intervalo entre releituras.
 - `THOPEN_OPERACAO_CACHE` — arquivo da última leitura boa (padrão `thopen/cache_operacao.json.gz`).
 - `THOPEN_RONDAS=0` desliga a janela das rondas e as fotos (as três rotas da rodada 3). Não mexe na contestação.
-- `FRACTTAL_CLIENT_ID` / `FRACTTAL_CLIENT_SECRET` (SECRETAS, as da plataforma) — fotos das rondas.
+- `FRACTTAL_CLIENT_ID` / `FRACTTAL_CLIENT_SECRET` (SECRETAS, as da plataforma) — fotos das rondas e o trip das OS.
+- `THOPEN_TRIP=0` tira o trip do comentário (a frase volta à de antes); `THOPEN_TRIP_TTL` (21600 s) — quanto o trip lido
+  fica guardado; `THOPEN_TRIP_CACHE` — o arquivo dele (padrão `thopen/cache_trip_os.json`, gitignorado).
 - `THOPEN_CONTESTACAO_CHAVE_PUBLICA` (rodada 5) — a chave pública das contestações no banco (não é segredo: só cifra);
   `GRIDCO_SQL_TOKEN` (SECRETA, o tokens.txt da raiz serve) — o token de escrita do banco. Desde 19/10/2026 são elas que
   ligam a contestação (o banco é o destino); sem as duas, só o setor com fluxo do Teams aparece na janela.
@@ -525,6 +556,28 @@ tracker ou ronda. Ronda notificará o time de zeladoria do Teams."
   barra do dia 06/10 da Guaratinguetá V, Geração + Ronda → Performance com "Geração" e Zeladoria com "Ronda", as duas
   com a geração (4.429 kWh) e a irradiação (2,03 kWh/m²) do dia.
 
+### Trip das OS (23/10/2026)
+
+Levi, 23/10/2026: "Nos comentários quero que inclua a informação do trip (...) Desligamento Usina Trip X de 13/10 às
+17:02h a 14/10 às 07:29h; religamento, OS 16249 / VOCÊ BUSCARÁ PRIMEIROS NAS SUBTAREFAS Categoria e proteção, CASO NÃO
+TENHA VAI PROCURAR NA NOTA DA OS. GOSTARIA QUE O BOTÃO ATUALIZAR PUXASSE DIRETAMENTE". Código: `trip_os.py`.
+
+- **De onde.** O COS do Nexus abre a OS com a subtarefa "Categoria e proteção" ("Proteção atuou — 27 e 86") e a nota
+  "UFV: ... | Proteção: 27/86 | Ação: ... | Falha: ..." (`cos_spec.observacao`). Primeiro a subtarefa
+  (`work_orders_subtasks/?folio=`); sem código nela, o campo Proteção da nota (`work_orders/?folio=`, `task_note`). Só os
+  códigos da lista do COS (27, 32, 46, 47, 50, 51, 59, 67, 78, 81, 86 e os N), como palavra inteira: o "ALT100" do ativo e
+  o "51" da Falha não são trip. "Sem proteção/trip ativo" na subtarefa decide (sem trip, a nota nem é lida); "--/--" na
+  nota = sem trip. Caso real: a OS 16249 tem "Religamento " na subtarefa e o 27/86 só na nota; a 15991 não tem subtarefa
+  e a nota diz 59/86.
+- **Quando.** A rota `/api/t/operacao` nunca espera o Fracttal: usa o guardado e põe o que falta numa linha só em
+  segundo plano (`thopen-trip`, meio segundo entre pedidos: a cota é de 200/min para a EMPRESA). O guardado vale 6 h, em
+  memória e em disco, com o "sem trip" também. O **Atualizar** manda `?usina=&ano=&mes=` ao `/api/t/reload`, que busca
+  de novo, direto, as OS da usina na tela (até 25 s; o resto segue em segundo plano). **429**: para tudo por 2 min e o
+  comentário sai sem o trip, nunca com erro; sem credencial, igual.
+- **Medido em 23/10/2026** (cópia de prova, Fracttal real): Altair de outubro, "Desligamento Cabine 2 Trip 59/86 de
+  09/10 às 16:29h a 13/10 às 18:21h; religamento, OS 15991" e "Desligamento Usina Trip 27/86 de 13/10 às 17:02h a 14/10
+  às 07:29h; religamento, OS 16249" (2 OS, 4 pedidos).
+
 ### Como provar
 
 - Testes (a partir da raiz): `python -m pytest -q tests/test_thopen_operacao_mes.py tests/test_thopen_fonte_operacao.py
@@ -532,7 +585,8 @@ tracker ou ronda. Ronda notificará o time de zeladoria do Teams."
   rota e lista branca, tela e impressão), da rodada 3 `tests/test_thopen_rondas_cliente.py
   tests/test_thopen_fotos_ronda.py tests/test_thopen_rondas_rota.py`, da rodada 4 `tests/test_thopen_contestacao.py`
   (Fracttal e Teams falsos), da rodada 5 `tests/test_thopen_contestacao_banco.py` (a contestação cifrada no banco), do
-  login `tests/test_thopen_acessos.py tests/test_thopen_login_rota.py` e, do lado da plataforma,
+  login `tests/test_thopen_acessos.py tests/test_thopen_login_rota.py`, do trip `tests/test_thopen_trip_os.py` (Fracttal
+  falso), dos Registros `tests/test_thopen_registros.py` e, do lado da plataforma,
   `tests/test_falhas_operacao_cliente.py` e `tests/test_falhas_publicar.py`. Os testes cruzados moram no Nexus
   (`tests/test_contratos_contestacoes.py` e `tests/test_contratos_acessos_clientes.py`, com `PLATAFORMA_REPO=<este clone>`):
   conferem a cifra, os livros, as carteiras e os setores dos dois lados. Os do

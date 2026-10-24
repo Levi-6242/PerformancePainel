@@ -386,6 +386,70 @@
   .regua-t td.n{ width:30px; text-align:center !important; font-weight:800; border-radius:4px; }
   .regua-t th{ text-align:left !important; font-size:10.5px; color:var(--muted); background:none; text-transform:uppercase; letter-spacing:.6px; }
   @media print{ #pageMetodologia{ display:none !important; } }
+  /* Registros (Levi, 23/10/2026): carteira → usinas → dias, "em corner-shape bevel conforme referências" (o canto
+     chanfrado do CSS novo). Navegador sem corner-shape (Firefox e Safari em 10/2026): os mesmos cartões, arredondados.
+     Tela de consulta: fora do Ctrl+P, do Baixar PDF e do PDF Carteira, como a Metodologia */
+  .rg-cart{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 30px; padding:16px 22px; color:#fff;
+    background:var(--navy); border:3px solid #F7941E; border-radius:12px; }
+  .rg-cart .rg-nome{ font-size:19px; font-weight:800; margin-right:auto; line-height:1.15; }
+  .rg-cart .rg-nome small{ display:block; font-size:10.5px; font-weight:700; letter-spacing:1.2px; opacity:.75;
+    text-transform:uppercase; }
+  .rg-k{ text-align:right; line-height:1.2; }
+  .rg-k b{ display:block; font-size:17px; font-variant-numeric:tabular-nums; }
+  .rg-k span{ font-size:10px; opacity:.75; letter-spacing:.6px; text-transform:uppercase; }
+  .rg-acoes{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:14px 0 4px; }
+  .rg-fonte{ color:var(--muted); font-size:11.5px; margin-right:auto; }
+  .rg-btn{ border:2px solid var(--navy); background:#fff; color:var(--navy); font:inherit; font-weight:700;
+    font-size:12px; padding:6px 14px; border-radius:8px; cursor:pointer; text-decoration:none; }
+  .rg-btn:hover{ background:#eef0fb; }
+  .rg-btn.exp{ background:var(--ora); border-color:#c23f12; color:#fff; }
+  .rg-btn.exp:hover{ background:#d9461a; }
+  .rg-aviso{ margin:8px 0 0; padding:7px 12px; font-size:12px; color:#8a5a00; background:#fff3cd;
+    border:1px solid #f0d58a; border-radius:8px; }
+  .rg-cab, .rg-lin{ display:grid; grid-template-columns:20px minmax(0,1fr) repeat(3,minmax(110px,170px));
+    gap:0 14px; align-items:center; }
+  .rg-cab{ padding:8px 18px 2px; font-size:10.5px; font-weight:700; color:var(--muted); letter-spacing:.5px;
+    text-transform:uppercase; }
+  .rg-cab span, .rg-lin .v{ text-align:right; }
+  .rg-us{ background:#fff; border:2px solid var(--line); border-radius:12px; margin-top:8px; overflow:hidden; }
+  .rg-us.aberta{ border-color:var(--ora); }
+  .rg-lin{ width:100%; padding:11px 16px; background:none; border:0; font:inherit; color:inherit; text-align:left;
+    cursor:pointer; }
+  .rg-lin:hover{ background:#f7f8fb; }
+  .rg-lin:focus-visible{ outline:2px solid var(--navy); outline-offset:-5px; }
+  .rg-seta{ width:16px; height:16px; color:var(--navy); transition:transform .15s; }
+  .rg-us.aberta .rg-seta{ transform:rotate(90deg); }
+  .rg-lin .nome{ font-weight:700; color:var(--txt); }
+  .rg-lin .v{ font-variant-numeric:tabular-nums; }
+  .rg-dias{ padding:2px 16px 14px; overflow:auto; }
+  .rg-dias table{ border:1px solid var(--line); border-radius:10px; border-collapse:separate; border-spacing:0;
+    overflow:hidden; }
+  .rg-dias th{ font-size:11px; }
+  .rg-dias tr:last-child td{ border-bottom:0; }
+  .rg-dias td{ font-variant-numeric:tabular-nums; }
+  .rg-vazio{ color:var(--muted); text-align:center; padding:28px 12px; }
+  .rg-cart:empty{ display:none; }
+  @supports (corner-shape: bevel){
+    .rg-cart, .rg-us, .rg-btn, .rg-aviso, .rg-dias table{ corner-shape:bevel; }
+    .rg-cart{ border-radius:20px; }
+    .rg-us{ border-radius:14px; }
+  }
+  @media (max-width:700px){
+    .rg-cart{ padding:14px 16px; gap:10px 18px; }
+    .rg-cart .rg-nome{ flex-basis:100%; }
+    .rg-k{ text-align:left; }
+    .rg-cab{ display:none; }
+    .rg-lin{ grid-template-columns:20px repeat(3,minmax(0,1fr)); row-gap:6px; padding:11px 12px; }
+    .rg-lin .nome{ grid-column:2 / -1; }
+    .rg-lin .v{ grid-row:2; text-align:left; font-size:12px; }
+    .rg-lin .v.g{ grid-column:2; } .rg-lin .v.i{ grid-column:3; } .rg-lin .v.d{ grid-column:4; }
+    .rg-lin .v::before{ content:attr(data-r); display:block; font-size:9.5px; font-weight:700; color:var(--muted);
+      text-transform:uppercase; letter-spacing:.4px; }
+    .rg-dias{ padding:2px 8px 10px; }
+    .rg-dias th, .rg-dias td{ padding:6px 5px; font-size:11.5px; }
+    .rg-dias th{ white-space:normal; vertical-align:bottom; }
+  }
+  @media print{ #pageRegistros{ display:none !important; } }
 </style>
 </head>
 <body>
@@ -401,6 +465,7 @@
     <div class="tab active" data-page="mensal">Mensal</div>
     <div class="tab" data-page="diario">Diário</div>
     <div class="tab" data-page="metodologia">Metodologia</div>
+    <div class="tab" data-page="registros">Registros</div>
     <div class="fld" id="fldCarteira"><label>CARTEIRA</label><span id="carteiraBtns" class="cgrp"></span></div>
     <div class="fld" id="fldUsina"><label>USINA</label><select id="selUsina"></select></div>
     <div class="fld" id="fldMes"><label>MÊS</label><select id="selMes"></select></div>
@@ -516,9 +581,25 @@
         </tbody></table>
       </div>
       <div class="card met" style="grid-column:1 / -1"><h3>Fontes e atualização</h3>
-        <p class="met-p">Geração, irradiação e metas: base de dados da Grid Co., relida pelo painel a cada 10 minutos. Disponibilidade e comentários: de 10/2026 em diante, as OS do Fracttal (publicadas de hora em hora); antes disso, a base de dados da Grid Co. Strings: OS de recomposição de string do Fracttal; trackers: registro de falhas da plataforma de monitoramento da Grid Co.; os dois publicados de hora em hora. Zeladoria: rondas do App de Campo da Grid Co.</p>
+        <p class="met-p">Geração, irradiação e metas: base de dados da Grid Co., relida pelo painel a cada 10 minutos. Disponibilidade e comentários: de 10/2026 em diante, as OS do Fracttal (publicadas de hora em hora), com a proteção que atuou (o trip, ex.: "Trip 27/86") quando a OS a registra; antes disso, a base de dados da Grid Co. Strings: OS de recomposição de string do Fracttal; trackers: registro de falhas da plataforma de monitoramento da Grid Co.; os dois publicados de hora em hora. Zeladoria: rondas do App de Campo da Grid Co.</p>
       </div>
     </div>
+  </div>
+
+  <!-- ───────────── REGISTROS (Levi, 23/10/2026) — carteira → usinas → dias; fora da impressão e do PDF Carteira ───────────── -->
+  <div class="wrap hidden" id="pageRegistros">
+    <div class="sec">REGISTROS <u>DIÁRIOS</u></div>
+    <div class="rg-cart" id="rgCart"></div>
+    <div class="rg-acoes">
+      <span class="rg-fonte" id="rgFonte"></span>
+      <button class="rg-btn" id="rgAbrir" type="button">Expandir todas</button>
+      <button class="rg-btn" id="rgFechar" type="button">Recolher todas</button>
+      <a class="rg-btn exp" id="rgExp" href="#" download>Exportar Excel</a>
+    </div>
+    <div class="rg-aviso hidden" id="rgAviso"></div>
+    <div class="rg-cab" id="rgCab"><i></i><span style="text-align:left">Usina</span><span>Geração (kWh)</span>
+      <span>Irradiação (kWh/m²)</span><span>Disponibilidade (%)</span></div>
+    <div id="rgLista"></div>
   </div>
 
   <!-- ───────────── PÁGINA VISÃO GERAL ───────────── -->
@@ -595,10 +676,12 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   $('pageGeral').classList.toggle('hidden',p!=='geral');
   $('pageCapa').classList.toggle('hidden',p!=='capa');
   $('pageMetodologia').classList.toggle('hidden',p!=='metodologia');
+  $('pageRegistros').classList.toggle('hidden',p!=='registros');
   // Geral/Capa são por CARTEIRA (o filtro de MÊS é global — aparece em todas as abas); a Metodologia não é de usina
-  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa'||p==='metodologia');
+  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa'||p==='metodologia'||p==='registros');
   if(p==='geral') renderGeral();
   else if(p==='capa') renderCapa();
+  else if(p==='registros') renderRegistros();
   // Redimensiona os gráficos da página recém-exibida. `void offsetWidth` força o reflow do
   // display:block ANTES do resize — senão o Plotly mede a largura-fallback (~700px) e, em telas
   // < ~1840px, o gráfico estoura o card. Rede de segurança: o .card tem overflow:hidden.
@@ -621,7 +704,7 @@ async function init(){
   $('comExtra').oninput=()=>{ $('comExtraView').textContent=$('comExtra').value; };  // espelha p/ o PDF
   $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');
     renderMensal(+m); renderAnual(+m); renderDiario(+a,+m);   // usina (OV já em memória, barato)
-    if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa();
+    if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa(); else if(PAGE==='registros') renderRegistros();
   };
   // filtro de MÊS GLOBAL (populado 1x): Jan → mês corrente do ano vigente. NÃO reseta ao trocar de
   // usina — vale igual p/ todas as abas e p/ o relatório da carteira (some o bug de mês 6 vs 7 no PDF)
@@ -633,6 +716,7 @@ async function init(){
   document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('active', b.dataset.cart===CART));
   preencheSelUsina(u.default);
   await loadUsina();
+  if(PAGE==='registros') renderRegistros();    // a aba aberta antes de a lista de usinas chegar (1ª carga do servidor)
 }
 
 // preenche o seletor com as usinas da carteira ativa (ou todas se CART=null); mantém `sel` se der
@@ -650,6 +734,7 @@ async function setCarteira(nome){
   await loadUsina();
   if(PAGE==='geral') renderGeral();
   else if(PAGE==='capa') renderCapa();
+  else if(PAGE==='registros') renderRegistros();
 }
 
 // ---------- Visão Geral (resumo da carteira no mês de referência) ----------
@@ -723,6 +808,64 @@ async function renderGeral(){
   }
   $('geralBody').innerHTML=html;
 }
+
+// ---------- Registros (Levi, 23/10/2026) ----------
+// "Quero uma visão de drill down / Carteira, usinas, ao expandir usinas aparece as colunas que tem no anexo": a carteira
+// ativa no mês global, cada usina com o mês resumido, e ao expandir os dias (Data, Geração, Irradiação, Disp). Geração e
+// irradiação do BD_Thopen; a disponibilidade de 10/2026 em diante pelas OS do Fracttal (a conta vem do servidor,
+// /api/t/registros). O Exportar baixa o Excel do servidor só com Usina, Data, Geração, Irradiação e Disponibilidade
+let _rgSeq=0, _rgDados=null;
+const _rgAbertas=new Set();
+const _SETA='<svg class="rg-seta" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+const _rgF=v=>v==null?'—':nf2.format(v);
+function _rgDias(u){
+  const lin=u.dias.map(x=>{ const [a,m,dd]=x.data.split('-');
+    return `<tr><td>${dd}/${m}/${a}</td><td>${_rgF(x.ger)}</td><td>${_rgF(x.ipoa)}</td><td>${pct(x.disp)}</td></tr>`; }).join('');
+  return `<div class="rg-dias"><table><thead><tr><th>Data</th><th>Geração (kWh)</th><th>Irradiação (kWh/m²)</th>`
+    +`<th>Disp (%)</th></tr></thead><tbody>${lin}</tbody></table></div>`;
+}
+function _rgUsina(u,i){
+  const ab=_rgAbertas.has(u.usina);
+  return `<div class="rg-us${ab?' aberta':''}" data-i="${i}"><button class="rg-lin" type="button" aria-expanded="${ab}">`
+    +`${_SETA}<span class="nome">${_opEsc(u.usina)}</span><span class="v g" data-r="Geração (kWh)">${_rgF(u.ger)}</span>`
+    +`<span class="v i" data-r="Irradiação (kWh/m²)">${_rgF(u.ipoa)}</span>`
+    +`<span class="v d" data-r="Disponibilidade">${pct(u.disp)}</span></button>${ab?_rgDias(u):''}</div>`;
+}
+function _rgAlterna(el,abrir){
+  const u=_rgDados.usinas[+el.dataset.i], ab=abrir==null?!el.classList.contains('aberta'):abrir;
+  if(ab===el.classList.contains('aberta')) return;
+  el.classList.toggle('aberta',ab); el.querySelector('.rg-lin').setAttribute('aria-expanded',ab);
+  if(ab){ _rgAbertas.add(u.usina); el.insertAdjacentHTML('beforeend',_rgDias(u)); }
+  else { _rgAbertas.delete(u.usina); const t=el.querySelector('.rg-dias'); if(t) t.remove(); }
+}
+async function renderRegistros(){
+  const mv=$('selMes').value; if(!mv) return;
+  const [a,m]=mv.split('-'), cart=CART||'Thopen', seq=++_rgSeq;
+  const q=`carteira=${encodeURIComponent(cart)}&ano=${a}&mes=${m}`;
+  $('rgExp').href=`${RAIZ}/api/t/registros.xlsx?${q}`;
+  $('rgLista').innerHTML='<div class="rg-vazio">Carregando os registros…</div>';
+  let d=null; try{ d=await get(`${RAIZ}/api/t/registros?${q}`); }catch(e){ d=null; }
+  if(seq!==_rgSeq) return;                  // trocou de carteira ou de mês no meio
+  _rgDados=d;
+  const U=(d&&d.usinas)||[];
+  const med=k=>{ const v=U.filter(u=>u[k]!=null).map(u=>u[k]); return v.length?v.reduce((x,y)=>x+y,0)/v.length:null; };
+  const tot=U.some(u=>u.ger!=null)?U.reduce((s,u)=>s+(u.ger||0),0):null;
+  $('rgCart').innerHTML=`<div class="rg-nome"><small>Carteira</small>${_opEsc(cart)} · ${MESNOME[+m]}/${a}</div>`
+    +`<div class="rg-k"><b>${U.length}</b><span>usinas</span></div>`
+    +`<div class="rg-k"><b>${_rgF(tot)}</b><span>Geração (kWh)</span></div>`
+    +`<div class="rg-k"><b>${_rgF(med('ipoa'))}</b><span>Irradiação média (kWh/m²)</span></div>`
+    +`<div class="rg-k"><b>${pct(med('disp'))}</b><span>Disponibilidade média</span></div>`;
+  $('rgFonte').textContent=!d?'':'Geração e irradiação: base de dados da Grid Co. (BD_Thopen). Disponibilidade: '
+    +(d.fonte_disp==='os'?'OS do Fracttal.':'base de dados da Grid Co.');
+  $('rgAviso').classList.toggle('hidden',!(d&&d.disp_carregando));
+  $('rgAviso').textContent='A disponibilidade das OS ainda está carregando. Use Atualizar ou troque de aba em alguns segundos.';
+  $('rgCab').classList.toggle('hidden',!U.length);
+  if(!d){ $('rgLista').innerHTML='<div class="rg-vazio">Não foi possível ler os registros agora.</div>'; return; }
+  $('rgLista').innerHTML=U.length?U.map(_rgUsina).join(''):'<div class="rg-vazio">Nenhuma usina desta carteira tem registro neste mês.</div>';
+  $('rgLista').querySelectorAll('.rg-lin').forEach(b=>b.onclick=()=>_rgAlterna(b.parentElement));
+}
+$('rgAbrir').onclick=()=>document.querySelectorAll('#rgLista .rg-us').forEach(el=>_rgAlterna(el,true));
+$('rgFechar').onclick=()=>document.querySelectorAll('#rgLista .rg-us').forEach(el=>_rgAlterna(el,false));
 
 // ---------- Capa ----------
 function renderCapa(){
@@ -941,6 +1084,9 @@ async function renderOperacao(usina, ano, mes, tent=0){
   // 1ª carga depois do boot: o servidor busca em segundo plano e responde "carregando" na hora. Tenta de novo a cada
   // 5 s por até 2 min (se a API estiver fora, o servidor já espera 60 s entre tentativas; não adianta insistir mais)
   if(!ok && d.motivo==='carregando' && tent<24) setTimeout(()=>{ if(seq===_opSeq) renderOperacao(usina,ano,mes,tent+1); },5000);
+  // 23/10/2026: o trip das OS ("Trip 27/86") vem do Fracttal em segundo plano; enquanto chega, relê a cada 6 s por até
+  // 1 min (o comentário já está na tela, sem o trip; ele entra quando chegar)
+  else if(ok && d.trip_pendente && tent<10) setTimeout(()=>{ if(seq===_opSeq) renderOperacao(usina,ano,mes,tent+1); },6000);
   // a tabela de comentários por dia usa o por_dia desta resposta (e se refaz quando o "carregando" vira dado)
   _cmtOp={usina,ano,mes,d}; if(_mesmo(_cmtOp,_cmtDia)) renderCmt();
   _opAjusta();
@@ -1391,11 +1537,14 @@ async function refreshBD(){
   const btn=$('btnRefresh'), old=btn.textContent; btn.disabled=true; btn.textContent='Atualizando…';
   const usinaAtual=$('selUsina').value;
   try{
-    await get(RAIZ+'/api/t/reload');                  // backend relê o banco (limpa cache)
+    // backend relê o banco (limpa cache) e, com a usina e o mês da tela, busca de novo o trip das OS dela no Fracttal
+    const [ra,rm]=$('selMes').value.split('-');
+    await get(`${RAIZ}/api/t/reload?usina=${encodeURIComponent(usinaAtual)}&ano=${ra}&mes=${rm}`);
     const u=await get(RAIZ+'/api/t/usinas');          // lista de usinas (caso tenha entrado nova)
     USINAS=u.usinas||[]; CARTDE=u.carteira_de||{};
     preencheSelUsina(usinaAtual);                // respeita a carteira ativa
     await loadUsina();                           // re-renderiza no MÊS global atual (preservado)
+    if(PAGE==='registros') renderRegistros();
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.textContent=old; }
 }

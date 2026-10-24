@@ -44,7 +44,9 @@ ALIAS_FALHAS = {"Marajoara I": "Marajoara 1", "Piracicaba I": "Piracicaba 1",
 CHAVES = ("disponivel", "motivo", "usina", "ano", "mes", "strings", "trackers", "zeladoria", "regua",
           "parcial_ate", "atualizado_em", "por_dia", "avisos",
           # rodada 4 (09/10/2026): a disponibilidade do mês pela régua do Gerencial e para onde a contestação vai
-          "disponibilidade", "contestar")
+          "disponibilidade", "contestar",
+          # 23/10/2026: o trip das OS ainda chegando do Fracttal (trip_os): a tela relê em alguns segundos
+          "trip_pendente")
 
 # Outubro de 2026 (Levi, 08/10: "adapte todas desse mês, do nosso lado, sem tocar no Fracttal"): OS de string sem
 # quantidade nem citação foi completada pela plataforma com as strings que a régua viu sem corrente naquele inversor no
@@ -361,7 +363,7 @@ def _usina_inteira(o):
     return not esc or esc == ["Usina inteira"]
 
 
-def _frase_os(o, dia, pot_usina):
+def _frase_os(o, dia, pot_usina, trip=None):
     """O que a OS tirou NAQUELE dia, na conta do Gerencial (Levi, 14/10/2026: "Como assim continua? preciso de um motivo
     que faça sentido esse valor de 80%"; e, à noite: "A partir de outubro quero os comentários 100% OS Fracttal"). Desde
     15/10/2026 à tarde o texto é curto e leva o nº da OS (o Levi pediu), nunca o texto da OS. Ex.: "Desligamento Cabine 2
@@ -388,18 +390,15 @@ def _frase_os(o, dia, pot_usina):
     else:
         quando = ""
     n = str(o.get("os") or "").strip()
+    # 23/10/2026 (Levi: "Desligamento Usina Trip X de 13/10 às 17:02h a 14/10 às 07:29h; religamento, OS 16249"): a
+    # proteção que atuou, lida da OS no Fracttal (trip_os), logo depois do que parou. Sem proteção, a frase de sempre
+    alvo += (" Trip %s" % trip) if trip else ""
     return "Desligamento %s%s; %sOS %s" % (alvo, quando, tipo + ", " if tipo else "", n or "do Fracttal")
 
 
-def os_por_dia(dados, nome, ano, mes):
-    """{dia: [frase da OS]} — o comentário de cada dia, só das OS do Fracttal que formaram a disponibilidade dele (Levi,
-    14/10/2026: "A partir de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade!"). Vem da
-    aba disponibilidade_os_dia, a parcela de cada OS no dia na MESMA conta da disponibilidade_dia: o texto e o número
-    contam a mesma história por construção. Em 14/10, no índice real: 1.203 dias-usina com perda (setembro e outubro),
-    a soma das parcelas igual à perda do dia em todos, nenhum dia com perda sem OS. A mesma ligação da disponibilidade
-    (o nome vence o site compartilhado); a parte da potência é o kWp da OS sobre a das usinas do Gerencial que a usina
-    do 5080 junta (Primavera 1 e 2 somam). None = a aba ainda não foi publicada no mês (a tela diz isso; nunca um dia
-    "sem OS" que só não chegou)."""
+def _os_da_usina(dados, nome, ano, mes):
+    """({dia: [linha da disponibilidade_os_dia]}, potência da usina) das OS da usina no mês, ou None antes de a aba
+    ser publicada no mês. A mesma ligação da disponibilidade (o nome vence o site compartilhado)."""
     m = f"{ano}-{mes:02d}"
     a = next((x for x in dados.get("atualizacao") or [] if str(x.get("mes")) == m), None)
     if not a or _int(a.get("disponibilidade_os_dia")) is None:
@@ -413,13 +412,41 @@ def os_por_dia(dados, nome, ano, mes):
                 pot[r.get("usina")] = float(r.get("pot_kwp"))
             except (TypeError, ValueError):
                 pass
-    pot_usina = sum(pot.values()) or None
-    out, dias = defaultdict(list), defaultdict(list)
+    dias = defaultdict(list)
     for o in dados.get("disponibilidade_os_dia") or []:
         d = _data(o.get("dia"))
         if str(o.get("mes")) == m and d and (d.year, d.month) == (ano, mes) and _e_da_usina_gerencial(o, por_nome, ids,
                                                                                                          nomes):
             dias[d].append(o)
+    return dias, sum(pot.values()) or None
+
+
+def os_desligamento_do_mes(dados, nome, ano, mes):
+    """Os números das OS que explicam os dias da usina no mês (as que o trip_os vai buscar), sem repetir."""
+    ok = _os_da_usina(dados, nome, ano, mes) if dados else None
+    out = []
+    for lst in (ok[0].values() if ok else []):
+        for o in lst:
+            n = str(o.get("os") or "").strip()
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
+def os_por_dia(dados, nome, ano, mes, trips=None):
+    """{dia: [frase da OS]} — o comentário de cada dia, só das OS do Fracttal que formaram a disponibilidade dele (Levi,
+    14/10/2026: "A partir de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade!"). Vem da
+    aba disponibilidade_os_dia, a parcela de cada OS no dia na MESMA conta da disponibilidade_dia: o texto e o número
+    contam a mesma história por construção. Em 14/10, no índice real: 1.203 dias-usina com perda (setembro e outubro),
+    a soma das parcelas igual à perda do dia em todos, nenhum dia com perda sem OS. A mesma ligação da disponibilidade
+    (o nome vence o site compartilhado); a parte da potência é o kWp da OS sobre a das usinas do Gerencial que a usina
+    do 5080 junta (Primavera 1 e 2 somam). None = a aba ainda não foi publicada no mês (a tela diz isso; nunca um dia
+    "sem OS" que só não chegou). `trips`: {nº da OS: "27/86"} do trip_os (23/10/2026)."""
+    ok = _os_da_usina(dados, nome, ano, mes)
+    if ok is None:
+        return None
+    dias, pot_usina = ok
+    out, trips = defaultdict(list), trips or {}
     for d in sorted(dias):
         lst = sorted(dias[d], key=lambda o: (str(o.get("trechos") or ""), str(o.get("inicio") or "")))
         tr = [_trechos(o.get("trechos"), d) for o in lst]
@@ -430,7 +457,7 @@ def os_por_dia(dados, nome, ano, mes):
             if _usina_inteira(o) and any(j != i and _usina_inteira(y) and _dentro(tr[i], tr[j]) and (j < i or tr[i] != tr[j])
                                          for j, y in enumerate(lst)):
                 continue
-            frase = _frase_os(o, d, pot_usina)
+            frase = _frase_os(o, d, pot_usina, trips.get(str(o.get("os") or "").strip()))
             if frase and frase not in out[d]:
                 out[d].append(frase)
     return dict(out)
@@ -578,10 +605,10 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje):
+def resposta(dados, nome, ano, mes, hoje, trips=None):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais."""
     r = dict.fromkeys(CHAVES)
-    r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[],
+    r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
     if (ano, mes) < DESDE:
         r["motivo"] = "antes de 10/2026"
@@ -616,7 +643,7 @@ def resposta(dados, nome, ano, mes, hoje):
     # Gerencial (12 h por dia: 100·(1 − Σh/12n) é a média dos dias)
     dsp = disp_por_dia(dados, nome, ano, mes)
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
-                               r["trackers"], os_por_dia(dados, nome, ano, mes))
+                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips))
     r["disponibilidade"] = round(sum(dsp.values()) / len(dsp), 2) if dsp else None
     r["parcial_ate"], r["atualizado_em"] = _mes_info(dados, ano, mes, hoje)
     r["disponivel"] = True

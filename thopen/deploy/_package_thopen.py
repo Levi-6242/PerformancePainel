@@ -6,11 +6,12 @@ render.yaml na raiz). Este zip é para quando alguém precisa instalar à mão �
 provedor, ou um servidor sem acesso ao GitHub. O conteúdo é o MESMO que a nuvem usaria, e o
 layout também: `thopen/` mais os arquivos de raiz, porque o startCommand faz `--chdir thopen`.
 
-O QUE ENTRA — o app são treze arquivos (~270 KB), como dizem os comentários do railway.toml:
+O QUE ENTRA — o app são catorze arquivos (~280 KB), como dizem os comentários do railway.toml:
   thopen/dashboard_thopen.py, thopen/fonte_api.py, thopen/fonte_operacao.py, thopen/operacao_mes.py,
   thopen/rondas_cliente.py, thopen/fotos_ronda.py, thopen/contestacao.py, thopen/contestacao_banco.py,
-  thopen/acessos.py, thopen/livro_banco.py, thopen/geracao_possivel.py, thopen/templates/dashboard_thopen.html,
-  thopen/templates/entrar.html
+  thopen/acessos.py, thopen/livro_banco.py, thopen/geracao_possivel.py, thopen/trip_os.py,
+  thopen/templates/dashboard_thopen.html, thopen/templates/entrar.html
+(trip_os desde 23/10/2026: o trip das OS no comentário do dia, lido do Fracttal)
 (geracao_possivel desde 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário)
 (acessos + livro_banco + entrar.html desde 14/10/2026: o login por pessoa, com as contas do Nexus)
 (rondas_cliente + fotos_ronda + contestacao desde 09/10/2026: a janela das rondas do card e a contestação do cliente;
@@ -54,6 +55,7 @@ ITENS = [
     ("thopen/acessos.py",                       "thopen/acessos.py"),
     ("thopen/livro_banco.py",                   "thopen/livro_banco.py"),
     ("thopen/geracao_possivel.py",              "thopen/geracao_possivel.py"),
+    ("thopen/trip_os.py",                       "thopen/trip_os.py"),
     ("thopen/templates/entrar.html",            "thopen/templates/entrar.html"),
     ("thopen/templates/dashboard_thopen.html",  "thopen/templates/dashboard_thopen.html"),
     ("requirements-thopen.txt",                 "requirements-thopen.txt"),
@@ -63,7 +65,7 @@ ITENS = [
 
 LEIAME = """# Dashboard Thopen — instalação
 
-O app são treze arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
+O app são catorze arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
 (PostgreSQL); ele NÃO abre planilha nenhuma.
 
 ## Subir
@@ -111,6 +113,10 @@ raiz do clone (linhas NOME=valor, ao lado da pasta thopen/):
                            desligamento (15/10/2026).
     THOPEN_TEAMS_ZELADORIA    SECRETA. URL do fluxo do canal O&M > Zeladoria: recebe a de ronda.
                            Item cujo canal não está configurado não aparece na tela.
+    THOPEN_TRIP            opcional. "0" tira o trip das OS do comentário do dia (23/10/2026: a proteção
+                           que atuou, "Trip 27/86", lida da OS no Fracttal com a mesma credencial).
+    THOPEN_TRIP_TTL        opcional, padrão 21600 (segundos que o trip lido fica guardado)
+    THOPEN_TRIP_CACHE      opcional. Arquivo do que já foi lido (padrão thopen/cache_trip_os.json).
     THOPEN_CONTESTACAO_CHAVE_PUBLICA  a chave PÚBLICA (X25519, base64) do Nexus: a contestação vai
                            também ao banco (livro thopen_contestacoes), com nome, contato e mensagem
                            cifrados; só o Nexus abre. Sem ela, não grava no banco (o Teams segue).

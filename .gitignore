@@ -153,6 +153,8 @@ tokens.txt.old*
 cache_bd_thopen.json.gz
 thopen/cache_bd_thopen.json.gz
 thopen/cache_operacao.json.gz*
+# o trip das OS já lido do Fracttal (trip_os.py, 23/10/2026) — refeito sozinho
+thopen/cache_trip_os.json*
 
 # ── os_creator: MIGRADO em 28/08 para Grid-Co-CODE/oem ───────────────────────
 # Só o MOVIDO.md fica versionado. O resto é sobra da máquina de quem migrou:
