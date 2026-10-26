@@ -1438,8 +1438,18 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   e 15314, abertas como Religamento ou inspeção). Os vereditos vão no índice (`comunicacao`), e a cascata, o Criador de
   Relatório e o % disp do Diagnóstico (`comunicacao_fora` em cada OS do `_frac_os_filtradas`) decidem igual
   (`_disp_comunicacao_fora`). Em outubro: 52 OS entram (689 h solares) e 3 saem. As datas são as do Fracttal (o fim da
-  ATIVIDADE, `final_date`; o fim da OS só sem nenhum); data errada se corrige lá (São Bento do Una, OS 15192: a atividade
-  termina em 05/10 22:30 e o COS diz religada às 10:40 de 02/10), e o religamento de mais de um dia vai para o "alinhar".
+  ATIVIDADE, `final_date`; o fim da OS só sem nenhum); data errada se corrige lá, e o religamento de mais de um dia vai
+  para o "alinhar". **Fim corrigido à mão** só onde a OS não pode mais ser editada (`disponibilidade.CORRECOES_FIM`; Levi,
+  26/10/2026: "15192 infelizmente não temos mais como editar então faça essa peculiaridade manual"): São Bento do Una, OS
+  15192, termina às 10:40 de 02/10 (o COS) e não em 05/10 22:30 (a atividade). Vale na conta e no drill
+  (`_frac_os_filtradas`) e fica no "alinhar" com o fim do Fracttal. A Metodologia da tela da disponibilidade (a mesma de
+  Performance → Disponibilidade no Nexus) explica a regra da comunicação e a correção.
+  **Escopo pelo COS** (`ESCOPO_COS`, Levi, 26/10/2026: OS 16498 "Só na AP2"): a OS no site de duas usinas que o COS
+  diz ser de uma só conta só nela — na conta, na cascata, no relatório e no drill (`escopo_cos_exclui`). **O que a
+  subtarefa diz e a geração desmente fica como o Fracttal diz** (Levi, 26/10/2026, "Deixar como o Fracttal diz"): Pharma
+  II 15066 e Pharma IV 15777 ("Desligado" com a usina gerando como a Pharma III), São Bento do Una 15855 (09/10) e Inhapi
+  16059 (11 e 12/10); quem corrige é o COS, no Fracttal. Medido na 1ª publicação (15:48 de 26/10): 52 OS entraram, 44
+  usinas mudaram; Ceilândia 1 76,88% → 94,54% e Sítio dos Nogueiras 76,66% → 94,02% (as que o COS tirou).
 - **As Pharma II, III e IV** (Levi, 22/10/2026: "Pharmas mudou o nome no fracttal, esse mês vai pegar as OSs no nome
   antigo e no novo. No novo se diferencia por cabine, nos antigo é nome mesmo"). Até 22/10 as três ficavam fora da conta e
   "—" no Dashboard Thopen, por dois motivos:

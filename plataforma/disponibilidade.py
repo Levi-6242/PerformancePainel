@@ -330,6 +330,40 @@ RETORNO_COS = {
 }
 
 
+# O fim corrigido pelo COS onde a OS do Fracttal não pode mais ser editada (Levi, 26/10/2026: "15192 infelizmente não temos
+# mais como editar então faça essa peculiaridade manual"; "o resto vamos tentar calcular antes"). Vale no lugar do fim da
+# atividade, na conta e no drill, e fica à vista no "alinhar". Data errada que ainda dá para editar se corrige no Fracttal.
+CORRECOES_FIM = {
+    15192: (datetime(2026, 10, 2, 10, 40), "São Bento do Una: religada às 10:40 de 02/10 (retorno do COS)"),
+}
+
+
+# A OS aberta no site de duas usinas que o COS diz ser de uma só (Levi, 26/10/2026, OS 16498 "Só na AP2"): o site
+# "Aparecida do Taboado 1 e 2" põe a parada nas duas; o retorno do COS diz que a AP1 gerou normal em 16/10 e só a AP2
+# parou. {folio: ([usinas que contam], nota)}; vale na conta, na cascata, no relatório e no drill da usina.
+ESCOPO_COS = {
+    16498: (["Aparecida do Taboado 2"], "o relé da AP2 ficou sem alimentação; a AP1 gerou normal (retorno do COS)"),
+}
+
+
+def escopo_cos_exclui(folio, usina):
+    """A OS tem escopo do COS (ESCOPO_COS) e esta usina não é dele?"""
+    try:
+        f = int(folio)
+    except (TypeError, ValueError):
+        return False
+    return f in ESCOPO_COS and str(usina or "").strip() not in ESCOPO_COS[f][0]
+
+
+def fim_corrigido(folio, fim):
+    """O fim da correção manual (CORRECOES_FIM) para a OS que tem uma; senão o fim que veio."""
+    try:
+        f = int(folio)
+    except (TypeError, ValueError):
+        return fim
+    return CORRECOES_FIM[f][0] if f in CORRECOES_FIM else fim
+
+
 def veredito_da_os(folio, vereditos=None):
     """(veredito, fonte): o retorno do COS primeiro, depois o das subtarefas que o worker leu ({folio: veredito})."""
     try:
@@ -393,6 +427,13 @@ def consolidar_os(folio, tasks, agora, vereditos=None):
     if not fins1 and fins2:
         o["flags"].append("sem final_date → usei wo_final_date (carimbo da WO; pode ser tardio)")
         o["alinhar"].append("sem data final na tarefa: usei a data final da WO")
+    if fim_corrigido(folio, fim) is not fim:
+        no_frac = f"{fim:%d/%m %H:%M}" if fim else "sem fim"
+        fim = fim_corrigido(folio, fim)
+        nota = CORRECOES_FIM[int(folio)][1]
+        o["flags"].append(f"fim corrigido pelo COS: {fim:%d/%m %H:%M} (no Fracttal: {no_frac}) — {nota}")
+        o["alinhar"].append(f"fim corrigido pelo COS para {fim:%d/%m %H:%M} (no Fracttal: {no_frac}); a OS não pode mais "
+                            "ser editada")
     if ini is None:
         o["excl"] = "sem data de evento válida"
         return o
@@ -888,6 +929,12 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         esc = escopo_os(o, usinas, idx)
         if esc is None:
             continue
+        if o["folio"] in ESCOPO_COS:                     # o COS diz qual usina do site parou (16498, 26/10/2026)
+            esc = [e for e in esc if not escopo_cos_exclui(o["folio"], e[0])]
+            o["flags"].append("escopo pelo COS: só %s — %s" % (", ".join(ESCOPO_COS[o["folio"]][0]),
+                                                              ESCOPO_COS[o["folio"]][1]))
+            if not esc:
+                continue
         os_escopo[o["folio"]] = esc
         a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
         if b <= a:

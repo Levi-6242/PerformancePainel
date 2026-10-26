@@ -29635,7 +29635,8 @@ def _frac_os_filtradas(id_item, mes=None, falhas=None):
         # data/hora do EVENTO (quando o problema aconteceu) — é ela que casa com o dia do PR — e o FIM
         # da OS. LOCAL, não UTC: o dia do ▲ no gráfico depende disso (queda 01:30Z é do dia anterior aqui).
         _i0 = _frac_dt_local(w.get("event_date") or w.get("date_maintenance"))
-        _f0 = _frac_dt_local(w.get("final_date") or w.get("wo_final_date"))
+        # o fim corrigido pelo COS onde a OS não pode mais ser editada (disponibilidade.CORRECOES_FIM, 26/10/2026)
+        _f0 = _disp_mod.fim_corrigido(fol, _frac_dt_local(w.get("final_date") or w.get("wo_final_date")))
         _ev  = _i0.strftime("%Y-%m-%d") if _i0 else ""
         _fim = _f0.strftime("%Y-%m-%d") if _f0 else ""
         # DURAÇÃO em HORAS SOLARES (06–18h): fora dessa janela a usina não geraria mesmo, então parada
@@ -29684,7 +29685,9 @@ def api_fracttal_os():
     try:
         ent = _frac_usina_ent(usina)
         if ent and ent.get("site"):
-            out["usina_os"] = _frac_os_filtradas(ent["site"], mes, falhas=falhas)
+            # a OS do site que o COS diz ser de outra usina do mesmo site não entra aqui (ESCOPO_COS, 26/10/2026)
+            out["usina_os"] = [o for o in _frac_os_filtradas(ent["site"], mes, falhas=falhas)
+                               if not _disp_mod.escopo_cos_exclui(o.get("folio"), usina)]
         elif not ent:
             # sem entrada no de-para: "usina fora do Fracttal" só quando o de-para foi lido inteiro. O índice que parou num
             # 429 (ou o BD travado) deixava a usina sem site e sem code de inversor, e a rota respondia 200 com total 0
@@ -32261,7 +32264,7 @@ def _cascata_usina(cliente, usina, ano, mes):
             for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}", falhas=fr_falhas):
                 # falta de comunicação não é parada (Levi, 19/10/2026), a não ser a confirmada (26/10/2026): a régua do
                 # disponibilidade.py, com os vereditos do índice
-                if _disp_comunicacao_fora(o):
+                if _disp_comunicacao_fora(o) or _disp_mod.escopo_cos_exclui(o.get("folio"), usina):
                     continue
                 hs = o.get("horas_solares")
                 if hs and str(o.get("evento") or "").startswith(f"{ano:04d}-{mes:02d}"):
@@ -32574,7 +32577,7 @@ def _relatorio_build(usina, ini, fim):
                         continue
                     # falta de comunicação não é parada (Levi, 19/10/2026), a não ser a confirmada (26/10/2026): a
                     # régua do disponibilidade.py, com os vereditos do índice
-                    if _disp_comunicacao_fora(o):
+                    if _disp_comunicacao_fora(o) or _disp_mod.escopo_cos_exclui(o.get("folio"), usina):
                         continue
                     vistos.add(o.get("folio"))
                     hs, _sf = _os_hs(o)

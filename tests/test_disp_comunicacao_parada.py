@@ -147,4 +147,56 @@ def test_indice_publica_os_vereditos_para_as_telas():
     assert "vereditos=vereditos" in corpo and '"comunicacao": vereditos' in corpo
     # a cascata e o relatório decidem como a conta (nada de "comunicação" pelo texto sozinho)
     assert src.count("_disp_mod.eh_falta_de_comunicacao(o.get(\"descricao\"), o.get(\"ativo\"))") == 0
-    assert src.count("if _disp_comunicacao_fora(o):") == 2
+    assert src.count("if _disp_comunicacao_fora(o)") == 2
+
+
+# ── a correção manual do fim (Levi, 26/10/2026: "15192 infelizmente não temos mais como editar então faça essa
+# peculiaridade manual") ─────────────────────────────────────────────────────────────────────────────────────────────
+def test_o_fim_corrigido_pelo_cos_vale_no_lugar_da_atividade():
+    from datetime import datetime as _dt
+    # São Bento do Una, OS 15192: evento 02/10 09:00, a atividade no Fracttal termina em 05/10 22:30; o COS: 10:40 de 02/10
+    tarefa = task(description="[THPN-ALF100] - Verificação de comunicação do THPN-ALF100",
+                  event_date="2026-10-02T12:00:00+00:00", final_date="2026-10-06T01:30:00+00:00")
+    o = dm.consolidar_os("15192", [tarefa], _dt(2026, 10, 26, 12), {"15192": "parada"})
+    assert o["excl"] is None and o["ini"] == _dt(2026, 10, 2, 9, 0) and o["fim"] == _dt(2026, 10, 2, 10, 40)
+    assert any("fim corrigido pelo COS" in f for f in o["flags"])
+    assert any("fim corrigido pelo COS" in a for a in o["alinhar"])           # à vista na lista, com o fim do Fracttal
+    assert not any("religamento de" in a for a in o["alinhar"])               # não é mais "religamento de 3 dias"
+    assert dm.fim_corrigido(15192, _dt(2026, 10, 5, 22, 30)) == _dt(2026, 10, 2, 10, 40)
+    assert dm.fim_corrigido(15193, _dt(2026, 10, 5, 22, 30)) == _dt(2026, 10, 5, 22, 30)
+
+
+def test_o_drill_usa_o_fim_corrigido():
+    src = open(os.path.join(os.path.dirname(app.__file__), "app.py"), encoding="utf-8").read()
+    corpo = src[src.index("def _frac_os_filtradas("):src.index("def api_fracttal_os(")]
+    assert "_disp_mod.fim_corrigido(" in corpo
+
+
+def test_metodologia_da_tela_explica_a_comunicacao():
+    h = open(os.path.join(os.path.dirname(app.__file__), "templates", "disponibilidade.html"), encoding="utf-8").read()
+    met = h[h.index('<div class="metodo">'):h.index('id="mAtual"')]
+    assert "comunicação" in met and "Desligado" in met and "COS" in met
+
+
+# ── a OS no site de duas usinas que o COS diz ser de uma só (Levi, 26/10/2026: OS 16498 "Só na AP2") ───────────────────
+def test_escopo_do_cos_conta_so_na_usina_que_parou():
+    beta = task(description="[TC-BET100] - Verificação de comunicação do TC-BET100", code="TC-BET100",
+                items_log_description="TesteCo - Beta 1 e 2 - RN  Endereço", groups_1_description="TesteCo - Beta 1 e 2 - RN",
+                **JULHO)
+    sem = _roda({"900": [beta]}, vereditos={"900": "parada"})
+    assert {u["usina"] for u in sem["usinas"] if u["disp"] < 100} == {"Beta 1", "Beta 2"}       # o site: as duas
+    dm.ESCOPO_COS[900] = (["Beta 2"], "teste: só a Beta 2 parou")
+    try:
+        r = _roda({"900": [beta]}, vereditos={"900": "parada"})
+    finally:
+        del dm.ESCOPO_COS[900]
+    assert {u["usina"] for u in r["usinas"] if u["disp"] < 100} == {"Beta 2"}
+    assert any("escopo pelo COS" in f for f in _os(r, 900)["flags"])
+
+
+def test_16498_so_na_aparecida_do_taboado_2():
+    assert dm.ESCOPO_COS[16498][0] == ["Aparecida do Taboado 2"]
+    assert dm.escopo_cos_exclui(16498, "Aparecida do Taboado 1") and not dm.escopo_cos_exclui(16498, "Aparecida do Taboado 2")
+    assert not dm.escopo_cos_exclui(16499, "Aparecida do Taboado 1")
+    src = open(os.path.join(os.path.dirname(app.__file__), "app.py"), encoding="utf-8").read()
+    assert src.count("_disp_mod.escopo_cos_exclui(o.get(\"folio\"), usina)") >= 3      # cascata, relatório e o drill

@@ -319,7 +319,10 @@
       Fracttal (Religamento, Religamento Remoto, Corretiva Emergencial; canceladas fora), sem cruzar com a geração;
       início = event_date, fim = final_date da tarefa; evento depois do fim usa a criação da OS; OS aberta sem fim conta
       até ontem (o ícone de atenção acima do mês lista as OS para alinhar no Fracttal). Escopo pelo ativo: usina → 100%
-      do kWp; cabine → kWp da UG; inversor → kWp do inversor (aba Equipamentos). Perda = kWp afetado × horas solares
+      do kWp; cabine → kWp da UG; inversor → kWp do inversor (aba Equipamentos). OS de verificação de comunicação: fora
+      da conta, a não ser quando a subtarefa "Diagnóstico" diz "Desligado" (a usina estava parada) ou o retorno do COS
+      confirma a parada; a que o COS diz ser só comunicação sai, aberta como for. Fim corrigido pelo COS só onde a OS não
+      pode mais ser editada no Fracttal (fica na lista de atenção). Perda = kWp afetado × horas solares
       indisponíveis, à potência nominal. Cliente = as usinas dele ponderadas pela potência, a mesma conta do total.
       Setembro para trás: só a Thopen, pela disponibilidade diária do BD_Thopen. Atualiza a cada 30 min.
       <span id="mAtual"></span></div>
