@@ -156,6 +156,14 @@ cuja descrição ou ativo diz "comunicação" (`disponibilidade.eh_falta_de_comu
 (`EXCL_COMUNICACAO`), qualquer que seja o tipo, e fica na lista "alinhar" como fora da conta, com a usina. Em outubro, até
 18/10: 113 OS, 27,8% da energia perdida; Thopen 81,47% → ~86,2%; Brodowski 0% → 100% (OS 12693, aberta desde 02/09).
 
+**A que foi parada volta (26/10/2026).** A verificação de comunicação tem a subtarefa "Diagnóstico": "Desligado" (o
+técnico achou a usina parada) põe a OS de volta na conta; "Só sem comunicação (segue gerando)", em branco ou sem
+subtarefa, deixa fora. O formulário do religamento ("Foi necessário religamento?" = Sim) também põe. A Ação não decide
+(as 18 de outubro com "Só sem comunicação" e "Religamento local" eram roteador, smartlogger e internet). O retorno do COS
+sobre outubro (`disponibilidade.RETORNO_COS`) vence a subtarefa: três sem subtarefa que foram parada entram, quatro que
+eram só comunicação saem. Em outubro: 162 OS de comunicação; 48 com "Desligado"; 52 entram na conta (689 h solares) e 3
+saem.
+
 ### 4.2 Setembro para trás: só a Thopen, pelo BD_Thopen (15/10/2026)
 
 "A disponibilidade será calculada somente pelo Fracttal a partir de outubro; setembro para trás vamos considerar o que

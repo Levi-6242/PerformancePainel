@@ -1425,6 +1425,21 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   conta como desligamento. Em outubro (até 18/10) eram 113 OS e 27,8% da energia perdida: Thopen 81,47% → ~86,2%,
   Athon 85,06% → ~92,5%, Renogrid 82,18% → ~90,5%; Brodowski 0% → 100% (OS 12693). O Tempo real não muda: a OS aberta
   de Religamento na usina inteira segue marcando "usina desligada" (`_religamentos_abertos_usina`).
+- **A de comunicação que foi parada conta** (Levi, 26/10/2026: "agora sabemos tudo o que estava sem subtarefa porém foi
+  religamento em outubro, bote na conta e a partir de agora veja as últimas OSs criadas sobre comunicação que foi
+  confirmado na subtarefa que foi religamento"). O worker lê as subtarefas de toda OS de comunicação da varredura
+  (`_frac_com_vereditos`, guardadas em `frac_com_subtarefas.json`: a concluída uma vez, a aberta a cada volta; o Fracttal
+  fora não segura o índice) e o `disponibilidade.veredito_subtarefas` decide pelo **Diagnóstico**: "Desligado" = parada,
+  conta; "Só sem comunicação (segue gerando)" = fora; o formulário do religamento ("Foi necessário religamento?" = Sim)
+  também conta; em branco ou sem subtarefa, fora. A Ação não decide: das 162 OS de comunicação de outubro, as 18 com "Só
+  sem comunicação" e "Religamento local" eram roteador, smartlogger e internet. O **retorno do COS** de outubro
+  (`RETORNO_COS`, planilha de 26/10/2026) vence a subtarefa: põe na conta três sem subtarefa que foram parada (16640,
+  15678, 16515) e tira quatro que eram só comunicação (16653, com a subtarefa "Desligado" e a usina gerando; 14997, 15025
+  e 15314, abertas como Religamento ou inspeção). Os vereditos vão no índice (`comunicacao`), e a cascata, o Criador de
+  Relatório e o % disp do Diagnóstico (`comunicacao_fora` em cada OS do `_frac_os_filtradas`) decidem igual
+  (`_disp_comunicacao_fora`). Em outubro: 52 OS entram (689 h solares) e 3 saem. As datas são as do Fracttal (o fim da
+  ATIVIDADE, `final_date`; o fim da OS só sem nenhum); data errada se corrige lá (São Bento do Una, OS 15192: a atividade
+  termina em 05/10 22:30 e o COS diz religada às 10:40 de 02/10), e o religamento de mais de um dia vai para o "alinhar".
 - **As Pharma II, III e IV** (Levi, 22/10/2026: "Pharmas mudou o nome no fracttal, esse mês vai pegar as OSs no nome
   antigo e no novo. No novo se diferencia por cabine, nos antigo é nome mesmo"). Até 22/10 as três ficavam fora da conta e
   "—" no Dashboard Thopen, por dois motivos:

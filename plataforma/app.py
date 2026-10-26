@@ -26750,6 +26750,9 @@ import disponibilidade as _disp_mod
 
 _FRAC_DISP_FILE = _p_cache("frac_disp_index.json")   # o worker varre e calcula; ~3 min, mais a fila da cota do Fracttal
 _FRAC_DISP_STATUS = _p_cache("frac_disp_status.json")  # a última TENTATIVA (o índice só muda com varredura inteira)
+# as subtarefas das OS de comunicação (26/10/2026): a concluída é lida uma vez; a aberta, a cada volta do worker
+_FRAC_COM_SUB_FILE = _p_cache("frac_com_subtarefas.json")
+FRAC_COM_SUB_MAX = 400           # pedidos por volta: o 1º índice lê os dois meses (outubro de 2026 tinha 162 OS)
 FRAC_DISP_TTL = 30 * 60
 FRAC_DISP_MARGEM_D = 45          # OS criada até 45d antes do mês anterior ainda entra na varredura
 FRAC_DISP_TETO_LINHAS = 40000    # tarefas lidas sem chegar ao limite = algo errado (em 28/09 o limite veio em 17.499)
@@ -27083,6 +27086,55 @@ def _disp_pot_reserva(equip):
     return _dpf.kwp_por_nome(reg, dp or (), {str(e.get("usina") or "").strip() for e in equip if e.get("usina")})
 
 
+def _frac_com_vereditos(wos):
+    """{folio: 'parada' | 'comunicacao'} das OS de comunicação da varredura, pela subtarefa "Diagnóstico"
+    (disponibilidade.veredito_subtarefas; Levi, 26/10/2026: "veja as últimas OSs criadas sobre comunicação que foi
+    confirmado na subtarefa que foi religamento"). Guardado em `_FRAC_COM_SUB_FILE`: a OS concluída lida uma vez, a aberta
+    relida a cada volta (o técnico responde depois). O Fracttal que não responde não segura o índice: fica o que já
+    estava guardado, e a OS sem veredito segue fora da conta, como desde 19/10."""
+    try:
+        with open(_FRAC_COM_SUB_FILE, encoding="utf-8") as f:
+            guardado = json.load(f)
+    except (OSError, ValueError):
+        guardado = {}
+    orc = {"espera_s": FRAC_DISP_ESPERA_MAX_S, "esperas": 0}
+    lidas, mudou = 0, False
+    for folio, tasks in wos.items():
+        t0 = tasks[0] if tasks else {}
+        if not _disp_mod.eh_falta_de_comunicacao(t0.get("description"),
+                                                 str(t0.get("items_log_description") or "").split("{")[0]):
+            continue
+        aberta = any(t.get("id_status_work_order") in (0, 1, 5, 6) for t in tasks)
+        g = guardado.get(str(folio))
+        if g is not None and not g.get("aberta"):
+            continue                                         # concluída e já lida: a resposta não muda
+        if lidas >= FRAC_COM_SUB_MAX:
+            continue
+        try:
+            d = _frac_get_paciente("work_orders_subtasks/", orc, folio=folio)
+        except Exception as e:                               # noqa: BLE001 — cota ou rede: para e fica o que tinha
+            _log_arquivo("fracttal.log", f"[disp] subtarefas da OS {folio}: {type(e).__name__}: {e}")
+            break
+        lidas += 1
+        subs = (d.get("data") if isinstance(d, dict) else d) or []
+        guardado[str(folio)] = {"aberta": aberta, "veredito": _disp_mod.veredito_subtarefas(subs),
+                                "lida_em": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+        mudou = True
+    if mudou:
+        tmp = _FRAC_COM_SUB_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(guardado, f, ensure_ascii=False)
+        os.replace(tmp, _FRAC_COM_SUB_FILE)
+    return {f: g["veredito"] for f, g in guardado.items() if f in wos and g.get("veredito")}
+
+
+def _disp_comunicacao_fora(o):
+    """A OS do drill (cascata, relatório) fica fora da perda por ser só comunicação: a mesma decisão do índice da
+    disponibilidade (os vereditos das subtarefas que o worker publicou e o retorno do COS)."""
+    return _disp_mod.comunicacao_fora(o.get("folio"), o.get("descricao"), o.get("ativo"),
+                                      (_frac_disp_dados() or {}).get("comunicacao"))
+
+
 def _frac_disp_recalcular():
     """WORKER: varre + calcula os 2 meses + persiste (atômico). Só publica o índice INTEIRO — varredura completa e os
     dois meses calculados. O resto (falha no meio, varredura vazia, mês que não calcula) deixa o índice anterior no ar,
@@ -27108,12 +27160,19 @@ def _frac_disp_recalcular():
         return
     resumo["s"] = round(time.time() - t0)
     reserva = _disp_pot_reserva(equip)
-    dados = {"ts": time.time(), "meses": {}, "varredura": resumo}
+    # a OS de comunicação com a parada confirmada na subtarefa volta para a conta (26/10/2026); erro aqui não segura o
+    # índice: sem os vereditos, toda OS de comunicação fica fora, como desde 19/10
+    try:
+        vereditos = _frac_com_vereditos(wos)
+    except Exception as e:                                   # noqa: BLE001
+        _log_arquivo("fracttal.log", f"[disp] vereditos das OS de comunicação: {type(e).__name__}: {e}")
+        vereditos = {}
+    dados = {"ts": time.time(), "meses": {}, "varredura": resumo, "comunicacao": vereditos}
     falhas = []
     for rot, ini, fim in meses:
         try:
             if rot >= DISP_SO_FRACTTAL_DESDE:
-                dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, pot_reserva=reserva)
+                dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, pot_reserva=reserva, vereditos=vereditos)
             else:
                 dados["meses"][rot] = _disp_mod.calcular_pelo_bd(_disp_dias_bd_thopen(ini, fim, equip), equip, ini, fim)
         except Exception as e:
@@ -29599,6 +29658,9 @@ def _frac_os_filtradas(id_item, mes=None, falhas=None):
                      "fim_ts": _f0.strftime("%Y-%m-%dT%H:%M:%S") if _f0 else "",
                      # a criação vira o evento quando o evento vem depois do fim (régua do Gerencial, 15/10/2026)
                      "criada_ts": _cri_loc.strftime("%Y-%m-%dT%H:%M:%S") if _cri_loc else ""}
+        # a OS só de comunicação fica fora da perda; a de comunicação com a parada confirmada conta (26/10/2026): a decisão
+        # vai pronta para o % disp do Diagnóstico (`_dispDia`), a mesma do índice da disponibilidade
+        seen[fol]["comunicacao_fora"] = _disp_comunicacao_fora(seen[fol])
     # abertas primeiro, depois por data (mais recente no topo)
     return sorted(seen.values(), key=lambda x: (x["aberta"], x["criada"]), reverse=True)
 
@@ -32197,8 +32259,9 @@ def _cascata_usina(cliente, usina, ano, mes):
                 fr_falhas.append(_mot)
         if ent and ent.get("site"):
             for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}", falhas=fr_falhas):
-                # falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py)
-                if _disp_mod.eh_falta_de_comunicacao(o.get("descricao"), o.get("ativo")):
+                # falta de comunicação não é parada (Levi, 19/10/2026), a não ser a confirmada (26/10/2026): a régua do
+                # disponibilidade.py, com os vereditos do índice
+                if _disp_comunicacao_fora(o):
                     continue
                 hs = o.get("horas_solares")
                 if hs and str(o.get("evento") or "").startswith(f"{ano:04d}-{mes:02d}"):
@@ -32509,8 +32572,9 @@ def _relatorio_build(usina, ini, fim):
                 for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}"):
                     if not _os_no_periodo(o) or o.get("folio") in vistos:
                         continue
-                    # falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py)
-                    if _disp_mod.eh_falta_de_comunicacao(o.get("descricao"), o.get("ativo")):
+                    # falta de comunicação não é parada (Levi, 19/10/2026), a não ser a confirmada (26/10/2026): a
+                    # régua do disponibilidade.py, com os vereditos do índice
+                    if _disp_comunicacao_fora(o):
                         continue
                     vistos.add(o.get("folio"))
                     hs, _sf = _os_hs(o)

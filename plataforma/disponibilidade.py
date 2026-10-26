@@ -295,7 +295,64 @@ def eh_falta_de_comunicacao(*textos):
     return "COMUNICA" in norm(" ".join(str(t or "") for t in textos))
 
 
-def consolidar_os(folio, tasks, agora):
+# A OS de comunicação que foi PARADA volta para a conta (Levi, 26/10/2026: "agora sabemos tudo o que estava sem subtarefa
+# porém foi religamento em outubro, bote na conta e a partir de agora veja as últimas OSs criadas sobre comunicação que foi
+# confirmado na subtarefa que foi religamento"). A verificação de comunicação do COS tem a subtarefa "Diagnóstico":
+# "Desligado" (o técnico achou a usina parada) ou "Só sem comunicação (segue gerando)". Medido em outubro (162 OS de
+# comunicação): 48 com "Desligado"; as 18 com "Só sem comunicação" e Ação "Religamento local" eram roteador, smartlogger e
+# internet — o religamento ali é do equipamento de comunicação, então o Diagnóstico decide, não a Ação. O formulário do
+# religamento ("Foi necessário religamento?" = Sim) também confirma. Em branco ou sem subtarefa: fora, como desde 19/10.
+def veredito_subtarefas(subtarefas):
+    """'parada' | 'comunicacao' | None (sem resposta) pelas subtarefas da OS ({description, value})."""
+    resp = {norm(s.get("description")).strip(" ?:"): norm(s.get("value")) for s in subtarefas or []}
+    diag = resp.get("DIAGNOSTICO") or ""
+    if diag.startswith("DESLIGAD"):
+        return "parada"
+    if diag.startswith("SO SEM COMUNICA"):
+        return "comunicacao"
+    if (resp.get("FOI NECESSARIO RELIGAMENTO") or "").startswith("SIM"):
+        return "parada"
+    return None
+
+
+# O retorno do COS sobre outubro de 2026 (planilha "Verificação Thopen 1 - retorno COS", 26/10/2026): vence a subtarefa.
+# Só as OS em que ele muda a conta: as de comunicação SEM subtarefa que foram parada, e as que eram só comunicação (uma
+# aberta como Religamento, outra com a subtarefa marcada "Desligado" com a usina gerando). As datas seguem as do Fracttal
+# (o fim da atividade); data errada se corrige lá.
+RETORNO_COS = {
+    16640: ("parada", "Salto Pirapora 3: inversor parado de 16/10 a 17/10, normalizou reconectando as strings"),
+    15678: ("parada", "Guaratinguetá V: inversor 1.5 parado de 07/10 a 15/10 (fusível queimado)"),
+    16515: ("parada", "Brodowski 2: cabines desligadas (trip 47 e 86) até 16/10, religadas no local"),
+    16653: ("comunicacao", "Ceilândia 1, 17 a 19/10: só comunicação, a usina gerando"),
+    14997: ("comunicacao", "Ceilândia 1, 30/09: só comunicação, sem impacto"),
+    15025: ("comunicacao", "Sítio dos Nogueiras, 30/09: oscilação de internet, a usina gerando"),
+    15314: ("comunicacao", "Ceilândia 2, 03/10: comunicação entre a sala de O&M e os skids"),
+}
+
+
+def veredito_da_os(folio, vereditos=None):
+    """(veredito, fonte): o retorno do COS primeiro, depois o das subtarefas que o worker leu ({folio: veredito})."""
+    try:
+        f = int(folio)
+    except (TypeError, ValueError):
+        return None, None
+    if f in RETORNO_COS:
+        return RETORNO_COS[f][0], "retorno do COS: " + RETORNO_COS[f][1]
+    v = (vereditos or {}).get(str(f))
+    return (v, "subtarefa") if v else (None, None)
+
+
+def comunicacao_fora(folio, desc, item, vereditos=None):
+    """A OS fica fora da conta por ser só comunicação? A mesma decisão do consolidar_os, para a cascata e o relatório."""
+    v, _f = veredito_da_os(folio, vereditos)
+    if v == "comunicacao" and (eh_falta_de_comunicacao(desc, item) or (_f or "").startswith("retorno do COS")):
+        return True
+    if v == "parada":
+        return False
+    return eh_falta_de_comunicacao(desc, item)
+
+
+def consolidar_os(folio, tasks, agora, vereditos=None):
     """→ dict da OS com datas locais validadas, tipos, status, flags — ou com 'excl' preenchido."""
     tipos_all = {str(t.get("tasks_log_task_type_main") or "").strip() for t in tasks}
     tipos_alvo = sorted(t for t in tipos_all if t.lower() in TIPOS_ALVO)
@@ -365,10 +422,19 @@ def consolidar_os(folio, tasks, agora):
             o["ini"] = ini
             return o
     o["ini"], o["fim"] = ini, fim
-    # falta de comunicação não é parada (19/10/2026, EXCL_COMUNICACAO): fora da conta, com as datas para a lista
-    if eh_falta_de_comunicacao(o["desc"], o["item"]):
+    # falta de comunicação não é parada (19/10/2026, EXCL_COMUNICACAO): fora da conta, com as datas para a lista. Desde
+    # 26/10/2026 a de comunicação com a parada confirmada (subtarefa ou retorno do COS) conta, e a que o COS disse ser só
+    # comunicação sai, aberta como for
+    if comunicacao_fora(folio, o["desc"], o["item"], vereditos):
         o["excl"] = EXCL_COMUNICACAO
+        v, fonte = veredito_da_os(folio, vereditos)
+        if fonte and fonte.startswith("retorno do COS"):
+            o["flags"].append(fonte)
         return o
+    if eh_falta_de_comunicacao(o["desc"], o["item"]):
+        _v, fonte = veredito_da_os(folio, vereditos)
+        o["flags"].append("aberta como comunicação; parada confirmada (%s)"
+                          % (fonte if fonte != "subtarefa" else "subtarefa Diagnóstico: Desligado"))
     # Dois sinais só do Fracttal que a prova de 15/10/2026 mostrou pesando no mês — a OS CONTINUA contando, só vai para
     # "alinhar": Religamento cuja descrição é inspeção (até 19/10 também a verificação de comunicação, que saiu da conta)
     # e religamento que dura mais de um dia (Canarana 1, OS 14924, 29/09 a 13/10). Corretiva longa não entra: trocar um
@@ -791,9 +857,10 @@ def calcular_pelo_bd(dias_por_usina, linhas_equip, per_ini, per_fim):
             "lacunas": lacunas}
 
 
-def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None):
+def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, vereditos=None):
     """wos = {folio: [tasks...]} (varredura crua do Fracttal); linhas_equip = aba Equipamentos.
-    per_ini/per_fim = janela do mês (fim EXCLUSIVO, já cortado em D-1 pelo chamador).
+    per_ini/per_fim = janela do mês (fim EXCLUSIVO, já cortado em D-1 pelo chamador). vereditos = {folio: 'parada' |
+    'comunicacao'} das subtarefas das OS de comunicação (o worker lê; 26/10/2026).
     → payload completo: usinas, clientes, diário, OSs, `alinhar`, lacunas. Só o Fracttal: a geração não entra."""
     agora = agora or datetime.now()
     usinas, lacunas = montar_catalogo(linhas_equip, pot_reserva)
@@ -803,7 +870,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None):
 
     oss, eventos, os_escopo = [], [], {}
     for folio, tasks in wos.items():
-        o = consolidar_os(folio, tasks, agora)
+        o = consolidar_os(folio, tasks, agora, vereditos)
         if o is None:
             continue
         if not o["excl"] or o["excl"] == EXCL_COMUNICACAO:

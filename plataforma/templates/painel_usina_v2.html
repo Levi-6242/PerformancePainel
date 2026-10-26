@@ -2106,8 +2106,12 @@ function _dispDia(nome, dia){
     if(vis.has(o.folio)) return; vis.add(o.folio);
     if(!DISP_TIPOS.has(String(o.tipo||'').toLowerCase())||!o.evento_ts) return;
     let a=new Date(o.evento_ts).getTime(); if(isNaN(a)) return;
-    // falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py): fica no título do dia
-    if(/COMUNICA/.test(String(o.descricao||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase())){
+    // falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py): fica no título do dia. Desde
+    // 26/10/2026 o servidor manda a decisão (`comunicacao_fora`): a de comunicação com a parada confirmada na subtarefa ou
+    // pelo COS conta; sem o campo (resposta antiga), o texto, como antes
+    const soCom=o.comunicacao_fora!==undefined?o.comunicacao_fora
+      :/COMUNICA/.test(String(o.descricao||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase());
+    if(soCom){
       if(a<=j1) outras.push(`OS #${o.folio||'?'} ${o.tipo||''} · falta de comunicação: fora da conta`);
       return;
     }
