@@ -326,8 +326,8 @@ def test_card_e_so_a_zeladoria():
 
 def test_o_valor_do_grafico_diario_vem_com_a_unidade_e_sem_o_dia():
     # Levi, 15/10/2026: "ao passar o mouse na coluna não precisa mostrar o dia mas precisamos da unidade de medida
-    # certa" — o Plotly dizia "(9, 31.2495k)"; agora "31.249,5 kWh"
-    d = corpo("renderDiario")
+    # certa" — o Plotly dizia "(9, 31.2495k)"; agora "31.249,5 kWh". Desde 26/10/2026 o desenho mora no _desenhaDiario
+    d = corpo("_desenhaDiario")
     # 4 = barras, a linha esperada pelo IPOA (20/10/2026), a da irradiação (sem kWp ou PR na meta) e a meta
     assert d.count("hovertemplate:'%{customdata}<extra></extra>'") == 4 or d.count("hovertemplate:_HOV") == 5
     assert "fmt(p.ger,1,'kWh')" in d and "fmt(p.ipoa,2,'kWh/m²')" in d and "'Meta '+fmt(d.meta_dia,0,'kWh')" in d
@@ -490,8 +490,8 @@ def test_linha_da_nota_quebra_o_texto_e_nao_estica_a_tabela():
 
 
 def test_zero_da_irradiacao_casa_com_o_zero_da_geracao():
-    # Ana, 14/10: "o zero do IPOA deve sempre casar com o zero de geração" (Assis, IPOA 0 o mês todo: eixo de -1 a 1)
-    d = corpo("renderDiario")
+    # 14/10: "o zero do IPOA deve sempre casar com o zero de geração" (Assis, IPOA 0 o mês todo: eixo de -1 a 1)
+    d = corpo("_desenhaDiario")
     assert "rangemode:'nonnegative'" in d and "autorange:false" in d and "range:[0,(Math.max(0,...d.pontos" in d
     assert "rangemode:'nonnegative'" in corpo("renderMensal")
 

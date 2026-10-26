@@ -427,12 +427,21 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
     ocupa a largura e o cabeçalho quebra (1.330 de 1.330 px; sem isso ia a 1.658 e o PDF cortava).
   - **Diário**: `pontos[].possivel` = meta mensal × IPOA medido do dia ÷ meta mensal de IPOA, com `ipoa_med` e
     `fonte_ipoa` (o mouse: "Possível pelo IPOA 21.705 kWh · IPOA 4,65 kWh/m² (ETM)"); `possivel_info` diz a cobertura.
+  - **As linhas do gráfico e o seletor** (Levi, 26/10/2026: "Tem como dar para ver duas linhas? a linha do POA e a linha
+    da projeção? para comparativo mesmo! (...) Quero que no gráfico também dê para escolher qual quer mostrar, se quer
+    tirar algum e não vai sair no pdf claro"): de outubro em diante, a preta (possível, eixo da energia) e o **IPOA
+    medido** que a gera (`ipoa_med`, ETM ou GHI, pontilhado verde-azulado no eixo da direita; o dia sem medição fica sem
+    ponto); antes, a irradiação de sempre. O seletor acima do gráfico (`#glSel`) e o clique na legenda tiram e põem
+    Possível, IPOA e Meta; a escolha fica no navegador (`localStorage` `thopen_linhas`) e vale para o Ctrl+P, o Baixar
+    PDF e o PDF Carteira. O seletor não vai para a folha; a linha tirada sai do gráfico e da legenda, e o título acompanha.
+    O desenho mora no `_desenhaDiario` (o `renderDiario` busca e chama). A possível é o IPOA × (meta ÷ meta de IPOA):
+    as duas linhas sobem e descem juntas por construção — o comparativo de verdade é a barra contra a preta.
   - Medido em 20/10, carteira Thopen de outubro (59 usinas): 8 sem ETM, 11 com furo. Altair: meta do período 596.874
     kWh (1.027.950 ÷ 31 × 18), irradiação 95,18 contra 127,92 esperados, possível 444.128 kWh, produzida 439.566 (−1,03%).
   - Prova: `tests/test_thopen_geracao_possivel.py` (a regra, números à mão) e `tests/test_thopen_geracao_possivel_rotas.py`
-    (rotas, setembro como era, a tela e a folha).
-- **Zero dos eixos** (Ana, 14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração"): quando a linha é a da
-  irradiação (antes de 10/2026), o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês (× 1,08; sem irradiação, de 0 a 1) e o da geração é
+    (rotas, setembro como era, a tela e a folha); as linhas e o seletor, `tests/test_thopen_diario_linhas.py`.
+- **Zero dos eixos** (14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração"): com a linha do IPOA na
+  tela (a irradiação antes de 10/2026, o IPOA medido desde 26/10/2026), o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês (× 1,08; sem irradiação, de 0 a 1) e o da geração é
   "não negativo"; o do Mensal também. A Assis tem IPOA 0 em todo dia de outubro: o Plotly centrava o eixo em 0 (de -1 a
   1) e o zero da irradiação ficava no meio. Só "não negativo" no IPOA não bastava (a Altair começava em 1,82). Vale em
   todo mês.

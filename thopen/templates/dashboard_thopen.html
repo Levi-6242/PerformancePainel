@@ -273,6 +273,19 @@
   .ct-dica{ text-align:center; font-size:11px; color:var(--muted); margin:-4px 0 2px; }
   /* a nota "Sem a geração possível" vai também para a folha (a .ct-dica some na impressão; revisão de 20/10/2026) */
   .pos-nota{ text-align:center; font-size:11px; color:var(--muted); margin:4px 0 2px; }
+  /* 26/10/2026, o seletor das linhas do Diário: é da tela. A folha (Ctrl+P, Baixar PDF e PDF Carteira) sai com as
+     linhas escolhidas, sem o seletor */
+  .gl-sel{ display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin:0 0 4px; }
+  .gl-sel:empty{ display:none; }
+  .gl-chip{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:#fff;
+    color:var(--muted); border-radius:999px; padding:3px 11px; font:inherit; font-size:11px; font-weight:600;
+    cursor:pointer; }
+  .gl-chip i{ display:inline-block; width:16px; height:0; }
+  .gl-chip[aria-pressed="true"]{ color:var(--txt); border-color:#c9ccd3; background:#f4f5f7; }
+  .gl-chip[aria-pressed="false"]{ opacity:.6; text-decoration:line-through; }
+  .gl-chip:focus-visible{ outline:2px solid var(--navy); outline-offset:1px; }
+  body.printing .gl-sel, #printArea .gl-sel{ display:none !important; }
+  @media print{ .gl-sel{ display:none !important; } }
   #pageDiario.contesta #chDiario .nsewdrag{ cursor:pointer !important; }
   .ct-chk{ display:flex; flex-wrap:wrap; gap:8px 14px; margin:6px 0 12px; }
   .ct-chk label{ display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#22242a; cursor:pointer; }
@@ -490,7 +503,7 @@
     <!-- 14/10/2026: o invólucro .dg só vira grade com o card na tela (.com-op); sem ele é um bloco e o Diário é o de antes -->
     <div class="dg">
     <div class="grid">
-      <div class="card" id="grafCard" style="display:flex;flex-direction:column"><h3 id="grafTit">Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span></h3><div class="ct-dica hidden" id="ctDica">Clique na barra de um dia para contestar os dados dele</div><div id="chDiario" style="flex:1;min-height:280px"></div><div class="pos-nota hidden" id="posNota"></div></div>
+      <div class="card" id="grafCard" style="display:flex;flex-direction:column"><h3 id="grafTit">Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span></h3><div class="ct-dica hidden" id="ctDica">Clique na barra de um dia para contestar os dados dele</div><div class="gl-sel" id="glSel" role="group" aria-label="Linhas do gráfico"></div><div id="chDiario" style="flex:1;min-height:280px"></div><div class="pos-nota hidden" id="posNota"></div></div>
       <div class="col" id="colDiario">
         <div class="card" id="acumCard"><h3>Energia Acumulada no Mês <span class="un">(kWh)</span></h3><div id="chAcum" style="height:150px"></div></div>
         <div class="card" id="irrCard"><h3>Irradiação no Mês <span class="un">(kWh/m²)</span></h3>
@@ -551,6 +564,7 @@
         <dt>Diferença de produção</dt><dd><span class="fx">Diferença (%) = (Produzida − Meta) ÷ Meta</span></dd>
         <dt>Meta diária (linha azul do Diário)</dt><dd><span class="fx">Meta diária = Meta do mês ÷ dias do mês</span></dd>
         <dt>Geração possível pelo IPOA (linha preta do Diário, de 10/2026 em diante)</dt><dd><span class="fx">Possível do dia (kWh) = Meta do mês × IPOA medido do dia ÷ Meta de IPOA do mês</span>IPOA medido do dia = o da estação (ETM) quando ≥ 0,3 kWh/m²; senão o GHI quando ≥ 1,0 kWh/m²; senão o dia fica sem medição. Com medição em menos da metade dos dias com geração, a linha não aparece. Antes de 10/2026, a linha mostra a irradiação (kWh/m²).</dd>
+        <dt>IPOA medido (linha pontilhada do Diário, de 10/2026 em diante)</dt><dd>O IPOA de cada dia que entra na geração possível (o da estação ou, sem ele, o GHI), no eixo da direita (kWh/m²), para comparar com a linha preta. O seletor acima do gráfico escolhe que linhas aparecem (Possível pelo IPOA, IPOA medido e Meta), e o PDF sai com as linhas escolhidas.</dd>
         <dt>Visão Geral (de 10/2026 em diante)</dt><dd><span class="fx">Meta do período = Σ (Meta do mês ÷ dias do mês), só nos dias com geração</span><span class="fx">Irradiação Medida = Σ IPOA medido ÷ cobertura (dias com medição ÷ dias com geração)</span><span class="fx">Geração Possível = Meta do período × Irradiação Medida ÷ Irradiação Esperada do período</span><span class="fx">Possível c/ Expurgos = Geração Possível × disponibilidade das OS, ponderada pela irradiação de cada dia</span><span class="fx">Dif. Possível (%) = (Produzida − Possível) ÷ Possível</span>Dia sem dado no BD fica de fora e aparece como "dias sem dado"; com cobertura abaixo de metade, "sem ETM". No Total, a Geração Possível soma só as usinas com ETM e compara com a produção delas; a irradiação é a média ponderada pela potência.</dd>
         <dt>Produção anual</dt><dd>Soma de janeiro até o mês selecionado. A meta anual soma os mesmos meses (só os meses com produção).</dd>
       </dl></div>
@@ -1273,10 +1287,28 @@ function renderCmt(){
 }
 
 // ---------- página diária ----------
-async function renderDiario(ano,mes){
-  const usina=$('selUsina').value;
-  const opP=renderOperacao(usina, ano, mes);   // em paralelo com o diário; o PDF espera os dois
-  const d=await get(`${RAIZ}/api/t/diario?usina=${encodeURIComponent(usina)}&ano=${ano}&mes=${mes}`);
+// ---------- as linhas do gráfico do Diário (Levi, 26/10/2026) ----------
+// "Tem como dar para ver duas linhas? a linha do POA e a linha da projeção? para comparativo mesmo! (...) Quero que no
+// gráfico também dê para escolher qual quer mostrar, se quer tirar algum e não vai sair no pdf claro". De 10/2026 em
+// diante, a geração possível (eixo da energia) e o IPOA medido que a gera (ETM ou GHI, eixo da direita); antes, a
+// irradiação de sempre. O seletor acima do gráfico e o clique na legenda tiram e põem cada linha; a escolha fica neste
+// navegador e vale para o Ctrl+P, o Baixar PDF e o PDF Carteira (o seletor não vai para a folha). A linha tirada sai do
+// gráfico e da legenda — não fica cinza na folha
+const _LINHAS=(()=>{ const pad={possivel:true,ipoa:true,meta:true};
+  try{ return Object.assign(pad,JSON.parse(localStorage.getItem('thopen_linhas')||'{}')); }catch(e){ return pad; } })();
+let _diaD=null;
+function _glTroca(k){
+  _LINHAS[k]=!_LINHAS[k];
+  try{ localStorage.setItem('thopen_linhas',JSON.stringify(_LINHAS)); }catch(e){}
+  _desenhaDiario();
+}
+function _glLegenda(ev){                     // a legenda do Plotly troca a mesma escolha (as barras não saem)
+  const t=ev&&ev.data&&ev.data[ev.curveNumber], k=t&&t.meta;
+  if(k) _glTroca(k);
+  return false;
+}
+function _desenhaDiario(){
+  const d=_diaD; if(!d) return;
   const x=d.pontos.map(p=>p.dia);
   // bolinha cinza = dia com ocorrência (comentário). De 10/2026 em diante o /api/t/diario não manda o comentário da
   // equipe: as bolinhas entram com a tabela (_cmtBolinhas, os dias com OS)
@@ -1291,43 +1323,66 @@ async function renderDiario(ano,mes){
   const bars={x,y:d.pontos.map(p=>p.ger),type:'bar',name:'Energia Produzida (kWh)',
     marker:{color:cores}, customdata:d.pontos.map(p=>fmt(p.ger,1,'kWh')), hovertemplate:'%{customdata}<extra></extra>'};
   // a linha preta de 10/2026 em diante é a geração possível pelo IPOA (Levi, 20/10/2026): meta do mês × IPOA medido do
-  // dia ÷ meta de IPOA do mês, a conta do servidor (pontos[].possivel), no eixo da energia; o IPOA usado (ETM ou GHI)
-  // segue no mouse. Mês sem medição suficiente (possivel_info.sem_etm): sem a linha e com a nota sob o gráfico. Antes de
-  // outubro (sem possivel_info), a linha da irradiação de sempre, com o eixo dela
-  const pi=d.possivel_info, pos=!!(pi&&!pi.sem_etm), esp=!!pi;   // de outubro em diante, nunca o eixo da direita
-  const irr=pos ? {x,y:d.pontos.map(p=>p.possivel),type:'scatter',mode:'lines',name:'Possível pelo IPOA (kWh)',
-      line:{color:'#222',width:1.5},
-      customdata:d.pontos.map(p=>p.possivel==null?'Sem medição de irradiação no dia'
-        :'Possível pelo IPOA '+fmt(p.possivel,0,'kWh')+' · IPOA '+fmt(p.ipoa_med,2,'kWh/m²')+' ('+p.fonte_ipoa+')'),
-      hovertemplate:'%{customdata}<extra></extra>'}
-    : {x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
-      line:{color:'#222',width:1.5},yaxis:'y2',
-      customdata:d.pontos.map(p=>fmt(p.ipoa,2,'kWh/m²')), hovertemplate:'%{customdata}<extra></extra>'};
-  $('grafTit').innerHTML=pi?'Energia <span class="un">(kWh)</span> × Geração possível pelo IPOA <span class="un">(kWh)</span>'
-    :'Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span>';
+  // dia ÷ meta de IPOA do mês, a conta do servidor (pontos[].possivel), no eixo da energia. Mês sem medição suficiente
+  // (possivel_info.sem_etm): sem a linha e com a nota sob o gráfico
+  const pi=d.possivel_info, esp=!!pi, pos=!!(pi&&!pi.sem_etm);
+  const possivel={x,y:d.pontos.map(p=>p.possivel),type:'scatter',mode:'lines',name:'Possível pelo IPOA (kWh)',meta:'possivel',
+    line:{color:'#222',width:1.5},
+    customdata:d.pontos.map(p=>p.possivel==null?'Sem medição de irradiação no dia'
+      :'Possível pelo IPOA '+fmt(p.possivel,0,'kWh')+' · IPOA '+fmt(p.ipoa_med,2,'kWh/m²')+' ('+p.fonte_ipoa+')'),
+    hovertemplate:'%{customdata}<extra></extra>'};
+  // o IPOA: de outubro em diante o medido que entra na possível (pontos[].ipoa_med, ETM ≥ 0,3 ou GHI ≥ 1,0, com a
+  // fonte no mouse; o dia sem medição fica sem ponto), pontilhado para não se confundir com a preta; antes, a
+  // irradiação do BD, como sempre foi
+  const ipoaDe=p=>esp?p.ipoa_med:p.ipoa;
+  const ipoa={x,y:d.pontos.map(ipoaDe),type:'scatter',mode:esp?'lines+markers':'lines',
+    name:esp?'IPOA medido (kWh/m²)':'Irradiação (kWh/m²)',meta:'ipoa',yaxis:'y2',
+    line:esp?{color:'#0f8b8d',width:1.6,dash:'dot'}:{color:'#222',width:1.5},marker:{size:4,color:'#0f8b8d'},
+    customdata:d.pontos.map(p=>!esp?fmt(p.ipoa,2,'kWh/m²')
+      :p.ipoa_med==null?'Sem medição de irradiação no dia':'IPOA '+fmt(p.ipoa_med,2,'kWh/m²')+' ('+p.fonte_ipoa+')'),
+    hovertemplate:'%{customdata}<extra></extra>'};
+  const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',meta:'meta',
+    line:{color:'#2456c7',width:2},
+    customdata:x.map(()=>'Meta '+fmt(d.meta_dia,0,'kWh')), hovertemplate:'%{customdata}<extra></extra>'};
+  // as linhas que o mês tem, e as que a pessoa deixou
+  const tem=[['possivel',pos,'Possível pelo IPOA','border-top:2px solid #222'],
+    ['ipoa',true,esp?'IPOA medido':'Irradiação',esp?'border-top:2px dotted #0f8b8d':'border-top:2px solid #222'],
+    ['meta',true,'Meta','border-top:2px solid #2456c7']].filter(t=>t[1]);
+  const ve=k=>tem.some(t=>t[0]===k)&&_LINHAS[k];
+  $('glSel').innerHTML=tem.map(([k,,rot,est])=>`<button type="button" class="gl-chip" data-k="${k}" aria-pressed="${!!_LINHAS[k]}"`
+    +` title="${_LINHAS[k]?'Tirar':'Mostrar'} a linha ${rot}"><i style="${est}"></i>${rot}</button>`).join('');
+  $('glSel').querySelectorAll('.gl-chip').forEach(b=>b.onclick=()=>_glTroca(b.dataset.k));
+  $('grafTit').innerHTML='Energia <span class="un">(kWh)</span>'
+    +(ve('possivel')?' × Geração possível pelo IPOA <span class="un">(kWh)</span>':'')
+    +(ve('ipoa')?(esp?' × IPOA medido':' × Irradiação')+' <span class="un">(kWh/m²)</span>':'');
   const nota=$('posNota');
   nota.textContent=pi&&pi.sem_etm?('Sem a geração possível: '+(pi.motivo==='sem_dias'?'nenhum dia com geração coletado no mês ainda.'
     :pi.motivo==='sem_meta_ipoa'?'sem meta de irradiação no mês.'
     :`medição de irradiação em ${pi.dias_medidos} de ${pi.dias} dias com geração; o mínimo é metade.`)):'';
   nota.classList.toggle('hidden',!nota.textContent);
-  const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',
-    line:{color:'#2456c7',width:2},
-    customdata:x.map(()=>'Meta '+fmt(d.meta_dia,0,'kWh')), hovertemplate:'%{customdata}<extra></extra>'};
-  const lay=Object.assign({},BASE,{margin:{l:56,r:esp?16:54,t:10,b:54},
+  const y2=ve('ipoa');
+  const lay=Object.assign({},BASE,{margin:{l:56,r:y2?54:16,t:10,b:54},
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.22},
     xaxis:{tickmode:'array',tickvals:x,ticktext:ticktext,tickangle:0,tickfont:{size:8},gridcolor:'#fff'},
-    // o zero dos dois eixos na mesma linha (Ana, 14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração").
+    // o zero dos dois eixos na mesma linha (14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração").
     // Assis em outubro tem IPOA 0 em todo dia: sem isto o Plotly centrava o eixo da direita em 0 (de -1 a 1) e o zero
     // da irradiação ficava no meio do gráfico. Geração e irradiação nunca são negativas
     yaxis:{title:'Energia (kWh)',gridcolor:'#eceef2',zeroline:false,rangemode:'nonnegative'},
     // o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês: só "não negativo" deixava a Altair começar em 1,82 (o
     // Plotly ajusta a linha entre o mínimo e o máximo); sem irradiação no mês, de 0 a 1
     yaxis2:{title:'kWh/m²',overlaying:'y',side:'right',showgrid:false,zeroline:false,autorange:false,
-            range:[0,(Math.max(0,...d.pontos.map(p=>p.ipoa||0))||1)*1.08],visible:!esp}});
-  Plotly.react('chDiario',pi&&pi.sem_etm?[bars,meta]:[bars,irr,meta],lay,CFG);
+            range:[0,(Math.max(0,...d.pontos.map(p=>ipoaDe(p)||0))||1)*1.08],visible:y2}});
+  Plotly.react('chDiario',[bars].concat(ve('possivel')?[possivel]:[],y2?[ipoa]:[],ve('meta')?[meta]:[]),lay,CFG);
+}
+
+async function renderDiario(ano,mes){
+  const usina=$('selUsina').value;
+  const opP=renderOperacao(usina, ano, mes);   // em paralelo com o diário; o PDF espera os dois
+  const d=await get(`${RAIZ}/api/t/diario?usina=${encodeURIComponent(usina)}&ano=${ano}&mes=${mes}`);
+  _diaD=d; _desenhaDiario();
   // rodada 5 (Levi, 13/10/2026): o clique no dia do gráfico abre a contestação daquele dia (o Plotly.react guarda o
   // ouvinte: liga uma vez só)
-  const ch=$('chDiario'); if(!ch._ctOn){ ch.on('plotly_click',_ctClique); ch._ctOn=true; }
+  const ch=$('chDiario'); if(!ch._ctOn){ ch.on('plotly_click',_ctClique); ch.on('plotly_legendclick',_glLegenda); ch._ctOn=true; }
 
   // KPIs
   const k=d.kpis;

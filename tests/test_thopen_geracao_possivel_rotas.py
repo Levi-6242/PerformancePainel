@@ -143,7 +143,9 @@ def test_diario_de_setembro_como_antes(cli):
 
 
 def test_tela_do_diario_desenha_a_possivel_e_a_metodologia():
-    d = _corpo("renderDiario")
+    h = _html()
+    i = h.index("function _desenhaDiario(")                # 26/10/2026: o desenho saiu do renderDiario (o seletor)
+    d = h[i:h.index("\n}\n", i)]
     assert "d.possivel_info" in d and "p.possivel" in d and "Possível pelo IPOA" in d
     assert "medição de irradiação em" in d                                           # a nota sem cobertura
     assert "Irradiação (kWh/m²)" in d and "yaxis2" in d                               # antes de outubro, como era
