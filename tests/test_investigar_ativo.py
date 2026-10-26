@@ -84,13 +84,17 @@ def test_a_rota_e_leitura_para_a_ponte_e_para_o_gestor():
 
 
 # ── a tela ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def test_o_botao_direito_so_na_linha_do_inversor_e_nas_fontes_do_criar_os():
-    assert "const _OS_FONTES=['pv','pg','sunop','owen','semp','2capi'];" in MON
-    assert "function _osBtn(){ if(!_OS_FONTES.includes(SKEY[state.source])) return '';" in MON
+def test_o_botao_direito_na_linha_do_inversor_de_toda_fonte():
+    # 26/10/2026: o portão era o _OS_FONTES (as fontes do Criar OS), e a Colider 2 é da RenoGrid (SolarEdge): o Levi
+    # clicou no "Inversor 1.6" e veio o menu do navegador. O menu vale em toda fonte; a marca do chip diz onde.
     i = MON.index("document.addEventListener('contextmenu',")
     f = MON[i:MON.index("\n});", i)]
-    assert "closest('.gc-chip[data-inv-usina]')" in f and "_OS_FONTES.includes(SKEY[state.source])" in f
+    assert "closest('.gc-chip[data-inv-usina]')" in f and "_OS_FONTES" not in f
     assert "ev.preventDefault(); gcMenuAtivo(ev,chip);" in f
+    # a usina vem da linha que abriu o drill (qualquer fonte); o RD.pv é só reserva
+    assert "function buildInversores(pid,usinaDaLinha){" in MON
+    assert "const _un=usinaDaLinha||(_urow?_urow.usina:'');" in MON
+    assert "inversores:expanded?buildInversores(pid,r.usina):[]};" in MON
     # só a linha de um inversor de verdade, com a usina, ganha as marcas (o protótipo não)
     assert '${(inv.isReal&&inv.usina)?` data-inv-usina="${_he(inv.usina)}" data-inv-nome="${_he(inv.name||\'\')}"' in MON
     # o menu: sem emoji, com as cores do tema
@@ -151,3 +155,125 @@ def test_sem_o_codigo_a_janela_abre_igual_e_no_embutido_quem_abre_e_a_entrada():
     m, origem = out["postados"][0]
     assert origem == "https://app.gridco.com.br" and m["gc"] == "investigar"
     assert m["href"] == "/os/historico/ativo?codigo=&usina=Usina+Teste&nome=Inversor+1.1&rotulo=Inversor+2.1"
+
+
+
+# ── o caso real: Colider 2, RenoGrid (SolarEdge), "Inversor 1.6" (26/10/2026) ─────────────────────────────────────────────
+# A linha e o drill como o servidor serviu às 13:15 (/api/solaredge/data e /api/solaredge/plant/4486122): plant_id NÚMERO
+# na linha, id de texto no drill; o inversor desligado chega com o serial no lugar do nome.
+_COLIDER2_LINHA = {"plant_id": 4486122, "usina": "Colider 2", "qtd_inversores": 25, "inv_esp": 25, "str_esp": 145,
+                   "strings_ativas": 142, "diferenca": -4, "inv_desligados": 1, "inv_desligados_nomes": ["7E05ABED"],
+                   "strings_fora": 1, "sol_baixo": False, "falha_comunicacao": False,
+                   "ultima_leitura": "2026-10-26T13:15:00Z"}
+_COLIDER2_DRILL = [
+    {"id": "7E05ABFB", "nome": "Inversor 1.6", "nome_api": "Inverter 6", "nome_fracttal": None, "strings_ativas": 6,
+     "total_strings": 6, "str_esp": 6, "strings": [{"id": "Ipv1", "status": "ativa", "corrente": 8.1}]},
+    {"id": "7E05ABED", "nome": "7E05ABED", "nome_api": "7E05ABED", "nome_fracttal": None, "strings_ativas": 0,
+     "total_strings": 1, "str_esp": 1, "strings": [{"id": "Ipv1", "status": "sem_corrente", "corrente": 0}]},
+]
+
+# um DOM de mentira com o mínimo que o menu usa: os ouvintes do document, o body, o createElement e o botão do menu
+_DOM_FALSO = r"""
+const ouvintes = {}, corpo = [], abertos = [], postados = [], pedidos = [];
+function _el(tag){ const e = {tag, style:{}, dataset:{}, attrs:{}, ouv:{}, innerHTML:'', offsetWidth:220, offsetHeight:80,
+  setAttribute(k,v){ this.attrs[k]=v; }, addEventListener(t,f){ this.ouv[t]=f; }, focus(){ this.focado=true; },
+  contains(x){ return x===this||x===this._botao; }, remove(){ const i=corpo.indexOf(this); if(i>=0) corpo.splice(i,1); },
+  querySelector(){ if(!this._botao){ this._botao=_el('button'); } return this._botao; } }; return e; }
+globalThis.document = {addEventListener(t,f){ ouvintes[t]=f; }, createElement:_el, body:{appendChild(e){ corpo.push(e); }},
+  getElementById(id){ return corpo.find(e=>e.id===id)||null; }};
+globalThis.window = {addEventListener(){}, innerWidth:1600, innerHeight:900};
+globalThis.location = {origin:'https://app.gridco.com.br'};
+globalThis.parent = {postMessage(m,o){ postados.push([m,o]); }};
+const SKEY = %(skey)s, state = {source:'renogrid', expandedInversor:null}, _OS_FONTES = %(osf)s;
+const EMBED = %(embed)s;
+function _he(s){ return String(s); }
+function gcDeparaJanela(href, rotulo){ abertos.push([href, rotulo]); }
+globalThis.fetch = async (u) => { pedidos.push(u); return {ok:true, json:async()=>({ok:true, codigo:'CLD200-INVR1.6',
+  origem:'derivado', usina_fracttal:'RenoGrid - Colíder 2 - MT'})}; };
+function _chip(ds){ const c = {dataset:ds}; return {closest(sel){ return sel==='.gc-chip[data-inv-usina]'?c:null; }}; }
+function _clique(alvo){ let barrado=false; const ev={target:alvo, clientX:400, clientY:300, preventDefault(){ barrado=true; }};
+  ouvintes.contextmenu(ev); return barrado; }
+"""
+
+
+def _node():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node não instalado")
+    return node
+
+
+def _trecho(ini, fim):
+    a = MON.index(ini)
+    return MON[a:MON.index(fim, a)]
+
+
+def _js_const(nome):
+    a = MON.index("const %s=" % nome)
+    return MON[a:MON.index(";\n", a) + 2]
+
+
+def test_colider2_o_drill_da_renogrid_marca_o_inversor_com_a_usina_da_linha():
+    """O drill da SolarEdge monta o inversor de verdade com a usina, venha ela da linha ou (reserva) do RD.pv."""
+    node = _node()
+    codigo = _trecho("const _SCHIP=", "let _chart=null;")
+    js = r"""
+    function _tkStrInv(){ return []; } function _tkStrCobertura(){ return {cobreTudo:false, semTicket:0}; }
+    function _tkStrMarca(){ return null; } function _nrmU(s){ return String(s||'').toLowerCase(); }
+    function fetchJSON(){ return Promise.resolve(null); } function render(){}
+    const SKEY = %s, state = {source:'renogrid', expandedInversor:null};
+    const RD = {plants:{'renogrid|4486122': %s}, pv:null};
+    """ % (json.dumps({"renogrid": "solaredge"}), json.dumps(_COLIDER2_DRILL)) + codigo + r"""
+    const semPv = buildInversores('4486122', 'Colider 2');            // a linha manda; o RD.pv pode nem estar lá
+    RD.pv = {rows:[%s]};
+    const reserva = buildInversores('4486122');                       // a reserva: plant_id número x pid texto casa
+    RD.pv = {rows:[{plant_id:1, usina:'Outra'}]};
+    const outra = buildInversores('4486122', 'Colider 2');            // RD.pv de outra fonte não troca a usina
+    const f = l => l.map(i => [i.name, i.isReal, i.usina]);
+    process.stdout.write(JSON.stringify({semPv:f(semPv), reserva:f(reserva), outra:f(outra)}));
+    """ % json.dumps(_COLIDER2_LINHA)
+    p = subprocess.run([node, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    out = json.loads(p.stdout)
+    esperado = [["Inversor 1.6", True, "Colider 2"], ["7E05ABED", True, "Colider 2"]]
+    assert out == {"semPv": esperado, "reserva": esperado, "outra": esperado}
+
+
+def _rodar_menu(embed=False):
+    node = _node()
+    codigo = _trecho("const OS_WEB_INVESTIGAR=", "function _dpSem(")
+    pre = _DOM_FALSO % {"skey": json.dumps({"renogrid": "solaredge", "thopen-pv": "pv"}),
+                        "osf": _js_const("_OS_FONTES")[len("const _OS_FONTES="):-2], "embed": "true" if embed else "false"}
+    fim = r"""
+    const r = {};
+    r.foraDoInversor = _clique({closest(){ return null; }});          // fora do chip: o menu nativo segue
+    r.menusFora = corpo.length;
+    r.noInversor = _clique(_chip({invUsina:'Colider 2', invNome:'Inversor 1.6', invFr:''}));
+    r.menus = corpo.map(e => e.id); r.texto = corpo[0] && corpo[0].innerHTML;
+    if (corpo[0]) corpo[0]._botao.ouv.click();                       // sem menu (o código de antes), nada a clicar
+    setTimeout(() => { r.pedidos = pedidos; r.abertos = abertos; r.postados = postados; r.depois = corpo.length;
+      process.stdout.write(JSON.stringify(r)); }, 20);
+    """
+    p = subprocess.run([node, "-e", pre + codigo + fim], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+def test_colider2_o_botao_direito_no_inversor_da_renogrid_abre_o_nosso_menu_e_a_janela():
+    assert "'solaredge'" not in _js_const("_OS_FONTES")    # a RenoGrid segue sem Criar OS: o caso é justamente esse
+    out = _rodar_menu()
+    assert out["foraDoInversor"] is False and out["menusFora"] == 0
+    assert out["noInversor"] is True and out["menus"] == ["gc-menu-ativo"]       # o nativo não aparece por cima do nosso
+    assert "Investigar ativo" in out["texto"] and "Inversor 1.6 · Colider 2" in out["texto"]
+    assert out["depois"] == 0
+    assert out["pedidos"] == ["/api/fracttal/ativo-do-inversor?usina=Colider+2&inv=Inversor+1.6"]
+    assert out["abertos"] == [["/os/historico/ativo?codigo=CLD200-INVR1.6&usina=RenoGrid+-+Col%C3%ADder+2+-+MT"
+                               "&nome=Inversor+1.6&rotulo=Inversor+1.6", "Investigar ativo"]]
+
+
+def test_colider2_no_embutido_o_menu_abre_igual_e_a_janela_vai_pela_entrada():
+    out = _rodar_menu(embed=True)
+    assert out["noInversor"] is True and out["abertos"] == []
+    m, origem = out["postados"][0]
+    assert origem == "https://app.gridco.com.br" and m["gc"] == "investigar"
+    assert m["href"].startswith("/os/historico/ativo?codigo=CLD200-INVR1.6&")

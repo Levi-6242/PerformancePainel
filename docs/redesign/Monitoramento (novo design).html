@@ -904,11 +904,14 @@ function _invExemplo(){
 }
 // DADO REAL: inversores de /api/plant/<pid>. pid==null → exemplo do protótipo. 'loading' enquanto busca.
 const _SCHIP={sem_corrente:['#ff9a9d','color-mix(in srgb, var(--gc-red) 14%, transparent)','color-mix(in srgb, var(--gc-red) 45%, transparent)'],baixa_perf:['#f5c877','color-mix(in srgb, var(--gc-amber) 14%, transparent)','color-mix(in srgb, var(--gc-amber) 45%, transparent)'],trancada:['var(--gc-blue)','color-mix(in srgb, var(--gc-blue) 12%, transparent)','color-mix(in srgb, var(--gc-blue) 45%, transparent)'],ativa:['var(--color-accent-200)','color-mix(in srgb, var(--color-accent) 10%, transparent)','color-mix(in srgb, var(--color-accent) 40%, transparent)'],inativa:['var(--color-neutral-400)','var(--color-neutral-900)','var(--color-divider)']};
-function buildInversores(pid){
+function buildInversores(pid,usinaDaLinha){
   if(pid==null) return _invExemplo();
   const invs=RD.plants[state.source+'|'+pid];
   if(invs==null) return 'loading';
-  const _urow=(RD.pv&&RD.pv.rows||[]).find(r=>String(r.plant_id)===String(pid)); const _un=_urow?_urow.usina:'';   // nome da usina p/ o deep link do Criar OS
+  const _urow=(RD.pv&&RD.pv.rows||[]).find(r=>String(r.plant_id)===String(pid));
+  // o nome da usina (deep link do Criar OS e o "Investigar ativo") vem da LINHA que abriu o drill: é o que a tabela já mostra,
+  // em qualquer fonte. O RD.pv fica só de reserva (26/10/2026)
+  const _un=usinaDaLinha||(_urow?_urow.usina:'');
   // Usina sem visão por string: o inversor mostra a PROPORCIONALIDADE (padrão 30d) no lugar de ativas/esp/dif (Levi,
   // 11/09). Busca 1× por usina em /api/pv/inv-padrao/<pid> (barato: cache do worker) e casa pelo nome do cadastro.
   const _pd=RD.invPadrao||(RD.invPadrao={});
@@ -1612,8 +1615,11 @@ function gcAbrirOs(links){
 // O botão direito na linha do inversor (o .gc-chip do drill) abre o menu; "Investigar ativo" pede à plataforma o código do
 // Fracttal do inversor (/api/fracttal/ativo-do-inversor: o gravado no de-para ou o derivado do nome, sem ir ao Fracttal)
 // e abre o histórico de OS do OS Creator (/os/historico/ativo, a lista que a Visão COS já carregou) na MESMA janela do
-// Criar OS. Só nas fontes do Criar OS (_OS_FONTES): é onde o OS Creator acha o ativo; quem não abre o OS Creator para no
-// portão do Nexus dentro da janela, como no Criar OS. Fora do inversor, o botão direito é o do navegador.
+// Criar OS. Em TODA fonte com drill de inversor de verdade, não só nas do Criar OS: o Levi clicou no "Inversor 1.6" da
+// Colider 2 (26/10/2026), que é da RenoGrid (SolarEdge, fora do _OS_FONTES), e veio o menu do navegador; a plataforma acha
+// o código do mesmo jeito (CLD200-INVR1.6, pelo nome), e onde não achar a janela abre com a usina inteira e o aviso do OS
+// Creator. Quem não abre o OS Creator para no portão do Nexus dentro da janela, como no Criar OS. Fora do inversor (e no
+// protótipo, que não tem a marca), o botão direito é o do navegador.
 const OS_WEB_INVESTIGAR='/os/historico/ativo';
 function gcMenuAtivoFechar(){ const m=document.getElementById('gc-menu-ativo'); if(m) m.remove(); }
 function gcMenuAtivo(ev,chip){
@@ -1635,7 +1641,7 @@ function gcMenuAtivo(ev,chip){
 }
 document.addEventListener('contextmenu',ev=>{
   const chip=ev.target&&ev.target.closest?ev.target.closest('.gc-chip[data-inv-usina]'):null;
-  if(!chip||!_OS_FONTES.includes(SKEY[state.source])){ gcMenuAtivoFechar(); return; }
+  if(!chip){ gcMenuAtivoFechar(); return; }
   ev.preventDefault(); gcMenuAtivo(ev,chip);
 });
 document.addEventListener('mousedown',ev=>{ const m=document.getElementById('gc-menu-ativo'); if(m&&!m.contains(ev.target)) gcMenuAtivoFechar(); });
@@ -2224,7 +2230,7 @@ function computeVals(){
         diffDrill:!!_drill,
         acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],tkMotivo:(r.tickets_str&&r.tickets_str.motivo)||'',tkNaoJulga:(semSol||semCom||!!r.rampa||!!r.sem_visao),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
-        status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,dpSem:_dpSem(r),vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
+        status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,dpSem:_dpSem(r),vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid,r.usina):[]};
     }).sort((a,b)=>(a._grp-b._grp)||((a._dif||0)-(b._dif||0)));   // não-batendo no topo; dentro do grupo, maior déficit primeiro
     // Conta ANTES de filtrar (o número do chip não muda quando você clica nele) e respeita a busca por usina.
     _stCount={}; _stTotal=usinas.length;

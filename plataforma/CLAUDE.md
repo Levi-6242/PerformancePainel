@@ -2104,9 +2104,14 @@ fundo que nem quando vamos criar OS."
 
 - **O menu** (Monitoramento, `gcMenuAtivo`): o botão direito na linha do inversor do drill (o `.gc-chip` com
   `data-inv-usina`, posto só no inversor de verdade com a usina da linha) abre "Investigar ativo", no tema da tela, sem
-  emoji. Só nas fontes do Criar OS (`_OS_FONTES`, a mesma lista do `_osBtn`: é onde o OS Creator acha o ativo); fora do
-  inversor (e nas outras fontes) o botão direito é o do navegador. Quem não abre o OS Creator para no portão do Nexus
-  dentro da janela, como no Criar OS. Fecha com Esc, clique fora, rolagem ou outra janela.
+  emoji, em **toda fonte** com drill de inversor, não só nas do Criar OS. A marca do chip é o único portão: fora do
+  inversor (e no protótipo, que não tem a marca) o botão direito é o do navegador; no inversor, o nosso cancela o nativo.
+  O nome da usina vem da **linha que abriu o drill** (`buildInversores(pid, r.usina)`); o `RD.pv` achado pelo `plant_id`
+  ficou só de reserva. Caso que corrigiu a regra (26/10/2026): o portão era o `_OS_FONTES`, e a Colider 2 é da RenoGrid
+  (SolarEdge, sem Criar OS); o Levi clicou no "Inversor 1.6" e veio o menu do navegador, embora o chip estivesse marcado
+  e a rota achasse `CLD200-INVR1.6` pelo nome. Onde o ativo não for achado (o inversor desligado chega com o serial,
+  `7E05ABED`), o menu aparece igual e a janela abre com a usina inteira e o aviso do OS Creator. Quem não abre o OS
+  Creator para no portão do Nexus dentro da janela, como no Criar OS. Fecha com Esc, clique fora, rolagem ou outra janela.
 - **O ativo** (`GET /api/fracttal/ativo-do-inversor?usina=<nome da linha>&inv=<nome da fonte>` → `{codigo, origem,
   usina_fracttal}`): o código GRAVADO no cadastro (`_frac_cod_gravado`, Modo de-para) e, sem ele, o derivado do nome
   (`{CODE-BASE}-INVR{N.M}`, a régua do `_frac_inv_code`) com o code-base do índice que JÁ existe em memória ou no disco
@@ -2124,7 +2129,10 @@ fundo que nem quando vamos criar OS."
 
 Testes: `tests/test_investigar_ativo.py` (a rota com o gravado, o derivado pela memória e pelo disco, sem índice, sem
 parâmetro, sem ir ao Fracttal; a classificação; o menu e a Entrada; o clique rodado no node, com e sem o código, solto e
-embutido).
+embutido; o caso da Colider 2 com a linha e o drill que o servidor serviu: o drill da RenoGrid marca o inversor com a
+usina da linha, e o botão direito no node abre o nosso menu, barra o nativo, deixa o nativo fora do chip e abre a janela).
+Prova no navegador: uma bancada que serve o Monitoramento e responde as rotas com os JSON gravados do servidor (sem rede
+para fora), clique direito de verdade no chip, solto e dentro de uma moldura.
 
 ## Qualidade de dado: clipping e valor travado (pvanalytics, 17/09/2026)
 
