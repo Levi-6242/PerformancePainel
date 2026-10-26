@@ -345,6 +345,13 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
 
 ### Tela (`dashboard_thopen.html`)
 
+- **O cabeçalho em duas faixas** (Levi, 26/10/2026: "estou achando esse cabeçalho meio bagunçado"; "Proposta A com
+  certeza!"): em cima as páginas (`.nav`, botões `.tab` com `data-page`), com o traço laranja na aberta e a Metodologia à
+  direita; embaixo (`.toolbar`) carteira, usina e mês com o rótulo ao lado, a hora dos dados (`#subinfo`, "6,90 MWp ·
+  dados de 26/10 às 17:49"; cliente e cidade no mouse) e as ações da mesma altura: Atualizar em ícone (gira enquanto relê),
+  PDF da carteira e PDF da usina. O rótulo dos PDFs é o `.rb` (trocar o `textContent` do botão apagava o ícone). Até ali
+  eram seis botões de tamanhos diferentes e a barra empurrava a página para o lado no celular; em 375 px as abas rolam na
+  faixa delas e as ações descem para uma linha própria. Prova: `tests/test_thopen_cabecalho.py`.
 - **Layout (rodada 4, Levi 09/10; 15/10)**: com o card na tela (`.com-op`), a coluna da direita fica Energia Acumulada,
   Irradiação, Disponibilidade e, abaixo delas, o card da **Zeladoria** e depois a "Produção de Energia Anual" (15/10/2026,
   Levi: "Bote a zeladoria acima de produção de energia anual"; desde 14/10, a grade única abaixo). **Só com o card**: sem ele o HTML é o de antes (o anual ao lado da tabela) —

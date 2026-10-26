@@ -19,17 +19,58 @@
   .brand{ margin-left:auto; text-align:right; line-height:1.1; }
   .brand .g{ font-size:22px; font-weight:800; }
   .brand .t{ font-size:13px; font-weight:600; letter-spacing:3px; opacity:.95; }
-  .toolbar{ display:flex; align-items:center; gap:10px; padding:10px 20px;
-            background:#fff; border-bottom:1px solid var(--line); }
-  .tab{ border:1px solid var(--line); background:#f4f5f7; color:var(--muted);
-        padding:7px 16px; border-radius:8px; cursor:pointer; font-weight:600; }
-  .tab.active{ background:var(--navy); color:#fff; border-color:var(--navy); }
-  .cgrp{ display:inline-flex; gap:6px; }
-  .cbtn{ border:1px solid var(--line); background:#f4f5f7; color:var(--muted); padding:6px 11px;
-         border-radius:8px; cursor:pointer; font-weight:600; font-size:12px; }
-  .cbtn.active{ background:var(--ora); color:#fff; border-color:var(--ora); }
+  /* O cabeçalho em duas faixas (Levi, 26/10/2026: "estou achando esse cabeçalho meio bagunçado"; "Proposta A com
+     certeza!"). Em cima as páginas numa linha só, com o traço laranja na aberta e a Metodologia (consulta) à direita;
+     embaixo carteira, usina e mês com o rótulo ao lado, a hora dos dados e as ações da mesma altura. Até ali eram seis
+     botões de tamanhos diferentes ("Visão Geral" e "PDF Carteira" quebravam em duas linhas) e a barra rolava de lado */
+  .nav{ display:flex; align-items:stretch; gap:4px; padding:0 20px; background:#fff; border-bottom:1px solid var(--line);
+        overflow-x:auto; scrollbar-width:thin; }
+  .nav .tab{ position:relative; border:0; background:none; font:inherit; font-size:14px; font-weight:600;
+             color:var(--muted); padding:13px 14px 12px; cursor:pointer; white-space:nowrap; }
+  .nav .tab:hover{ color:var(--txt); }
+  .nav .tab.active{ color:var(--navy); }
+  .nav .tab.active::after{ content:""; position:absolute; left:10px; right:10px; bottom:0; height:3px;
+                           border-radius:3px 3px 0 0; background:var(--ora); }
+  .nav .tab:focus-visible{ outline:2px solid var(--navy); outline-offset:-4px; border-radius:6px; }
+  .nav-sep{ flex:1; }
+  .nav .tab-met{ display:inline-flex; align-items:center; gap:6px; font-weight:500; font-size:13px; }
+  .nav .tab-met svg{ width:15px; height:15px; }
+  .toolbar{ display:flex; align-items:center; gap:12px 18px; padding:10px 20px; flex-wrap:wrap;
+            background:#f7f8fa; border-bottom:1px solid var(--line); }
+  .fld{ display:flex; align-items:center; gap:8px; }
+  .cgrp{ display:inline-flex; background:#fff; border:1px solid #d3d7de; border-radius:9px; padding:3px; gap:2px; }
+  .cbtn{ border:0; background:none; color:var(--muted); padding:5px 12px; border-radius:6px; cursor:pointer;
+         font:inherit; font-weight:600; font-size:12.5px; }
+  .cbtn:hover{ color:var(--txt); }
+  .cbtn.active{ background:var(--ora); color:#fff; }
   .cbtn:disabled{ opacity:.4; cursor:not-allowed; }
-  .fld{ margin-left:6px; }
+  #subinfo{ display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12.5px; white-space:nowrap; }
+  #subinfo:not(:empty)::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--pos); }
+  .acoes{ margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .btn{ height:34px; display:inline-flex; align-items:center; gap:7px; border-radius:8px; font:inherit; font-size:13px;
+        font-weight:700; padding:0 14px; cursor:pointer; white-space:nowrap; }
+  .btn svg{ width:15px; height:15px; flex:none; }
+  .btn.pri{ background:var(--navy); color:#fff; border:1px solid var(--navy); }
+  .btn.pri:hover{ background:#15214f; }
+  .btn.sec{ background:#fff; color:var(--navy); border:1px solid #d3d7de; }
+  .btn.sec:hover{ background:#eef0fb; border-color:var(--navy); }
+  .btn.icone{ padding:0 10px; }
+  .btn:disabled{ opacity:.6; cursor:default; }
+  .btn:focus-visible{ outline:2px solid var(--navy); outline-offset:2px; }
+  .btn.girando svg{ animation:girar 1s linear infinite; }
+  @keyframes girar{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce){ .btn.girando svg{ animation:none; } }
+  /* no celular (o painel é de tela larga, mas o cabeçalho não pode empurrar a página para o lado): as abas rolam na
+     faixa delas, os filtros viram duas colunas e as ações descem para uma linha própria */
+  @media (max-width:760px){
+    .nav{ padding:0 8px; } .nav .tab{ padding:12px 10px 11px; font-size:13.5px; }
+    .toolbar{ display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:10px 14px; }
+    #fldCarteira, #subinfo, .acoes{ grid-column:1 / -1; }
+    #fldCarteira{ overflow-x:auto; }
+    .fld{ flex-direction:column; align-items:stretch; gap:4px; }
+    .fld select{ width:100%; }
+    .acoes{ margin:0; } .acoes .btn{ flex:1; justify-content:center; } .acoes .btn.icone{ flex:none; }
+  }
   /* Visão Geral — tabela de resumo por carteira */
   table.geral{ font-size:12px; }
   table.geral th{ background:#f4f3f8; color:#3a2540; font-weight:700; text-align:right; vertical-align:bottom; font-size:11px; }
@@ -61,9 +102,11 @@
   .capa-sub{ margin-top:22px; font-size:21px; font-weight:700; color:#2b2b2b; line-height:1.7; }
   .capa-brand{ position:absolute; top:18px; right:26px; font-size:20px; font-weight:800; color:#444; }
   .capa-brand b{ background:linear-gradient(90deg,#FDB813,#EC1C5E); -webkit-background-clip:text; background-clip:text; color:transparent; }
-  .fld label{ font-size:10px; color:var(--muted); letter-spacing:1px; margin-right:6px; }
+  .fld label{ font-size:11px; font-weight:700; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
   select{ background:#fff; color:var(--txt); border:1px solid var(--line);
           border-radius:6px; padding:6px 8px; font-size:13px; }
+  .toolbar select{ height:34px; border-color:#d3d7de; border-radius:8px; font-size:13.5px; padding:0 10px; }
+  #selUsina{ min-width:210px; }
   .right{ margin-left:auto; }
   .wrap{ padding:16px 20px; }
   .sec{ font-size:15px; font-weight:700; color:var(--navy); margin:0 0 10px; text-align:center; }
@@ -91,10 +134,6 @@
   .muted{ color:var(--muted); text-align:center; padding:18px; }
   .hidden{ display:none; }
   .pgh{ display:none; }   /* cópia do cabeçalho por página — só aparece na impressão */
-  #btnPdf{ background:var(--navy); color:#fff; border:none; border-radius:8px; padding:8px 14px;
-           font-weight:600; cursor:pointer; font-size:12.5px; white-space:nowrap; }
-  #btnPdf:hover{ background:#15214f; }
-  #btnPdf:disabled{ opacity:.6; cursor:default; }
   /* quem entrou e o Sair (login por pessoa, 14/10/2026) */
   /* 15/10/2026 (Levi: "não tem um botão de sair da conta no dashboard thopen"): quem entrou e o Sair ficam na faixa do
      topo, ao lado da marca — no fim da barra de botões o Sair saía da tela nas janelas estreitas */
@@ -103,10 +142,6 @@
   .usuario a{ color:#fff; font-weight:700; text-decoration:none; cursor:pointer; padding:5px 14px;
               border:1px solid rgba(255,255,255,.8); border-radius:999px; }
   .usuario a:hover, .usuario a:focus-visible{ background:#fff; color:var(--navy); outline:none; }
-  #btnRefresh{ background:#fff; color:var(--navy); border:1px solid var(--navy); border-radius:8px;
-               padding:8px 14px; font-weight:600; cursor:pointer; font-size:12.5px; white-space:nowrap; }
-  #btnRefresh:hover{ background:#eef0fb; }
-  #btnRefresh:disabled{ opacity:.6; cursor:default; }
   /* Impressão nativa (Ctrl+P) em A4 paisagem: 1 Mensal, 2 Diário, sem a barra de controles */
   /* Impressão (Ctrl+P): mostra as 2 páginas, limita a largura p/ os gráficos não estourarem
      e encolhe tudo com zoom pra caber na folha A4 paisagem (a página é feita p/ tela larga). */
@@ -115,7 +150,7 @@
   @media print{
     @page{ size:A4 landscape; margin:6mm; }
     body{ background:#fff; zoom:0.72; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .toolbar{ display:none !important; }
+    .nav, .toolbar{ display:none !important; }
     #topHeader{ display:none !important; }   /* cabeçalho da tela some; cada página tem o seu */
     .pgh{ display:flex !important; }          /* cabeçalho Grid Co./Thopen em TODA página */
     .wrap{ padding:4px 0 !important; }
@@ -472,20 +507,25 @@
     <div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
   </div>
 
+  <nav class="nav" role="tablist" aria-label="Páginas">
+    <button class="tab" type="button" role="tab" data-page="capa">Capa</button>
+    <button class="tab" type="button" role="tab" data-page="geral">Visão Geral</button>
+    <button class="tab active" type="button" role="tab" data-page="mensal" aria-selected="true">Mensal</button>
+    <button class="tab" type="button" role="tab" data-page="diario">Diário</button>
+    <button class="tab" type="button" role="tab" data-page="registros">Registros</button>
+    <span class="nav-sep"></span>
+    <button class="tab tab-met" type="button" role="tab" data-page="metodologia"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>Metodologia</button>
+  </nav>
   <div class="toolbar">
-    <div class="tab" data-page="capa">Capa</div>
-    <div class="tab" data-page="geral">Visão Geral</div>
-    <div class="tab active" data-page="mensal">Mensal</div>
-    <div class="tab" data-page="diario">Diário</div>
-    <div class="tab" data-page="metodologia">Metodologia</div>
-    <div class="tab" data-page="registros">Registros</div>
-    <div class="fld" id="fldCarteira"><label>CARTEIRA</label><span id="carteiraBtns" class="cgrp"></span></div>
-    <div class="fld" id="fldUsina"><label>USINA</label><select id="selUsina"></select></div>
-    <div class="fld" id="fldMes"><label>MÊS</label><select id="selMes"></select></div>
-    <div id="subinfo" style="margin-left:auto;color:var(--muted);font-size:12px;"></div>
-    <button id="btnRefresh" title="Buscar os dados mais recentes do banco">🔄 Atualizar</button>
-    <button id="btnPdf" title="Baixar PDF — página 1 Mensal, página 2 Diário">⤓ Baixar PDF</button>
-    <button id="btnPdfAll" title="Monta o RELATÓRIO da carteira (Capa → Visão Geral → Mensal/Diário de cada usina) e abre a impressão — Salvar como PDF">⤓ PDF Carteira</button>
+    <div class="fld" id="fldCarteira"><label>Carteira</label><span id="carteiraBtns" class="cgrp" role="group" aria-label="Carteira"></span></div>
+    <div class="fld" id="fldUsina"><label for="selUsina">Usina</label><select id="selUsina"></select></div>
+    <div class="fld" id="fldMes"><label for="selMes">Mês</label><select id="selMes"></select></div>
+    <div id="subinfo"></div>
+    <div class="acoes">
+      <button id="btnRefresh" class="btn sec icone" type="button" title="Buscar os dados mais recentes do banco" aria-label="Atualizar"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+      <button id="btnPdfAll" class="btn sec" type="button" title="Monta o relatório da carteira (Capa, Visão Geral e Mensal e Diário de cada usina) e abre a impressão para salvar em PDF"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg><span class="rb">PDF da carteira</span></button>
+      <button id="btnPdf" class="btn pri" type="button" title="Página 1 Mensal, página 2 Diário"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg><span class="rb">PDF da usina</span></button>
+    </div>
   </div>
 
   <!-- ───────────── PÁGINA MENSAL ───────────── -->
@@ -679,11 +719,12 @@ function mix(c1,c2,t){
 let OV=null;   // overview corrente
 let USINAS=[], CARTDE={}, CART=null, PAGE='mensal';   // usinas, usina->carteira, carteira ativa, página
 const MESNOME=['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const MESCURTO=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 // ---------- navegação ----------
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  t.classList.add('active');
+  document.querySelectorAll('.tab').forEach(x=>{ x.classList.remove('active'); x.setAttribute('aria-selected', 'false'); });
+  t.classList.add('active'); t.setAttribute('aria-selected', 'true');
   const p=t.dataset.page; PAGE=p;
   $('pageMensal').classList.toggle('hidden',p!=='mensal');
   $('pageDiario').classList.toggle('hidden',p!=='diario');
@@ -723,7 +764,7 @@ async function init(){
   // filtro de MÊS GLOBAL (populado 1x): Jan → mês corrente do ano vigente. NÃO reseta ao trocar de
   // usina — vale igual p/ todas as abas e p/ o relatório da carteira (some o bug de mês 6 vs 7 no PDF)
   const anoRef=u.ano||new Date().getFullYear(), mesMax=u.mes_max||12;
-  let mopts=''; for(let mm=mesMax; mm>=1; mm--) mopts+=`<option value="${anoRef}-${mm}">${String(mm).padStart(2,'0')}/${anoRef}</option>`;
+  let mopts=''; for(let mm=mesMax; mm>=1; mm--) mopts+=`<option value="${anoRef}-${mm}">${MESCURTO[mm]}/${anoRef}</option>`;
   $('selMes').innerHTML=mopts; $('selMes').value=`${anoRef}-${mesMax}`;
   // carteira inicial = a da usina default (Altair → Thopen); fallback p/ 1ª carteira com dados
   CART = CARTDE[u.default] || (u.carteiras||[]).find(c=>USINAS.some(x=>CARTDE[x]===c)) || null;
@@ -900,9 +941,11 @@ async function loadUsina(){
   $('titulo').textContent='Performance da Usina — '+(OV.nome||usina);
   document.querySelectorAll('.u-nome').forEach(e=>e.textContent=OV.nome||usina);  // cabeçalho por página (impressão)
   $('secMensalU').textContent=OV.nome||usina;
-  $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
-      +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
-      +(OV.planilha_em?('  ·  Dados de: '+OV.planilha_em):'');
+  // a hora dos dados numa linha só ("3,53 MWp · dados de 26/10 às 17:38"); cliente e cidade no mouse (26/10/2026)
+  const pe=OV.planilha_em||'';
+  $('subinfo').textContent=[OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'',
+      pe?('dados de '+pe.slice(0,5)+' às '+pe.slice(11)):''].filter(Boolean).join(' · ');
+  $('subinfo').title=[OV.cliente?('Cliente: '+OV.cliente):'', loc, pe?('Dados lidos em '+pe):''].filter(Boolean).join(' · ');
   setComExtra(OV.comentario_extra||'');   // texto adicional da usina (por usina, independe do mês)
   // usa o filtro de MÊS GLOBAL (não repopula/reseta por usina) — mantém o mês escolhido ao trocar
   const mv=$('selMes').value || `${OV.ano}-${new Date().getMonth()+1}`;
@@ -1451,7 +1494,7 @@ async function _capUsinaPDF(pdf, first){
   put(cM, first); put(cD, false);
 }
 async function printAllUsinas(){
-  const btn=$('btnPdfAll'), old=btn.textContent;
+  const btn=$('btnPdfAll'), lab=btn.querySelector('.rb'), old=lab.textContent;
   const sel=$('selUsina'), orig=sel.value, origMes=$('selMes').value;
   const usinas=[...sel.options].map(o=>o.value); if(!usinas.length) return;
   if(!confirm('Gerar 1 PDF com as '+usinas.length+' usinas da carteira "'+(CART||'todas')+'"? São ~'+(usinas.length*2)+' páginas e leva 1–3 min.')) return;
@@ -1460,7 +1503,7 @@ async function printAllUsinas(){
   const {jsPDF}=window.jspdf; const pdf=new jsPDF('l','mm','a4');
   try{
     for(let i=0;i<usinas.length;i++){
-      btn.textContent='Gerando '+(i+1)+'/'+usinas.length+'…';
+      lab.textContent='Gerando '+(i+1)+'/'+usinas.length+'…';
       sel.value=usinas[i]; await loadUsina(); await sleep(400);
       await _capUsinaPDF(pdf, i===0);
     }
@@ -1469,7 +1512,7 @@ async function printAllUsinas(){
   finally{
     document.body.classList.remove('exporting'); document.body.classList.remove('printing');
     sel.value=orig; try{ await loadUsina(); if(origMes){const p=origMes.split('-'); renderDiario(+p[0],+p[1]);} }catch(e){}
-    btn.disabled=false; $('btnPdf').disabled=false; btn.textContent=old;
+    btn.disabled=false; $('btnPdf').disabled=false; lab.textContent=old;
   }
 }
 
@@ -1512,7 +1555,8 @@ async function printRelatorioCarteira(){
   const sel=$('selUsina'), orig=sel.value, origMes=$('selMes').value;
   const usinas=[...sel.options].map(o=>o.value); if(!usinas.length){ alert('Carteira sem usinas com dados.'); return; }
   if(!confirm('Montar o relatório da carteira "'+(CART||'')+'" — Capa + Visão Geral + Mensal/Diário de '+usinas.length+' usinas ('+(usinas.length*2+2)+' págs) e abrir a impressão? Leva ~1–3 min.')) return;
-  const btn=$('btnPdfAll'), old=btn.textContent; btn.disabled=true; $('btnPdf').disabled=true;
+  // o rótulo é o .rb: trocar o textContent do botão apagaria o ícone (26/10/2026)
+  const btn=$('btnPdfAll'), lab=btn.querySelector('.rb'), old=lab.textContent; btn.disabled=true; $('btnPdf').disabled=true;
   document.body.classList.add('printing','exporting','building');   // captura a 1400px + #printArea medível (fit-to-page)
   let prt=$('printArea'); if(!prt){ prt=document.createElement('div'); prt.id='printArea'; document.body.appendChild(prt); }
   prt.innerHTML='';
@@ -1521,7 +1565,7 @@ async function printRelatorioCarteira(){
     renderCapa(); await sleep(80); prt.appendChild(await _snapPage($('pageCapa')));
     await renderGeral(); await sleep(80); const _geralPg=await _snapPage($('pageGeral')); prt.appendChild(_geralPg);
     for(let i=0;i<usinas.length;i++){
-      btn.textContent='Montando '+(i+1)+'/'+usinas.length+'…';
+      lab.textContent='Montando '+(i+1)+'/'+usinas.length+'…';
       sel.value=usinas[i]; $('selMes').value=origMes; await loadUsina();  // MESMO mês (global) p/ todas as usinas
       await sleep(380);
       prt.appendChild(await _snapPage($('pageMensal')));
@@ -1540,7 +1584,7 @@ async function printRelatorioCarteira(){
     if(window.__titulo) document.title=window.__titulo;
     if(prt) prt.innerHTML='';
     sel.value=orig; $('selMes').value=origMes; try{ await loadUsina(); }catch(e){}   // volta usina + mês
-    btn.disabled=false; $('btnPdf').disabled=false; btn.textContent=old;
+    btn.disabled=false; $('btnPdf').disabled=false; lab.textContent=old;
   }
 }
 $('btnPdfAll').onclick=printRelatorioCarteira;
@@ -1589,7 +1633,8 @@ window.addEventListener('beforeprint',()=>{
 // e alguém no PC da Grid tinha de copiar e publicar de novo. Desde 28/08/2026 o dashboard lê
 // direto do PostgreSQL — não há snapshot para republicar, e o botão só relê o banco.
 async function refreshBD(){
-  const btn=$('btnRefresh'), old=btn.textContent; btn.disabled=true; btn.textContent='Atualizando…';
+  // o Atualizar é só o ícone (26/10/2026): enquanto relê, o ícone gira e o título diz o que está acontecendo
+  const btn=$('btnRefresh'), old=btn.title; btn.disabled=true; btn.classList.add('girando'); btn.title='Atualizando…';
   const usinaAtual=$('selUsina').value;
   try{
     // backend relê o banco (limpa cache) e, com a usina e o mês da tela, busca de novo o trip das OS dela no Fracttal
@@ -1601,7 +1646,7 @@ async function refreshBD(){
     await loadUsina();                           // re-renderiza no MÊS global atual (preservado)
     if(PAGE==='registros') renderRegistros();
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
-  finally{ btn.disabled=false; btn.textContent=old; }
+  finally{ btn.disabled=false; btn.classList.remove('girando'); btn.title=old; }
 }
 $('btnRefresh').onclick=refreshBD;
 

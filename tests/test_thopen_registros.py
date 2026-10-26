@@ -128,7 +128,8 @@ def _html():
 
 def test_aba_registros_ao_lado_da_metodologia_e_fora_do_pdf():
     h = _html()
-    assert h.index('data-page="metodologia"') < h.index('data-page="registros"') < h.index('id="fldCarteira"')
+    # 26/10/2026, o cabeçalho em duas faixas: Registros com as páginas de dado, a Metodologia (consulta) por último
+    assert h.index('data-page="registros"') < h.index('data-page="metodologia"') < h.index('id="fldCarteira"')
     assert 'id="pageRegistros"' in h and "#pageRegistros{ display:none !important; }" in h
     assert "/api/t/registros?" in h and "/api/t/registros.xlsx?" in h
 
