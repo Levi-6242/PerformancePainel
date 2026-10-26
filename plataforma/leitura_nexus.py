@@ -22,6 +22,9 @@ _PAGINAS = ("/tempo-real", "/monitor", "/static")
 _GET = tuple(f"/api/{f}" for f in FONTES_API) + (
     "/api/state", "/api/entrada/tempo-real", "/api/notificacoes", "/api/data", "/api/plant", "/api/spv", "/api/etm",
     "/api/perdas", "/api/trackers", "/api/strings", "/api/fracttal/ultima-os", "/api/os-abertas", "/api/os-performance",
+    # o ativo do Fracttal de um inversor, para o "Investigar ativo" do Tempo real (26/10/2026): só lê o cadastro e o
+    # índice que já existem, sem ir ao Fracttal nem à API PV
+    "/api/fracttal/ativo-do-inversor",
     # o que a sessão abre (13/10/2026: o atalho do Tempo real para o de-para); pela chave, sempre "não abre"
     "/api/eu",
 )

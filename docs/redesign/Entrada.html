@@ -911,6 +911,8 @@
 // de criação!". A tela de criação do OS Creator (/os/performance/criar?janela=1, sem o topo) abre na mesma janela; a ponte
 // do Nexus avisa ({gc:'os-criada'}) quando o POST da criação deu certo: a notificação aparece e a próxima OS da fila abre
 // (uma por inversor); a última fecha. Fechar, Esc ou um clique fora fecham a janela.
+// Investigar ativo (26/10/2026): o botão direito no inversor do Monitoramento embutido abre aqui o histórico de OS dele
+// (/os/historico/ativo do OS Creator), na mesma janela.
 var _gcOsFila=[], _gcOsCriadas=0;
 function gcDeparaJanela(href,rotulo){
   gcDeparaFechar(true);
@@ -967,6 +969,9 @@ window.addEventListener('message',function(ev){
   if(d.gc==='depara'&&typeof d.href==='string'&&d.href.indexOf('/admin/de-para')>=0) gcDeparaJanela(d.href);
   if(d.gc==='depara-fechar') gcDeparaFechar();
   if(d.gc==='os'&&Array.isArray(d.links)) gcOsJanela(d.links);
+  // o "Investigar ativo" do Monitoramento embutido (26/10/2026): o histórico de OS do inversor, na mesma janela; só a
+  // tela do OS Creator que investiga, nada de abrir outro endereço por cima da Entrada
+  if(d.gc==='investigar'&&typeof d.href==='string'&&d.href.indexOf('/os/historico/ativo?')===0) gcDeparaJanela(d.href,'Investigar ativo');
   if(d.gc==='os-criada'&&document.getElementById('gc-depara-janela')){
     _gcOsCriadas++;
     gcAviso((d.mensagem||'OS criada no Fracttal.')+((d.detalhes||[]).length?' '+d.detalhes.slice(0,3).join(' · '):''),true);

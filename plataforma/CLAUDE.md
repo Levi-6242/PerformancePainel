@@ -2095,6 +2095,37 @@ Estrutura Trackers, `linkar=false`), uma OS por tracker. Regras que o código se
 
 Testes: `tests/test_trackers_os_plataforma.py` (rota + regras puras no node).
 
+### Investigar ativo: botão direito no inversor do drill (26/10/2026)
+
+Levi: "Gostaria de poder clicar com botão direito do mouse em cima do inversor e ter a opção 'Investigar ativo'. Vai
+aproveitar o pré carregamento de histórico de OS do OS Creator filtrando esse ativo, deve mostrar o período filtrado e eu
+devo conseguir fazer novos filtros e pesquisas pela visão. Vai abrir uma sub janela sobrepondo a tela dando um blur de
+fundo que nem quando vamos criar OS."
+
+- **O menu** (Monitoramento, `gcMenuAtivo`): o botão direito na linha do inversor do drill (o `.gc-chip` com
+  `data-inv-usina`, posto só no inversor de verdade com a usina da linha) abre "Investigar ativo", no tema da tela, sem
+  emoji. Só nas fontes do Criar OS (`_OS_FONTES`, a mesma lista do `_osBtn`: é onde o OS Creator acha o ativo); fora do
+  inversor (e nas outras fontes) o botão direito é o do navegador. Quem não abre o OS Creator para no portão do Nexus
+  dentro da janela, como no Criar OS. Fecha com Esc, clique fora, rolagem ou outra janela.
+- **O ativo** (`GET /api/fracttal/ativo-do-inversor?usina=<nome da linha>&inv=<nome da fonte>` → `{codigo, origem,
+  usina_fracttal}`): o código GRAVADO no cadastro (`_frac_cod_gravado`, Modo de-para) e, sem ele, o derivado do nome
+  (`{CODE-BASE}-INVR{N.M}`, a régua do `_frac_inv_code`) com o code-base do índice que JÁ existe em memória ou no disco
+  (`_frac_codebase_sem_varrer`: um clique não dispara a varredura de ~150 páginas do `_frac_codebase_index` frio). A
+  usina vai com o nome do Fracttal (`_fractall_da_usina`, a régua do `/api/os-creator/fractall-usinas`, que passou a
+  usá-la). Nada vai ao Fracttal nem à API PV; está no `_GET` do `leitura_nexus` (ponte e gestor leem). Sem código (índice
+  frio, usina sem de-para, a leitura que falhou), a janela abre igual: o OS Creator acha pelo número do inversor na usina.
+- **A janela:** `/os/historico/ativo?codigo=&usina=&nome=&rotulo=` + `janela=1`, a do OS Creator no Nexus
+  (`nexus/torres/oscreator/README.md`, "Investigar ativo"), no MESMO `gcDeparaJanela` do Criar OS e do de-para. No
+  embutido quem abre é a Entrada (`{gc:'investigar', href}`, aceito só da mesma origem e só para `/os/historico/ativo?`).
+  O histórico é a lista da Visão COS (30 dias, "Todos"), sem busca a mais no Fracttal; o código é conferido lá, no
+  catálogo de ativos do disco (o derivado errado, a Pharma II, vira aviso e a procura pelo nome).
+- **No PC aberto direto** (sem o Nexus), o `/os/*` da plataforma vai ao 5090 do oem, que só ganha a tela quando o Levi
+  mandar sincronizar: até lá, 404 na janela.
+
+Testes: `tests/test_investigar_ativo.py` (a rota com o gravado, o derivado pela memória e pelo disco, sem índice, sem
+parâmetro, sem ir ao Fracttal; a classificação; o menu e a Entrada; o clique rodado no node, com e sem o código, solto e
+embutido).
+
 ## Qualidade de dado: clipping e valor travado (pvanalytics, 17/09/2026)
 
 `qualidade.py` (módulo PURO, com teste) embrulha duas réguas do **pvanalytics**; `_qualidade_loop`

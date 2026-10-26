@@ -978,7 +978,9 @@ function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco 
 /* ── Modo "Criar OS": seleciona strings SEM CORRENTE → abre o OS Creator WEB em /os/ (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
 const _osSel=new Map();   // "pid|invId|sid" → {pid,invId,sid,usina,inv}
 function _osKey(p,i,s){ return p+'|'+i+'|'+s; }
-function _osBtn(){ if(!['pv','pg','sunop','owen','semp','2capi'].includes(SKEY[state.source])) return ''; if(state.dpMode) return `<button class="btn btn-secondary" disabled style="opacity:.45" title="Saia do modo de-para para criar OS"><i class="ph ph-wrench"></i> Criar OS</button>`; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
+// as fontes em que o OS Creator acha o ativo do inversor: valem para o Criar OS e para o "Investigar ativo" (26/10/2026)
+const _OS_FONTES=['pv','pg','sunop','owen','semp','2capi'];
+function _osBtn(){ if(!_OS_FONTES.includes(SKEY[state.source])) return ''; if(state.dpMode) return `<button class="btn btn-secondary" disabled style="opacity:.45" title="Saia do modo de-para para criar OS"><i class="ph ph-wrench"></i> Criar OS</button>`; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
 window.toggleOsMode=()=>{ if(state.dpMode) return; const on=!state.osMode; if(!on)_osSel.clear(); setState({osMode:on}); _osBar(); };
 window.osToggle=(pid,invId,sid,usina,inv)=>{ const k=_osKey(pid,invId,sid); if(_osSel.has(k))_osSel.delete(k); else _osSel.set(k,{pid:String(pid),invId:String(invId),sid:String(sid),usina:usina||'',inv:inv||''}); render(); _osBar(); };
 window.osClear=()=>{ _osSel.clear(); render(); _osBar(); };
@@ -1602,6 +1604,55 @@ function gcAbrirDepara(ev,href){
 function gcAbrirOs(links){
   if(EMBED){ try{ parent.postMessage({gc:'os',links:links},location.origin); return; }catch(e){} }
   gcOsJanela(links);
+}
+// "INVESTIGAR ATIVO" (26/10/2026). Levi: "Gostaria de poder clicar com botão direito do mouse em cima do inversor e ter a
+// opção 'Investigar ativo'. Vai aproveitar o pré carregamento de histórico de OS do OS Creator filtrando esse ativo, deve
+// mostrar o período filtrado e eu devo conseguir fazer novos filtros e pesquisas pela visão. Vai abrir uma sub janela
+// sobrepondo a tela dando um blur de fundo que nem quando vamos criar OS."
+// O botão direito na linha do inversor (o .gc-chip do drill) abre o menu; "Investigar ativo" pede à plataforma o código do
+// Fracttal do inversor (/api/fracttal/ativo-do-inversor: o gravado no de-para ou o derivado do nome, sem ir ao Fracttal)
+// e abre o histórico de OS do OS Creator (/os/historico/ativo, a lista que a Visão COS já carregou) na MESMA janela do
+// Criar OS. Só nas fontes do Criar OS (_OS_FONTES): é onde o OS Creator acha o ativo; quem não abre o OS Creator para no
+// portão do Nexus dentro da janela, como no Criar OS. Fora do inversor, o botão direito é o do navegador.
+const OS_WEB_INVESTIGAR='/os/historico/ativo';
+function gcMenuAtivoFechar(){ const m=document.getElementById('gc-menu-ativo'); if(m) m.remove(); }
+function gcMenuAtivo(ev,chip){
+  gcMenuAtivoFechar();
+  const d=chip.dataset, m=document.createElement('div');
+  m.id='gc-menu-ativo'; m.setAttribute('role','menu'); m.setAttribute('aria-label','Ações do inversor');
+  m.style.cssText='position:fixed;z-index:650;min-width:210px;padding:5px;border-radius:10px;background:var(--color-surface,#161d30);border:1px solid var(--color-divider,#2a3550);box-shadow:0 14px 36px rgba(0,0,0,.45);font-size:13px';
+  const rot=d.invFr||d.invNome||'inversor';
+  m.innerHTML=`<div style="padding:6px 10px 5px;font-size:11px;color:var(--color-neutral-400);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">${_he(rot)} · ${_he(d.invUsina)}</div><button type="button" role="menuitem" class="gc-menu-item" style="display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:var(--color-text);font:inherit;cursor:pointer;text-align:left"><i class="ph ph-magnifying-glass" style="font-size:15px;color:var(--color-accent)"></i>Investigar ativo</button>`;
+  const b=m.querySelector('button');
+  b.addEventListener('mouseenter',()=>{ b.style.background='color-mix(in srgb, var(--color-accent) 12%, transparent)'; });
+  b.addEventListener('mouseleave',()=>{ b.style.background='transparent'; });
+  b.addEventListener('click',()=>{ gcMenuAtivoFechar(); gcInvestigarAtivo(d.invUsina,d.invNome,d.invFr); });
+  document.body.appendChild(m);
+  // perto do clique, sem sair da tela (no embutido, a "tela" é a caixa do iframe: o clique e o menu estão nela)
+  const W=window.innerWidth, H=window.innerHeight, w=m.offsetWidth||220, h=m.offsetHeight||80;
+  m.style.left=Math.max(4,Math.min(ev.clientX,W-w-4))+'px'; m.style.top=Math.max(4,Math.min(ev.clientY,H-h-4))+'px';
+  b.focus();
+}
+document.addEventListener('contextmenu',ev=>{
+  const chip=ev.target&&ev.target.closest?ev.target.closest('.gc-chip[data-inv-usina]'):null;
+  if(!chip||!_OS_FONTES.includes(SKEY[state.source])){ gcMenuAtivoFechar(); return; }
+  ev.preventDefault(); gcMenuAtivo(ev,chip);
+});
+document.addEventListener('mousedown',ev=>{ const m=document.getElementById('gc-menu-ativo'); if(m&&!m.contains(ev.target)) gcMenuAtivoFechar(); });
+document.addEventListener('keydown',ev=>{ if(ev.key==='Escape') gcMenuAtivoFechar(); });
+window.addEventListener('scroll',gcMenuAtivoFechar,{passive:true}); window.addEventListener('resize',gcMenuAtivoFechar); window.addEventListener('blur',gcMenuAtivoFechar);
+async function gcInvestigarAtivo(usina,inv,nomeFr){
+  let a={};
+  try{ const r=await fetch('/api/fracttal/ativo-do-inversor?'+new URLSearchParams({usina:usina||'',inv:inv||''}).toString(),{credentials:'same-origin'});
+    if(r.ok) a=(await r.json())||{}; }catch(e){}
+  // sem o código (a leitura falhou, nada no de-para, índice frio), a janela abre igual: o OS Creator acha pelo nome na usina
+  const p={codigo:a.codigo||'',usina:a.usina_fracttal||usina||'',nome:inv||'',rotulo:nomeFr||inv||''};
+  gcAbrirInvestigar(OS_WEB_INVESTIGAR+'?'+new URLSearchParams(p).toString());
+}
+// no embutido quem abre a janela é a Entrada (a tela inteira); fora dele, esta página
+function gcAbrirInvestigar(href){
+  if(EMBED){ try{ parent.postMessage({gc:'investigar',href:href},location.origin); return; }catch(e){} }
+  gcDeparaJanela(href,'Investigar ativo');
 }
 function _dpSem(r){
   const n=r&&r.inv_sem_esp; if(!(n>0)) return null;
@@ -2530,7 +2581,7 @@ function renderInversor(inv,chart){
     ?`<span onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:8px;background:color-mix(in srgb, var(--color-accent) 15%, transparent);border:1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);color:var(--color-accent);font-size:12px;font-weight:600" title="OS ${_he(_atr.folio)} atribuída${_atr.ativo?' — '+_he(_atr.ativo):''}"><i class="ph ph-clipboard-text"></i>OS ${_he(_atr.folio)}<i class="ph ph-x" onclick="gcDesatribuirOS('${inv.pid}','${inv.invId}',event)" style="font-size:12px;color:var(--color-neutral-400);cursor:pointer" title="Desatribuir OS"></i></span>`
     :`<button onclick="gcAtribuirOS('${inv.pid}','${inv.invId}','${(inv.name||'').replace(/['"\\]/g,'')}','${(inv.usina||'').replace(/['"\\]/g,'')}',event)" style="display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid color-mix(in srgb, var(--gc-amber) 55%, transparent);color:var(--gc-amber);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit"><i class="ph ph-plus"></i>Atribuir OS</button>`);
   return `<div style="border-radius:var(--radius-md);margin-bottom:8px;${outBg}">
-    <div class="gc-chip" data-inv="${inv.id}" onclick="toggleInversor('${inv.id}',event,'${inv.pid||''}','${inv.invId||''}','${(inv.name||'').replace(/['"\\]/g,'')}')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;border-radius:var(--radius-md)">
+    <div class="gc-chip" data-inv="${inv.id}"${(inv.isReal&&inv.usina)?` data-inv-usina="${_he(inv.usina)}" data-inv-nome="${_he(inv.name||'')}" data-inv-fr="${_he(inv.nomeFracttal||'')}"`:''} onclick="toggleInversor('${inv.id}',event,'${inv.pid||''}','${inv.invId||''}','${(inv.name||'').replace(/['"\\]/g,'')}')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;border-radius:var(--radius-md)">
       <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(${inv.caretDeg}deg)"></i>
       ${inv.nomeFracttal?`<span style="display:inline-flex;flex-direction:column;line-height:1.25"><span style="font-weight:600;font-size:14px">${_he(inv.nomeFracttal)}</span><span class="text-muted" style="font:400 11px/1.3 'IBM Plex Mono',Consolas,monospace" title="O nome que a fonte manda: é ele que liga os tickets, as OS e o BD">na fonte ${_he(inv.name)}</span></span>`:`<span style="font-weight:600;font-size:14px">${inv.name}</span>`}${inv.cabine?`<span class="tag tag-neutral">${_he(inv.cabine)}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
       <span style="margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px">

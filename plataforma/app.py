@@ -26089,16 +26089,68 @@ def api_os_creator_fractall_usinas():
     fmap = _frac_fractall_map() or {}
     out = {}
     for u in (body.get("usinas") or []):
-        if not u:
-            continue
-        key = str(u).strip().lower()
-        k2 = re.sub(r"\(.*?\)", "", key).strip()          # sem "(577)"
-        fr = fmap.get(key) or fmap.get(k2)
-        if not fr:                                        # substring (só chaves ≥5 chars, evita falso positivo)
-            fr = next((v for kk, v in fmap.items() if len(kk) >= 5 and (kk in key or (k2 and kk in k2))), None)
+        fr = _fractall_da_usina(u, fmap)
         if fr:
             out[str(u)] = fr
     return jsonify({"map": out})
+
+
+def _fractall_da_usina(u, fmap):
+    """A 'Usina Fractall' (BD_Performance/Equipamentos) do nome da plataforma, pelo de-para `fmap` (o
+    `_frac_fractall_map`), ou None. A régua do Criar OS (`/api/os-creator/fractall-usinas`): o nome inteiro, sem o
+    "(577)", e por último o trecho (só chaves de 5+ letras, para não casar à toa)."""
+    if not u:
+        return None
+    key = str(u).strip().lower()
+    k2 = re.sub(r"\(.*?\)", "", key).strip()          # sem "(577)"
+    fr = fmap.get(key) or fmap.get(k2)
+    if not fr:                                        # substring (só chaves ≥5 chars, evita falso positivo)
+        fr = next((v for kk, v in fmap.items() if len(kk) >= 5 and (kk in key or (k2 and kk in k2))), None)
+    return fr or None
+
+
+def _frac_codebase_sem_varrer(usina):
+    """O code-base da usina SÓ pelo que já está em memória ou no disco (o índice do `_frac_codebase_index`), sem a
+    varredura de ~150 páginas no Fracttal quando ele está frio. É o "Investigar ativo" (26/10/2026): um clique não
+    pode virar a varredura do parque inteiro na cota da empresa. Sem índice, None (o OS Creator acha pelo nome)."""
+    s = str(usina or "").strip()
+    if not s:
+        return None
+    if re.fullmatch(r"[A-Za-z]{3}\d{3}", s):
+        return s.upper()
+    idx = _frac_cb_index
+    if not idx:
+        try:
+            with open(_FRAC_INDEX_FILE, encoding="utf-8") as f:
+                idx = (json.load(f) or {}).get("idx") or {}
+        except Exception:                                 # noqa: BLE001 — sem o arquivo, sem índice
+            idx = {}
+    desc = (_frac_fractall_map() or {}).get(s.lower())
+    ent = idx.get(desc.strip().lower()) if desc else None
+    return (ent or {}).get("cb")
+
+
+@app.route("/api/fracttal/ativo-do-inversor")
+def api_fracttal_ativo_do_inversor():
+    """O ativo do Fracttal de UM inversor, para o "Investigar ativo" do Tempo real (Levi, 26/10/2026: "clicar com botão
+    direito do mouse em cima do inversor e ter a opção 'Investigar ativo'"). ?usina=<nome da linha>&inv=<nome da fonte>.
+
+    → {ok, codigo, origem: "de-para" | "derivado" | "", usina_fracttal}. NÃO fala com o Fracttal: o código gravado no
+    cadastro (Modo de-para, `_frac_cod_gravado`) e, sem ele, o derivado do nome ("{CODE-BASE}-INVR{N.M}", a régua do
+    `_frac_inv_code`) com o code-base do índice que já existe (`_frac_codebase_sem_varrer`). A usina vai pelo nome do
+    Fracttal (a mesma régua do Criar OS). Quem confere o código é o OS Creator, no catálogo de ativos dele: o derivado
+    erra onde a árvore do Fracttal mudou (Pharma II), e lá o código que não existe cai na procura pelo nome."""
+    usina = (flask_request.args.get("usina") or "").strip()
+    inv = (flask_request.args.get("inv") or "").strip()
+    if not usina or not inv:
+        return jsonify({"ok": False, "erro": "faltou a usina ou o inversor"}), 400
+    codigo, origem = _frac_cod_gravado(usina, inv), "de-para"
+    if not codigo:
+        m = re.search(r"\d+\.\d+|\d+", inv)
+        base = _frac_codebase_sem_varrer(usina)
+        codigo, origem = (f"{base}-INVR{m.group(0)}", "derivado") if (m and base) else (None, "")
+    return jsonify({"ok": True, "codigo": codigo or "", "origem": origem if codigo else "",
+                    "usina_fracttal": _fractall_da_usina(usina, _frac_fractall_map() or {}) or ""})
 
 
 @app.route("/v2")
