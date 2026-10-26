@@ -1133,3 +1133,134 @@ def test_fonte_sem_o_nome_do_inversor_nao_duplica_os_do_cadastro(tmp_path):
       return {linhas: g.invs.length, sem_leitura: g.invs.filter(i => i.sem_leitura).length,
         aviso: inst.html().includes('a plataforma ainda não tem o nome deste inversor')};""", tmp_path)
     assert r == {"linhas": 6, "sem_leitura": 0, "aviso": True}
+
+
+# ── a União de 26/10/2026: a fonte com nome que não casa com o cadastro ─────────────────────────────────────────────────
+# O dado real do servidor em 26/10/2026 (GET /api/2capi/data, /api/admin/de-para/cadastro, /fracttal/arvore?codigo=UNI100 e
+# /registro): a conta oem@ manda os 12 inversores com nome ("UG1 INVERSOR01".., ids 401322-401327, e "UG2 INVERSOR01"..,
+# 401313-401318; o UG2 INVERSOR01 sem corrente), o cadastro da chave "UNI" (ligada hoje) tem "Inversor 1.1".."Inversor 2.6"
+# com o supervisório "UNI_Inv_1.1".."UNI_Inv_2.6", 18 strings e 360,36 kWp cada, a árvore 2C-UNI100 tem os 12 INVR na CABN1,
+# o Registro 74 tem 4.460 kWp (real), a "Usina Fractall" da aba é "2C - União 1 - PI" e o Nexus ainda não tem a "UNI" (a
+# semente da aba entra na conta: 216 da aba + 197 das linhas soltas = as 413 strings do print).
+_UNIAO = r"""
+const UG = [1, 2].flatMap(u => [1, 2, 3, 4, 5, 6].map(m => [u, m]));
+const IDS = {1: 401322, 2: 401313};
+F.arvores['2C-UNI100'] = Object.assign(arv('2C-UNI100', '2C - União 1 - PI', [['2C-UNI100-CABN1', UG.map(([u, m]) => `2C-UNI100-INVR${u}.${m}`)]], {usina_id: 74}), {cliente: '2C'});
+F.ufs.push({codigo: '2C-UNI100', nome: '2C - União 1 - PI', cliente: '2C', usina_id: 74, cabines: [{codigo: '2C-UNI100-CABN1', nome: 'Cabine 1'}], fonte: 'foto'});
+F.registro.push({usina_id: 74, codigo: '2C-UNI100', nome: 'União 1 e 2', status: 'OPERAÇÃO', kwp: 4460, kwp_de: 'real', cliente: '2C'});
+F.nexus[74] = {usina_id: 74, nome: 'União 1 e 2', codigo: '2C-UNI100', selo: 'selo-74', kwp: 4460, kwp_de: 'real', chaves: [], cabines: [], inversores: []};
+F.fractall['União 1 e 2'] = F.fractall['UNI'] = '2C - União 1 - PI';          // a "Usina Fractall" da aba (o servidor, 26/10)
+F.cadastro.push(C('UNI', 'União 1 e 2', UG.map(([u, m]) => [`UNI_Inv_${u}.${m}`, `Inversor ${u}.${m}`, 18, 360.36, 'UG 0' + u])));
+// porId = a linha traz o `esup` do de-para por id da plataforma (o PV_INV_NOMES da União), como o backend passou a mandar
+const uniao = porId => ({plant_id: 18772125, usina: 'União 1 e 2', depara_fonte: '2capi', chave_cadastro: 'UNI', qtd_inversores: 12, strings_ativas: 197,
+  inv_resumo: UG.map(([u, m]) => Object.assign({id: IDS[u] + m - 1, nome_api: `UG${u} INVERSOR0${m}`, nome: `UG${u} INVERSOR0${m}`,
+    ativas: u === 2 && m === 1 ? 0 : 18, total: 28, esp: null, sem_visao: false},
+    porId ? {esup: `UNI_Inv_${u}.${m}`, nome: `Inversor ${u}.${m}`, esp: 18} : {}))});
+const P = '18772125';
+const resumo = async inst => { const g = inst.S.porPid[P], c = inst.conta(P);
+  return {linhas: g.invs.length, sem_leitura: g.invs.filter(i => i.sem_leitura).length,
+    pend: [...new Set(g.invs.map(i => inst.pendencia(P, i.id)))],
+    repetido: g.invs.filter(i => inst.pendencia(P, i.id) === 'inversor repetido').length,
+    total: c && c.total, n: c && c.n, kwps: [...new Set(g.invs.map(i => c.inv[P + '|' + i.id]).filter(v => v != null).map(v => Math.round(v * 100) / 100))],
+    ativos: g.invs.map(i => [i.id, inst.S.sel[P + '|' + i.id].ativo])}; };
+"""
+
+
+def test_a_uniao_sem_de_para_por_id_nao_duplica_nem_salva(tmp_path):
+    """Levi, 26/10/2026, print da "União 1 e 2" ("AINDA DUPLICA"): nenhum dos 12 nomes da fonte casa com o cadastro da "UNI",
+    a tela acrescentava os 12 do cadastro como "sem leitura agora" (24 linhas), a conta do kWp dividia 4.460 por 413
+    strings (194,4 por inversor; "360,4 → 194,4" nos do cadastro) e tudo virava "inversor repetido". O conserto de 22/10 só
+    cobria o nome "INV-<id>". Agora: com uma linha da fonte sem casar, nenhuma do cadastro entra; a linha diz que o nome não
+    casa e não salva (o Nexus ganharia um 2º inversor para o mesmo equipamento); a conta não conta duas vezes."""
+    r = _node(_UNIAO + """
+      F.linhas = [uniao(false)];
+      const inst = DT.criar({fonte: '2capi'}); await inst.entrar(F.linhas, '2capi');
+      const out = await resumo(inst);
+      inst.conferirTodos();
+      await inst.mudar(P + '|401322', 'j-str', '18');                  // mexida: mesmo assim não vai
+      const n = PEDIDOS.length; await inst.salvar();
+      out.salvar = PEDIDOS.slice(n).filter(p => p.method === 'POST').length;
+      out.pronto = inst.pronto(P);
+      out.html = inst.html().includes('não casa com o cadastro da chave “UNI”');
+      return out;""", tmp_path)
+    assert r["linhas"] == 12 and r["sem_leitura"] == 0                    # 12 linhas para 12 inversores, não 24
+    assert len(r["pend"]) == 12 and all("não casa com o cadastro da chave “UNI”" in p and "editor da ponte" in p for p in r["pend"])
+    assert "o nome da fonte (“UG1 INVERSOR01”)" in r["pend"][0]
+    assert r["repetido"] == 0
+    # a conta é só a semente da aba (os 12 do cadastro, 216 strings), nunca ÷ 413; as linhas soltas ficam sem kWp
+    assert r["total"] == 216 and r["n"] == 12 and r["kwps"] == []
+    assert r["salvar"] == 0 and r["pronto"] is False and r["html"]
+
+
+def test_a_uniao_com_o_de_para_por_id_liga_ao_cadastro_e_manda_o_supervisorio_dele(tmp_path):
+    """Com o `esup` do de-para por id (o PV_INV_NOMES da União: 401322 = UNI_Inv_1.1, 401313 = UNI_Inv_2.1), cada linha é o
+    inversor do cadastro: o nome dele, as 18 strings da aba, o ativo do N.M certo, nenhuma linha "sem leitura agora", a
+    conta com os 12 uma vez só (4.460 ÷ 216 × 18 = 371,67 kWp) e o pedido ao Nexus com o supervisório e o nome do CADASTRO
+    (o Nexus acha o inversor que semeou da aba pelo supervisório: nenhum inversor novo)."""
+    r = _node(_UNIAO + """
+      F.linhas = [uniao(true)];
+      const inst = DT.criar({fonte: '2capi'}); await inst.entrar(F.linhas, '2capi');
+      const out = await resumo(inst);
+      inst.conferirTodos();
+      out.pronto = inst.pronto(P);
+      DUBLE.salvar = body => { out.pedido = body.itens.map(it => [it.usina_supervisorio, it.inversores.map(i => [i.equipamento_supervisorio, i.nome, i.codigo_fracttal, i.strings])]);
+        return resp(200, {ok: true, usinas: [F.nexus[74]], kwp: {}, visao_mudou: true, erros: [], avisos: [], mudancas: 12, marcacao: []}); };
+      await inst.salvar();
+      return out;""", tmp_path)
+    assert r["linhas"] == 12 and r["sem_leitura"] == 0 and r["pend"] == [""] and r["repetido"] == 0
+    assert r["total"] == 216 and r["n"] == 12 and r["kwps"] == [371.67]
+    ativo = dict((str(a), b) for a, b in r["ativos"])
+    assert ativo["401322"] == "2C-UNI100-INVR1.1" and ativo["401327"] == "2C-UNI100-INVR1.6"
+    assert ativo["401313"] == "2C-UNI100-INVR2.1" and ativo["401318"] == "2C-UNI100-INVR2.6"
+    assert r["pronto"] is True
+    [(chave, invs)] = r["pedido"]
+    assert chave == "UNI" and len(invs) == 12
+    assert sorted(i[0] for i in invs) == sorted(f"UNI_Inv_{u}.{m}" for u in (1, 2) for m in range(1, 7))
+    assert ["UNI_Inv_1.1", "Inversor 1.1", "2C-UNI100-INVR1.1", 18] in invs
+    assert ["UNI_Inv_2.1", "Inversor 2.1", "2C-UNI100-INVR2.1", 18] in invs
+
+
+def test_so_entra_inversor_sem_leitura_quando_todas_as_linhas_casaram(tmp_path):
+    """A regra (a) de 26/10/2026: com 11 linhas ligadas pelo id e uma sem (o nome da fonte não casa), o inversor do cadastro
+    que sobra NÃO entra como "sem leitura agora" (não se sabe se ele é a linha solta), e a linha solta é pendência fora da
+    conta. Com as 12 ligadas e um 13º inversor na fonte, o 13º é inversor a mais de verdade (todos os do cadastro já têm
+    linha): vai como novo, sem a pendência do nome."""
+    r = _node(_UNIAO + """
+      const l = uniao(true);
+      const solta = l.inv_resumo.find(i => i.id === 401318);
+      delete solta.esup; solta.nome = solta.nome_api; solta.esp = null;
+      const inst = DT.criar({fonte: '2capi'}); await inst.entrar([l], '2capi');
+      const out = {um: await resumo(inst), pendSolta: inst.pendencia(P, 401318)};
+      const l2 = uniao(true);
+      l2.inv_resumo.push({id: 401399, nome_api: 'UG3 INVERSOR01', nome: 'UG3 INVERSOR01', ativas: 18, total: 28, esp: null, sem_visao: false});
+      const i2 = DT.criar({fonte: '2capi'}); await i2.entrar([l2], '2capi');
+      out.dois = await resumo(i2);
+      out.pendExtra = i2.pendencia(P, 401399);
+      return out;""", tmp_path)
+    assert r["um"]["linhas"] == 12 and r["um"]["sem_leitura"] == 0
+    assert "não casa com o cadastro" in r["pendSolta"]
+    assert r["um"]["total"] == 216 and r["um"]["n"] == 12                     # a solta fora da conta: a aba uma vez só
+    assert r["dois"]["linhas"] == 13 and r["dois"]["sem_leitura"] == 0
+    assert "não casa com o cadastro" not in (r["pendExtra"] or "")
+
+
+def test_o_tempo_real_abre_uma_usina_por_linha_e_so_desenha_a_aberta(tmp_path):
+    """Levi, 26/10/2026: "No modo de-para gostaria de escolher qual usina quero ver o de-para antes, atualmente está
+    expandindo tudo!". O Tempo real cria o componente com o `resumo` (o mesmo da Base, sem os blocos por conta): abre com uma
+    linha por usina, recolhida, e o Abrir dá a tabela por inversor só dela; dá para abrir mais de uma, e a barra do Salvar
+    segue valendo para o que foi mexido."""
+    r = _node("""const inst = DT.criar({fonte: 'pv', resumo: true}); await inst.entrar(F.linhas, 'pv');
+      const h = inst.html();
+      const out = {usinas: (h.match(/class="dp-res"/g) || []).length, linhas: (h.match(/class="dp-row/g) || []).length,
+        blocos: (h.match(/class="dp-bloco"/g) || []).length, conta: h.includes('dp-conta-solta'), abrir: (h.match(/data-dp-abrir=/g) || []).length};
+      inst.S.abertos.add('18749574');
+      out.uma = (inst.html().match(/class="dp-row/g) || []).length;
+      inst.S.abertos.add('18758592');
+      out.duas = (inst.html().match(/class="dp-row/g) || []).length;
+      inst.conferir('18758592|378064', true);
+      out.mexidos = inst.mexidos();
+      return out;""", tmp_path)
+    assert r["usinas"] == 4 and r["linhas"] == 0 and r["blocos"] == 0 and r["conta"] and r["abrir"] == 4
+    assert r["uma"] == 4 and r["duas"] == 10 and r["mexidos"] == 1
+    i = MON.index("window.toggleDpMode=")
+    assert "window.DeparaTabela.criar({fonte:f, resumo:true," in MON[i:MON.index("\n};", i)]

@@ -4633,28 +4633,68 @@ def _pv_nomes_sem_rede(pid, cad: str, ids) -> dict | None:
     return {i: dev.get(i) or cod.get(i) or ordem.get(i) for i in ids}
 
 
+def _pv_inv_esup_por_id(pid, cad: str, ids) -> dict:
+    """{id: Equipamento Supervisório do CADASTRO, na grafia dele} dos inversores da conta oem@ (semp, alveslima, 2capi),
+    pelo de-para POR ID da plataforma (`_pv_inv_nomes_de`: o PV_INV_NOMES fechado por valor, com o decidido na tela De-para
+    por cima). Só o que casa com o cadastro da chave `cad`; a conta principal não tem de-para por id ({}).
+    Caso (Levi, 26/10/2026, print da "União 1 e 2"): a conta oem@ passou a mandar o nome dos inversores ("UG1 INVERSOR01"..
+    "UG2 INVERSOR06"), esse nome vence o de-para por id no `_pv_nomes_sem_rede` (o plant_devices vem antes) e nenhum casava
+    com o cadastro da "UNI" ("UNI_Inv_1.1".."UNI_Inv_2.6"): o Modo de-para punha os 12 do cadastro de novo como "sem
+    leitura agora" (24 linhas, o kWp dividido por 413 strings) e mandaria ao Nexus o nome da fonte, um 2º inversor para o
+    mesmo equipamento. Pelo id, o 401322 é o UNI_Inv_1.1 e o 401313 o UNI_Inv_2.1 (o PV_INV_NOMES da União)."""
+    try:
+        if int(pid) not in PV_OEM_PLANTS:
+            return {}
+    except (TypeError, ValueError):
+        return {}
+    porid = _pv_inv_nomes_de(pid)
+    if not porid:
+        return {}
+    esp_cad, exib = ESPERADO_INV.get(cad) or {}, EQUIP_NAMES.get(cad) or {}
+    chaves = list(esp_cad) + [c for c in exib if c not in esp_cad]
+    por_k = {}
+    for c in chaves:
+        por_k.setdefault(_equip_key(c), c)
+    out = {}
+    for i in ids or ():
+        n = porid.get(i)
+        c = por_k.get(_equip_key(n)) if n else None
+        if c:
+            out[i] = c
+    return out
+
+
 def _pv_inv_resumo(pid, cad: str, ids, ativas: dict, totais: dict, neutros, sem_visao) -> list:
     """Um resumo por inversor na linha da usina (Modo de-para do Tempo real, 20/10/2026): a tela monta UMA LINHA POR
     INVERSOR de todas as usinas da fonte sem abrir o drill de cada uma (o drill da API PV é chamada paga na hora, e a `pv`
     tem 115 usinas). Sai do que o `build_summary` já leu no ciclo do worker, sem nenhuma chamada nova à API PV:
     {id, nome_api (como a fonte chama, pelo caminho do drill), nome (o do cadastro), ativas (None no inversor sem visão
     ou em rampa: não há contagem), total (as strings lidas), esp (as esperadas do CADASTRO, sem os descontos da leitura),
-    sem_visao}."""
+    sem_visao, esup?}. `esup` (26/10/2026) = o Equipamento Supervisório do cadastro pelo de-para POR ID da conta oem@
+    (`_pv_inv_esup_por_id`); com ele, o `nome` e o `esp` são os desse inversor do cadastro, e a tela liga a linha a ele
+    mesmo com o nome da fonte diferente (a União: "UG1 INVERSOR01" = UNI_Inv_1.1)."""
     try:
         nomes = _pv_nomes_sem_rede(pid, cad, ids) or {}
     except Exception as e:                                      # noqa: BLE001 — o resumo nunca derruba a linha
         print(f"[de-para] resumo por inversor, usina {pid}: {e}")
         nomes = {}
+    try:
+        por_id = _pv_inv_esup_por_id(pid, cad, ids)
+    except Exception as e:                                      # noqa: BLE001 — idem
+        print(f"[de-para] de-para por id, usina {pid}: {e}")
+        por_id = {}
     esp_cad, exib = ESPERADO_INV.get(cad) or {}, EQUIP_NAMES.get(cad) or {}
     out = []
     for i in ids:
         if not isinstance(i, int) or isinstance(i, bool):
             continue
         api = nomes.get(i) or f"INV-{i}"
-        e = _equip_lookup(esp_cad, api)
-        out.append({"id": i, "nome_api": api, "nome": _equip_lookup(exib, api) or api,
+        esup = por_id.get(i)
+        e = _equip_lookup(esp_cad, esup or api)
+        out.append({"id": i, "nome_api": api, "nome": _equip_lookup(exib, esup or api) or esup or api,
                     "ativas": None if i in neutros else ativas.get(i), "total": totais.get(i),
-                    "esp": e if isinstance(e, (int, float)) else None, "sem_visao": i in sem_visao})
+                    "esp": e if isinstance(e, (int, float)) else None, "sem_visao": i in sem_visao,
+                    **({"esup": esup} if esup else {})})
     out.sort(key=lambda x: (_inv_hist_ord(x["nome"]), x["nome"]))
     return out
 

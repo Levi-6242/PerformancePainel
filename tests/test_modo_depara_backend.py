@@ -505,3 +505,38 @@ def test_os_nomes_dos_inversores_cobrem_todas_as_usinas_da_conta(monkeypatch):
     assert pedidos == ["18751504"]                                # a Itajá tem nome de 1 h: não vai à API PV
     assert base["18751504"]["names"] == {"368373": "INVERSOR01", "368374": "INVERSOR02"}
     assert gravado["18751504"]["nome_api"] == "Pharma 3 (851)" and "18749574" in gravado
+
+
+def test_a_uniao_da_conta_oem_liga_ao_cadastro_pelo_id_e_nao_pelo_nome_da_fonte(monkeypatch):
+    """Levi, 26/10/2026, print da "União 1 e 2" no Modo de-para (24 linhas para 12 inversores). No servidor, o
+    /api/2capi/data trazia os 12 com o nome da fonte ("UG1 INVERSOR01".. nos ids 401322-401327, "UG2 INVERSOR01".. nos
+    401313-401318) e `esp` vazio: o nome guardado da fonte vence o de-para por id no `_pv_nomes_sem_rede`, e o cadastro da
+    "UNI" tem "UNI_Inv_1.1".."UNI_Inv_2.6". Na conta oem@ o inversor liga pelo ID (o PV_INV_NOMES da União, fechado por valor
+    no grupo 2): a linha leva o `esup` do cadastro, o nome e as esperadas dele. Na conta principal (sem de-para por id),
+    nada muda."""
+    pid, cad = 18772125, "União"
+    esup = [f"UNI_Inv_{u}.{m}" for u in (1, 2) for m in range(1, 7)]
+    monkeypatch.setitem(app.ESPERADO_INV, cad, {e: 18 for e in esup})
+    monkeypatch.setitem(app.EQUIP_NAMES, cad, {e: "Inversor " + e.split("_")[-1] for e in esup})
+    monkeypatch.setattr(app, "PV_OEM_PLANTS", {pid})
+    monkeypatch.setattr(app, "_dp_estado", lambda: {"usina": {}, "inversor": {}, "apelido": {}})
+    ids = list(range(401322, 401328)) + list(range(401313, 401319))
+    fonte = {**{401322 + i: f"UG1 INVERSOR0{i + 1}" for i in range(6)}, **{401313 + i: f"UG2 INVERSOR0{i + 1}" for i in range(6)}}
+    monkeypatch.setattr(app, "_pv_nomes_sem_rede", lambda p, c, i: dict(fonte))     # como no servidor: o nome da fonte
+    ativas = {i: 18 for i in ids}
+    ativas[401313] = 0
+    r = app._pv_inv_resumo(pid, cad, ids, ativas, {i: 28 for i in ids}, set(), set())
+    por = {x["id"]: x for x in r}
+    assert por[401322] == {"id": 401322, "nome_api": "UG1 INVERSOR01", "nome": "Inversor 1.1", "ativas": 18, "total": 28,
+                           "esp": 18, "sem_visao": False, "esup": "UNI_Inv_1.1"}
+    assert por[401313]["esup"] == "UNI_Inv_2.1" and por[401313]["nome"] == "Inversor 2.1" and por[401313]["ativas"] == 0
+    assert sorted(x["esup"] for x in r) == sorted(esup) and len(r) == 12
+    # o nome por id que não está no cadastro da chave não vira `esup` (a tela segue dizendo que não casa)
+    monkeypatch.setitem(app.ESPERADO_INV, cad, {e: 18 for e in esup if e != "UNI_Inv_2.6"})
+    monkeypatch.setitem(app.EQUIP_NAMES, cad, {e: "Inversor " + e.split("_")[-1] for e in esup if e != "UNI_Inv_2.6"})
+    r = {x["id"]: x for x in app._pv_inv_resumo(pid, cad, ids, ativas, {i: 28 for i in ids}, set(), set())}
+    assert "esup" not in r[401318] and r[401318]["nome"] == "UG2 INVERSOR06" and r[401318]["esp"] is None
+    # a conta principal: sem de-para por id, a linha fica com o nome da fonte (como antes)
+    monkeypatch.setattr(app, "PV_OEM_PLANTS", set())
+    r = app._pv_inv_resumo(pid, cad, ids, ativas, {i: 28 for i in ids}, set(), set())
+    assert all("esup" not in x and x["esp"] is None and x["nome"] == x["nome_api"] for x in r)

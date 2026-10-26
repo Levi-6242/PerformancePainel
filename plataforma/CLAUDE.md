@@ -892,8 +892,9 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   não diz nada (campo ausente). **A cópia cobre a conta principal INTEIRA desde 22/10/2026** (`_falhas_pv_dev`), não só as
   usinas que já tiveram falha de string, e a que ainda não tem nome vai primeiro: as Pharmas 3 e 4 (sem visão de string)
   nunca entravam, chegavam ao Modo de-para como "INV-368373" e a tela mostrava os 6 do cadastro de novo como "sem leitura
-  agora" (Levi: "duplicou a quantidade de inversores de pharmas 3 pharmas 4"). E a tela não acrescenta linha do cadastro
-  quando algum inversor da fonte veio sem nome (`semLeituraDe`); a linha dele diz "a plataforma ainda não tem o nome
+  agora" (Levi: "duplicou a quantidade de inversores de pharmas 3 pharmas 4"). A tela não acrescenta linha do cadastro
+  quando alguma linha da fonte não casa com a chave (`semLeituraDe`, regra geral desde 26/10/2026: ver "Os inversores sem
+  leitura agora" no Modo de-para); a linha que veio só com o número diz "a plataforma ainda não tem o nome
 deste inversor (a API PV mandou só o número; chega no próximo ciclo)" — o texto antigo, "sem o nome do inversor na fonte",
 fazia parecer que a API PV não tinha o nome (Levi: "como assim sem nome na fonte?"). O diagnóstico acusa em **atenção** ("N de M inversor(es) sem esperadas: o nome que chega
   (...) não casa com o cadastro") e marca `sem_depara = "inversor"`. Na tela: a etiqueta âmbar "sem de-para · N inv." na
@@ -1055,12 +1056,18 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   `potencia_real` × 1.000 (`kwp_de: "real"`); vazia, zero ou ilegível (o "0,,643" da Rodrigues II) → `potencia_contratual`
   × 1.000 (`"contratual"`); sem as duas, `kwp` vazio. No banco de 20/10: 190 real, 68 contratual, 0 sem as duas.
 - **`inv_resumo` nas linhas das contas da API PV** (`/api/data`, `/api/semp/data`, `/api/alveslima/data`,
-  `/api/2capi/data`): `[{id, nome_api, nome, ativas, total, esp, sem_visao}]`, montado no `build_summary` com o que o ciclo
+  `/api/2capi/data`): `[{id, nome_api, nome, ativas, total, esp, sem_visao, esup?}]`, montado no `build_summary` com o que o ciclo
   já leu (`_pv_inv_resumo`; o nome pelo mesmo caminho sem rede do `_pv_inv_sem_esperadas`, agora `_pv_nomes_sem_rede`):
   é o que dá ao modo uma linha por inversor de TODAS as usinas da fonte sem abrir o drill de cada uma (pago na hora).
   `ativas` = None no inversor sem visão ou em rampa, 0 no desligado por potência (como o drill); `esp` = as esperadas do
   CADASTRO, sem os descontos da leitura. Tamanho estimado sobre o snapshot de 20/10 (as 120 linhas da `pv` com um resumo
   por inversor, nomes da cópia das Falhas): `/api/data` 83 → 191 KB; com o gzip, que é o que trafega, 7,5 → 14,7 KB.
+  **`esup` (26/10/2026), só na conta oem@** (semp, alveslima, 2capi): o Equipamento Supervisório do cadastro, na grafia
+  dele, pelo de-para POR ID da plataforma (`_pv_inv_esup_por_id` sobre o `_pv_inv_nomes_de`: o PV_INV_NOMES com as
+  decisões da tela De-para por cima), só quando casa com o cadastro da chave; com ele, `nome` e `esp` são os desse
+  inversor do cadastro, e o `nome_api` segue o da fonte. Caso: a União (18772125) passou a vir com o nome da fonte
+  ("UG1 INVERSOR01".., que vence o de-para por id no `_pv_nomes_sem_rede` porque o nome guardado vem antes), e nenhum
+  casava com o "UNI_Inv_1.1".. da chave "UNI" (dado do servidor em 26/10: `inv_sem_esp` 12, `esp` vazio nos 12).
 - **Drill da API PV** (`/api/plant/<id>` e o da 2C pela `owen`): por inversor, `nome_fracttal` ("Inversor N.M" do código
   gravado) e `cabine` ("Cabine N"), só quando houver (`_dp_rotulos_fracttal`). O `nome` NÃO muda (decisão 5 do Levi): é a
   chave dos tickets, do padrão de 30 dias, das OS e a coluna do BD. A `cabine` só sai quando a UG do inversor ("Equipamento
@@ -1120,10 +1127,26 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   Troca de chave refaz essas linhas. Na `pv` de 20/10 (a bancada): 3 linhas, as da Ouro Branco 4 (773), cadastro com 7 e a
   API lendo 4. A linha de fora que o Nexus já tem segue na conta dele e mostra o kWp que ELE vai gravar (os 3 parados da Ouro
   Branco 4, com 17 strings no Nexus, vão de 145,2 a 133,7 junto com os outros), não "o de hoje".
-- **O inversor do cadastro para a linha da fonte** (`cadDoInv`): pelo Equipamento Supervisório e, sem ele, pelo nome do
-  cadastro igual ao que a fonte manda. A Pharma II manda "Inversor 1.1" e a aba e o Nexus têm a "Pharma 2" com INVERSOR01 =
+  **Só entram quando TODAS as linhas da fonte casaram** com algum inversor da chave (`casamentoDe`: o cadastro pelo
+  `cadDoInv`, o Nexus pelo `invNexus` ou o nome do cadastro da chave de hoje): aí os que sobram são de fato os que não
+  leram. Com uma linha sem casar, nenhuma entra (não se sabe qual do cadastro ela é). Os dois casos, com print do Levi: a
+  Pharma 3 (851) de 22/10 (a fonte só com o número, "INV-368373": 12 linhas para 6) e a "União 1 e 2" de 26/10 (a fonte com
+  nome, "UG1 INVERSOR01", e a chave "UNI" com "UNI_Inv_1.1": 24 linhas para 12, o kWp dividido por 413 strings, 194,4 por
+  inversor, e tudo "inversor repetido"). O conserto de 22/10 só cobria o "INV-<id>".
+- **A linha solta** (`linhaSolta`, 26/10/2026): a linha da fonte que não casa com a chave **enquanto a chave ainda tem
+  inversor sem linha** pode ser o mesmo equipamento com outro nome. Ela é pendência vermelha "o nome da fonte (“X”) não casa
+  com o cadastro da chave “Y”: ligue os inversores no editor da ponte", não salva, fica fora da conta do kWp (a semente da
+  aba já conta o inversor do cadastro; contada também, a União dividia por 413) e fora do "repetido". Com todos os da chave
+  já casados, a linha que sobra é inversor a mais de verdade e vai como novo. Motivo: o salvar do Nexus acha o inversor
+  pelo supervisório e, sem ele, pelo NOME; o pedido de 26/10 da União (supervisório "UG1 INVERSOR01", `nome` vazio) achava
+  nenhum e ia criar um com o "Inversor N.M" do código, recusado (409) só por coincidir com o nome de um semeado da aba: com
+  um código de outro número, nasceria um 2º inversor para o mesmo equipamento.
+- **O inversor do cadastro para a linha da fonte** (`cadDoInv`, e o `invNexus` pelo mesmo nome): pelo `esup` do de-para por
+  id (a conta oem@, ver `inv_resumo`) e depois pelo nome da fonte; em cada um, pelo Equipamento Supervisório e, sem ele, pelo
+  nome do cadastro igual. A Pharma II manda "Inversor 1.1" e a aba e o Nexus têm a "Pharma 2" com INVERSOR01 =
   "Inversor 1.1": só pelo supervisório, a tela contava os 6 duas vezes no kWp (12 membros) e punha os 6 de novo como "sem
-  leitura agora".
+  leitura agora". Com o `esup`, a União liga os 12 ao cadastro (401322 = UNI_Inv_1.1, 401313 = UNI_Inv_2.1) e o pedido ao
+  Nexus leva o supervisório e o nome do CADASTRO (o Nexus acha o que semeou da aba; nenhum inversor novo).
 - **As strings corretas sugeridas**: do Nexus, senão do cadastro da chave, senão da LEITURA de agora. A da leitura é
   pendência "confira as strings: vieram da leitura de agora" até o Conferido DA LINHA (o "conferir todos" não as confere;
   digitar também resolve): 155 inversores da aba não têm Strings Ativas, e uma string parada na hora viraria "não esperada"
@@ -1138,8 +1161,9 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   (até 50 de cada por pedido). **Fora da moldura não há Nexus**: a tela mostra e sugere, e o Salvar fica desligado dizendo
   "abra pelo Nexus". Na bancada, `window.GC_NEXUS_BASE` força o prefixo.
 - **As sugestões** (contrato e `levantamento/cobertura.md`): usina do Fracttal pela "Usina Fractall" da aba, pelo código no
-  nome, pelo nome-base com o número e pelas irmãs do mesmo código-base; vence a que casa mais inversores pelo CÓDIGO N.M
-  (o N.M do nome, ou o número da planta com o do inversor), e no empate a árvore mais nova — a Pharma II casa os 6 na
+  nome, pelo nome-base com o número e pelas irmãs do mesmo código-base; vence a que casa mais ativos DIFERENTES pelo CÓDIGO
+  N.M (o N.M do nome, ou o número da planta com o do inversor; diferentes desde 26/10/2026: a "União 1 e 2" tem o 2 no nome,
+  e pelo número da planta os 12 caíam nos 6 INVR2.m, empatando com os 12 do N.M), e no empate a árvore mais nova — a Pharma II casa os 6 na
   THPN-PHS100 de hoje e também na PHS200 da foto, que não existe mais no Fracttal. Planta com rótulo de subusina
   ("Ceilandia 1.2 (90)", "Junco 2.1 (134)"): o número é o N do rótulo e o nome do cadastro vence o empate (lido como planta 2,
   a Ceilandia 1.2 ia para os INVR2.x: 33 erros). Registro: a usina da chave no Nexus, a do Fracttal, o código cheio, o fim do
@@ -1237,7 +1261,12 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   `RD.abreAdmin` E `RD.gravaAdmin`, na aba Strings, nas contas da API PV (pv, semp, alveslima, 2capi; a 2C da tela é `owen`) e com o
   `inv_resumo` na linha (`_dpPode`/`_dpBtn`); `state.dpMode`; o Criar OS fica desabilitado; os chips de status somem; a barra
   `#gc-dpbar` entra no `_prendeOverlays`; `setSource`/`setView` saem do modo (`_dpSair`); "Sair do modo de-para" com
-  mudança não salva pergunta antes. A busca da tela filtra as usinas do modo. No drill, `renderInversor` mostra o
+  mudança não salva pergunta antes. A busca da tela filtra as usinas do modo. **Abre com UMA LINHA POR USINA, recolhida**
+  (26/10/2026, Levi: "No modo de-para gostaria de escolher qual usina quero ver o de-para antes, atualmente está expandindo
+  tudo!"): o componente vai com `resumo: true` e sem `blocos`, o mesmo resumo da Base (as mesmas colunas) sem o bloco por
+  conta, porque a tela já é de uma fonte e já está dentro do cartão "Detalhamento por Usina" (um nível de superfície só); o
+  Abrir de cada usina dá a tabela por inversor só dela (só ela é desenhada), dá para abrir várias, e a barra do Salvar
+  aparece com usina aberta, mexida ou resultado. No drill, `renderInversor` mostra o
   `nome_fracttal` com o da fonte embaixo ("na fonte Inversor 1.1") e a `cabine` do cadastro no lugar da do nome; o `name`
   segue sendo a chave. A `gcDeparaJanela` e o atalho "sem de-para" (o editor da ponte) ficam.
 - **Base · De-para** (`templates/depara.html`): aba **Por usina** (padrão) com um bloco por conta da API PV e UMA USINA POR
@@ -1262,8 +1291,12 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   `nome_api`, os avisos por usina e a resposta que não é JSON; e os da 2ª revisão final de 21/10: a "Nova chave" fora da
   lista e a chave fora da aba e do Nexus como pendência, a ponte pendente que volta ao reabrir, a releitura que espera o
   Nexus (o selo velho no meio da gravação, o `gravando`, o prazo), a troca de códigos entre usinas num pedido só, as duas
-  CABN de mesmo número, a manchete com as chaves que não valem, a chave irmã da Coração). Mutações
-  (`scratchpad .../r2_plat/mutar_plat.py` e, as de 21/10, `scratchpad .../r3/mutar_r3.py`): cada regra quebrada de
+  CABN de mesmo número, a manchete com as chaves que não valem, a chave irmã da Coração; e os de 26/10, com o dado do
+  servidor da União: sem o de-para por id não duplica nem salva e a conta não conta duas vezes, com ele liga ao cadastro e
+  o pedido leva o supervisório do cadastro, o "sem leitura agora" só com todas as linhas casadas, e o Tempo real com uma
+  usina por linha). `tests/test_modo_depara_backend.py` tem o `esup` da União pelo id. Mutações
+  (`scratchpad .../r2_plat/mutar_plat.py`, as de 21/10 em `scratchpad .../r3/mutar_r3.py` e as de 26/10 em
+  `scratchpad .../uniao/mutar.py`): cada regra quebrada de
   propósito faz o teste dela falhar. Bancada: as páginas reais com as leituras dubladas pelas cópias
   do banco e o Nexus imitado em `/nexus` (o script ficou no scratchpad da sessão de 20/10).
 

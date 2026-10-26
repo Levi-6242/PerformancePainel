@@ -147,8 +147,12 @@
   function nmB(g, inv) { const M = mDoInversor(inv); return M != null ? `${numeroDaPlanta(g) || 1}.${M}` : null; }   // a planta + o inversor
   function acertos(g, a) {
     const m = mapaNM(a), temN = numeroDaPlanta(g) != null && !plantaComRotulo(g);
-    let ha = 0, hb = 0;
-    (g.invs || []).forEach(inv => { const x = nmA(inv), y = nmB(g, inv); if (x && m[x]) ha++; if (y && m[y]) hb++; });
+    // conta os ativos DIFERENTES que cada jeito acerta (26/10/2026): a "União 1 e 2" tem o número 2 no nome, e pelo número
+    // da planta os 12 inversores (1.1..2.6) caíam nos 6 INVR2.m — 12 "acertos" empatando com os 12 do N.M do nome, e o
+    // empate dava a planta: tudo "inversor repetido". Pelos ativos diferentes, 6 contra 12
+    const sa = new Set(), sb = new Set();
+    (g.invs || []).forEach(inv => { const x = nmA(inv), y = nmB(g, inv); if (x && m[x]) sa.add(x); if (y && m[y]) sb.add(y); });
+    const ha = sa.size, hb = sb.size;
     // empatados, vale o número da planta quando a planta tem número: a Coração 2 tem no cadastro os nomes "Inversor 1.x"
     // (que são os ativos da Coração 1) e no Fracttal os INVR2.x
     return {a: ha, b: hb, melhor: Math.max(ha, hb), metodo: hb > ha ? 'b' : ha > hb ? 'a' : (temN ? 'b' : 'a')};
@@ -254,11 +258,18 @@
   // cadastro igual ao que a fonte manda. A Pharma II manda "Inversor 1.1" e a aba (e o Nexus) têm a "Pharma 2" com
   // INVERSOR01 = "Inversor 1.1": só pelo supervisório, a tela contava os 6 duas vezes no kWp (os do Nexus e os da tela) e
   // punha os 6 de novo como "sem leitura agora" (medido na `pv` de 20/10)
+  // Na conta oem@ a linha traz também o `esup`: o Equipamento Supervisório do cadastro pelo de-para POR ID da plataforma
+  // (26/10/2026, a União: a fonte passou a mandar "UG1 INVERSOR01".., o cadastro da "UNI" tem "UNI_Inv_1.1"..; pelo id, o
+  // 401322 é o UNI_Inv_1.1). Ele vem antes do nome da fonte em todo casamento com o cadastro e com o Nexus
+  function esupFonte(inv) { return (inv && (inv.esup || inv.nome_api)) || ''; }
+  function nomesDaFonte(inv) { return [...new Set([inv.esup, inv.nome_api].filter(Boolean).map(chaveEquip))]; }
   function cadDoInv(ctx, chave, inv) {
     const c = chave ? (ctx.cadPor || {})[nk(chave)] : null;
     if (!c) return null;
-    const invs = c.inversores || [], k = chaveEquip(inv.nome_api);
-    return invs.find(i => chaveEquip(i.esup) === k) || invs.find(i => chaveEquip(i.nome) === k) || null;
+    const invs = c.inversores || [], ks = nomesDaFonte(inv);
+    for (const k of ks) { const x = invs.find(i => chaveEquip(i.esup) === k); if (x) return x; }
+    for (const k of ks) { const x = invs.find(i => chaveEquip(i.nome) === k); if (x) return x; }
+    return null;
   }
   // o nome do inversor no cadastro da chave escolhida (o "Equipamento" da aba, a coluna do BD): vai no pedido ao Nexus (o
   // inversor novo nasce com ele, nunca com o "Inversor N.M" do código: a Coração 2 tem "Inversor 1.x" na aba e INVR2.x no
@@ -276,10 +287,12 @@
   function invNexus(ctx, chave, inv) {
     const est = estDaChave(ctx, chave);
     if (!est) return null;
-    const c = nk(chave), k = chaveEquip(inv.nome_api), invs = est.inversores || [];
+    const c = nk(chave), invs = est.inversores || [];
     const daChave = invs.filter(i => nk(i.usina_supervisorio) === c);
-    const x = daChave.find(i => i.equipamento_supervisorio && chaveEquip(i.equipamento_supervisorio) === k);
-    if (x) return x;
+    for (const k of nomesDaFonte(inv)) {
+      const x = daChave.find(i => i.equipamento_supervisorio && chaveEquip(i.equipamento_supervisorio) === k);
+      if (x) return x;
+    }
     const nome = nomeDoCadastro(ctx, chave, inv);
     if (!nome) return null;
     const n = chaveEquip(nome);
@@ -435,6 +448,7 @@
 .gc-dp .dp-bcab{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:16px 22px;border-bottom:1px solid var(--color-divider,rgba(255,255,255,.09))}
 .gc-dp .dp-bnome{font-size:16px;font-weight:600;color:var(--color-text,#e9eef6)}
 .gc-dp .dp-bconta{font-size:12.5px;color:var(--color-neutral-400,#96a0b4)}
+.gc-dp .dp-conta-solta{display:block;padding:10px 22px;border-bottom:1px solid var(--color-divider,rgba(255,255,255,.09))}
 .gc-dp .dp-grupo td{background:color-mix(in srgb,var(--color-neutral-900,#0e1626) 70%,transparent);padding:9px 14px 9px 22px;font-size:12px;color:var(--color-neutral-400,#96a0b4);text-align:left}
 .gc-dp .dp-grupo td b{color:var(--color-text,#e9eef6);font-size:13px}
 .gc-dp .dp-gl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
@@ -676,22 +690,54 @@
     // vira uma linha "sem leitura agora", do cadastro da plataforma (a aba, com as chaves do Nexus por cima) e do Nexus, com
     // as strings do cadastro (editáveis). Começa "de fora" (o Nexus não mexe nele: fica o que a aba ou o Nexus têm) quando a
     // sugestão não fecha; com tudo sugerido, vai como as outras, a conferir. Sem chamada nenhuma à API PV.
+    // ── o casamento das linhas da fonte com os inversores da chave (26/10/2026) ──
+    // Quais linhas da fonte NÃO são nenhum inversor do cadastro da chave (a aba com o Nexus por cima) nem do Nexus, e quais
+    // inversores da chave nenhuma linha é. Casa pelo cadastro (o supervisório do de-para por id, o nome da fonte ou o nome do
+    // cadastro igual, `cadDoInv`), pelo Nexus (`invNexus`) ou pelo nome do cadastro da chave de hoje (`inv.nome`). Pura (sem
+    // o memo): a usam o `semLeituraDe` (fora do desenho), a pendência e a conta do kWp.
+    function casamentoDe(g, chave) {
+      const lid = lidas(g), c = nk(chave);
+      const cad = (S.ctx.cadPor[c] || {}).inversores || [], est = chave ? estDaChave(S.ctx, chave) : null;
+      const nxDaChave = ((est && est.inversores) || []).filter(i => nk(i.usina_supervisorio) === c && i.equipamento_supervisorio);
+      const casadosCad = new Set(), casadosNx = new Set(), soltas = [];
+      lid.forEach(i => {
+        const x = cadDoInv(S.ctx, chave, i), nx = invNexus(S.ctx, chave, i);
+        let ok = false;
+        if (x) { casadosCad.add(chaveEquip(x.esup)); ok = true; }
+        if (nx) { casadosNx.add(nx.inversor_id); if (nx.equipamento_supervisorio) casadosCad.add(chaveEquip(nx.equipamento_supervisorio)); ok = true; }
+        // o nome do cadastro da chave de hoje igual ao nome de um inversor da chave escolhida
+        if (!ok && i.nome && i.nome !== i.nome_api) {
+          const n = chaveEquip(i.nome), y = cad.find(z => chaveEquip(z.nome) === n), w = nxDaChave.find(z => chaveEquip(z.nome) === n);
+          if (y) { casadosCad.add(chaveEquip(y.esup)); ok = true; }
+          if (w) { casadosNx.add(w.inversor_id); ok = true; }
+        }
+        if (!ok) soltas.push(i);
+      });
+      const sobraCad = cad.filter(x => x.esup && !casadosCad.has(chaveEquip(x.esup)));
+      const sobraNx = nxDaChave.filter(i => !casadosNx.has(i.inversor_id) && !casadosCad.has(chaveEquip(i.equipamento_supervisorio)));
+      return {soltas, casadosCad, casadosNx, sobra: sobraCad.length + sobraNx.length, sobraCad, sobraNx};
+    }
+    // a linha da fonte que não casa com nenhum inversor da chave enquanto a chave ainda tem inversor sem linha: pode ser o
+    // MESMO equipamento com outro nome, e o Nexus criaria um 2º inversor para ele (a União de 26/10). Com todos os da chave
+    // já casados, a linha que sobra é inversor a mais de verdade e vai como novo
+    function linhaSolta(g, inv, chave) {
+      if (!chave || inv.sem_leitura) return false;
+      const M = _memo, kk = g.pid + '|' + nk(chave);
+      let cs = M && M.cas ? M.cas[kk] : null;
+      if (!cs) { cs = casamentoDe(g, chave); if (M && M.cas) M.cas[kk] = cs; }
+      return cs.sobra > 0 && cs.soltas.includes(inv);
+    }
+    // Só se acrescenta inversor do cadastro "sem leitura agora" quando TODAS as linhas da fonte casaram com algum inversor
+    // da chave: aí os que sobram são de fato os que não leram. Com uma linha sem casar, nenhum (não se sabe qual do cadastro
+    // ela é). Os dois casos que criaram a regra, os dois com print do Levi: a Pharma 3 (851) de 22/10/2026 ("duplicou a
+    // quantidade de inversores de pharmas 3 pharmas 4", a fonte sem nome, "INV-368373": 12 linhas para 6 inversores) e a
+    // "União 1 e 2" de 26/10/2026 (a fonte com nome, "UG1 INVERSOR01", e o cadastro "UNI_Inv_1.1": 24 linhas para 12, o kWp
+    // dividido por 413 strings e tudo "inversor repetido"). O conserto de 22/10 só cobria o "INV-<id>"
     function semLeituraDe(g, chave) {
       if (!chave) return [];
-      const c = nk(chave), lid = lidas(g), out = [], visto = new Set();
-      // A fonte mandou inversor SEM o nome ("INV-368373": a plataforma não sabe o nome dele sem ir à API PV) — Levi, 22/10/2026,
-      // com print da Pharma 3 (851): "duplicou a quantidade de inversores de pharmas 3 pharmas 4". Sem o nome não dá para
-      // saber qual inversor do cadastro já está na tela: os 6 do cadastro apareciam de novo como "sem leitura agora", 12
-      // linhas para 6 inversores. Com um só sem nome, não se acrescenta nenhum; a linha diz que a PLATAFORMA ainda não tem o
-      // nome (o texto antigo, "sem o nome do inversor na fonte", fazia parecer que a API PV não tinha; Levi: "como assim sem
-      // nome na fonte?")
-      if (lid.some(i => /^INV-\d+$/.test(String(i.nome_api || '')))) return [];
-      const nxLidos = new Set(lid.map(inv => (invNexus(S.ctx, chave, inv) || {}).inversor_id).filter(x => x != null));
-      // a linha da fonte que já é este inversor: pelo cadastro (o supervisório ou o nome igual ao da fonte, `cadDoInv`), ou
-      // pelo nome do cadastro da chave de hoje
-      const casados = new Set(lid.map(i => (cadDoInv(S.ctx, chave, i) || {}).esup).filter(Boolean).map(chaveEquip));
-      const casa = (esup, nome) => casados.has(chaveEquip(esup)) || lid.some(i => chaveEquip(i.nome_api) === chaveEquip(esup)
-        || (nome && (chaveEquip(i.nome_api) === chaveEquip(nome) || (i.nome && i.nome !== i.nome_api && chaveEquip(i.nome) === chaveEquip(nome)))));
+      const c = nk(chave), out = [], visto = new Set();
+      const cs = casamentoDe(g, chave);
+      if (cs.soltas.length) return [];
       const add = (esup, nome, esp) => {
         const ce = chaveEquip(esup);
         if (!esup || visto.has(ce)) return;
@@ -699,13 +745,8 @@
         out.push({id: 'sl:' + ce, nome_api: esup, nome: nome || esup, ativas: null, total: null, esp: esp > 0 ? +esp : null,
           sem_visao: false, sem_leitura: true, chave_do_nome: chave});
       };
-      const cad = S.ctx.cadPor[c];
-      ((cad && cad.inversores) || []).forEach(x => { if (!casa(x.esup, x.nome)) add(x.esup, x.nome, x.esp); });
-      const est = estDaChave(S.ctx, chave);
-      ((est && est.inversores) || []).forEach(i => {
-        if (nk(i.usina_supervisorio) !== c || nxLidos.has(i.inversor_id) || !i.equipamento_supervisorio) return;
-        if (!casa(i.equipamento_supervisorio, i.nome)) add(i.equipamento_supervisorio, i.nome, i.strings_esperadas_qtd);
-      });
+      cs.sobraCad.forEach(x => add(x.esup, x.nome, x.esp));
+      cs.sobraNx.forEach(i => add(i.equipamento_supervisorio, i.nome, i.strings_esperadas_qtd));
       return out;
     }
     // refaz o que depende da chave escolhida: as linhas "sem leitura agora" (a troca de chave troca os inversores do
@@ -759,7 +800,7 @@
       const nx = invNexus(S.ctx, chave, inv);
       if (nx && nx.equipamento_supervisorio) return nx.equipamento_supervisorio;
       const x = !nx ? cadDoInv(S.ctx, chave, inv) : null;              // o da aba, que o Nexus semeia na chave nova
-      return x && x.esup ? x.esup : inv.nome_api;
+      return x && x.esup ? x.esup : esupFonte(inv);
     }
     // a identidade do inversor na conta e no "um código num inversor só": o que o Nexus tem, pelo id dele; o que o Nexus
     // ainda não tem, pela chave normalizada e o Equipamento Supervisório (a mesma da semente da aba em `membrosDa`).
@@ -769,7 +810,7 @@
       if (e && kk in e) return e[kk];
       const nx = invNexus(S.ctx, chave, inv);
       const x = nx ? null : cadDoInv(S.ctx, chave, inv);
-      const v = nx ? 'nx:' + nx.inversor_id : 'novo:' + nk(chave) + '|' + chaveEquip(x && x.esup ? x.esup : inv.nome_api);
+      const v = nx ? 'nx:' + nx.inversor_id : 'novo:' + nk(chave) + '|' + chaveEquip(x && x.esup ? x.esup : esupFonte(inv));
       if (e) e[kk] = v;
       return v;
     }
@@ -786,10 +827,12 @@
     function memo() {
       if (_memo) return _memo;
       const naTela = {};
-      S.grupos.forEach(g => g.invs.forEach(inv => { const s = S.sel[k(g, inv)] || {};
-        if (s.ativo && !s.fora) (naTela[s.ativo] = naTela[s.ativo] || []).push(k(g, inv)); }));
       _memo = {naTela, ids: new Set(), nexus: usoNoNexus(), conta: {}, contaSo: {}, pend: {}, esup: {}, vai: new Set(),
-        cabn: {}, irma: {}};
+        cabn: {}, irma: {}, cas: {}};
+      // a linha solta (`linhaSolta`) não conta no "repetido": a pendência dela já segura a usina, e o ativo sugerido para
+      // ela marcava de vermelho a linha certa que tem o mesmo ativo
+      S.grupos.forEach(g => { const ch = (S.gsel[g.pid] || {}).chave; g.invs.forEach(inv => { const s = S.sel[k(g, inv)] || {};
+        if (s.ativo && !s.fora && !linhaSolta(g, inv, ch)) (naTela[s.ativo] = naTela[s.ativo] || []).push(k(g, inv)); }); });
       // as CABN escolhidas por usina do Registro e número (a pendência das duas CABN de mesmo número, `duasCabnDe`)
       S.grupos.forEach(g => { const gs = S.gsel[g.pid]; if (!gs || !gs.reg) return;
         g.invs.forEach(inv => { const s = S.sel[k(g, inv)] || {}, n = s.cab && s.cab !== '-' && !s.fora ? nCabine(s.cab) : null;
@@ -840,12 +883,16 @@
       return (M.pend[key] = pendenciaSemMemo(g, inv));
     }
     const CONFIRA = 'confira as strings: vieram da leitura de agora';
+    const NAO_CASA = (inv, chave) => `o nome da fonte (“${inv.nome_api}”) não casa com o cadastro da chave “${chave}”: ligue os inversores no editor da ponte (Base · De-para · Diagnóstico); sem isso o Nexus ganharia um 2º inversor para o mesmo equipamento`;
     // a pendência que o próprio Conferido resolve (a linha mostra o botão junto)
     function soConferir(p) { return p === CONFIRA; }
     function pendenciaSemMemo(g, inv) {
       const key = k(g, inv), s = S.sel[key] || {}, gs = S.gsel[g.pid] || {};
       if (s.fora) return '';
       if (/^INV-\d+$/.test(String(inv.nome_api || ''))) return 'a plataforma ainda não tem o nome deste inversor (a API PV mandou só o número; chega no próximo ciclo)';
+      // a linha que não casa com a chave que ainda tem inversor sem linha (a União de 26/10/2026): o Nexus criaria um 2º
+      // inversor para o mesmo equipamento. Não salva até a ponte ligar o inversor (ou a linha ficar de fora)
+      if (linhaSolta(g, inv, gs.chave)) return NAO_CASA(inv, gs.chave);
       if (!s.uf) return 'falta a usina do Fracttal';
       if (!s.cab) return 'falta a cabine';
       if (!s.ativo) return 'falta o inversor';
@@ -966,7 +1013,10 @@
           // a linha de fora não vai no pedido, mas o inversor que o Nexus já tem segue na conta dele com o que está lá: a
           // linha mostra o kWp que ELE vai gravar (o parado da Ouro Branco 4 (773), com 17 strings no Nexus, vai de 145,2
           // a 133,7 junto com os outros, e não "fica o de hoje")
-          if (s.fora) { if (base.some(b => b.id === id)) tela.push({id, strings: null, cab: '', k: k(g, inv)}); return; }
+          // A linha solta (sem casar com a chave que ainda tem inversor sem linha) também fica fora da conta: ela pode ser
+          // um dos inversores que a semente da aba já pôs na conta, e entrava duas vezes (a União de 26/10/2026: 4.460 ÷ 413
+          // strings, 194,4 por inversor, com os 12 da aba e os 12 da fonte)
+          if (s.fora || linhaSolta(g, inv, gs.chave)) { if (base.some(b => b.id === id)) tela.push({id, strings: null, cab: '', k: k(g, inv)}); return; }
           const cab = s.cab && s.cab !== '-' ? cabIdent(est, s.cab) : '';
           if (cab) rotulos[cab] = rotuloCabine(s.cab);
           tela.push({id, strings: s.strings, cab, k: k(g, inv)});
@@ -1114,7 +1164,7 @@
       const btnConf = `<button type="button" class="btn-conf" data-acao="conf"><svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Conferido</button>`;
       const situ = s.fora ? `<span class="st sug">${inv.sem_leitura ? 'sem leitura agora: fica como está' : 'fica de fora'}</span> <button type="button" class="btn-conf desfaz" data-acao="volta" title="${inv.sem_leitura ? 'Mandar este inversor no de-para com o que estiver na linha' : 'Ligar este inversor de novo'}">${inv.sem_leitura ? 'incluir' : 'desfazer'}</button>`
         : soConferir(pend) ? `<span class="st amb">${esc(pend)}</span> ${btnConf}`
-          : pend ? `<span class="st ${/repetido|já está/.test(pend) ? 'red' : 'amb'}">${esc(pend)}</span> <button type="button" class="btn-conf desfaz" data-acao="fora" title="O inversor não vai neste de-para (o trocado que a fonte ainda lista: “(old)”, “Cancelado”); o Nexus não mexe nele">deixar de fora</button>`
+          : pend ? `<span class="st ${/repetido|já está|não casa com o cadastro/.test(pend) ? 'red' : 'amb'}">${esc(pend)}</span> <button type="button" class="btn-conf desfaz" data-acao="fora" title="O inversor não vai neste de-para (o trocado que a fonte ainda lista: “(old)”, “Cancelado”); o Nexus não mexe nele">deixar de fora</button>`
             : s.conf ? `<span class="st ok">conferido</span> <button type="button" class="btn-conf desfaz" data-acao="desfaz" title="Voltar a sugestão">desfazer</button>`
               : btnConf;
       // depois de ligado, o inversor aparece com o nome do Fracttal (Levi, 20/10: "Após ligar o de-para o nome do inversor
@@ -1211,6 +1261,11 @@
       if (!S.grupos.length) return '<div class="gc-dp" data-dp-raiz="1"><div class="dp-carrega">Esta fonte não mandou o resumo por inversor neste ciclo: espere a próxima leitura (5 min) e entre de novo.</div></div>';
       const vazio = grupos.length ? '' : '<div class="dp-carrega">Nenhuma usina com esse filtro.</div>';
       if (!op.resumo) return `<div class="gc-dp" data-dp-raiz="1">${htmlFontes()}${htmlLegenda()}${htmlTabela(grupos)}${vazio}</div>`;
+      // o Tempo real (26/10/2026, Levi: "No modo de-para gostaria de escolher qual usina quero ver o de-para antes,
+      // atualmente está expandindo tudo!"): o mesmo resumo da Base, uma usina por linha, recolhida, e o Abrir dá a tabela
+      // por inversor só dela. Sem os blocos por conta: a tela já é de uma fonte e já está dentro do cartão "Detalhamento por
+      // Usina" (um nível de superfície só)
+      if (!op.blocos) return `<div class="gc-dp" data-dp-raiz="1">${htmlFontes()}${htmlLegenda()}<div class="dp-bconta dp-conta-solta" data-bloco="">${contaBloco(grupos)}</div>${htmlResumo(grupos)}${vazio}</div>`;
       // a Base: um bloco por fonte (a conta da API PV), uma usina por linha
       const blocos = (op.blocos || [{id: null, nome: ''}]).map(b => {
         const gs = grupos.filter(g => b.id == null || g.fonte === b.id);

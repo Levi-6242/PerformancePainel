@@ -1018,7 +1018,10 @@ window.osGerar=async()=>{
    inversor já vem na linha do ciclo, `inv_resumo`: abrir o drill de 115 usinas seria chamada paga na hora) e só para quem
    abre a administração e grava (`RD.abreAdmin` e `RD.gravaAdmin`, o /api/eu). O molde é o do Criar OS: o estado, o "Sair do modo", a barra fixa no
    rodapé (no embutido, presa pelo `_prendeOverlays`) e sair ao trocar de fonte ou de aba. A tabela é o componente
-   static/depara_tabela.js, o mesmo da Base; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois. ── */
+   static/depara_tabela.js, o mesmo da Base; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois.
+   Abre com UMA LINHA POR USINA, recolhida (26/10/2026, Levi: "No modo de-para gostaria de escolher qual usina quero ver o
+   de-para antes, atualmente está expandindo tudo!"): o `resumo` do componente, o mesmo da Base sem os blocos por conta;
+   o Abrir de cada usina dá a tabela por inversor só dela, e o Salvar vale para o que foi mexido. ── */
 const _DP_FONTES=['pv','semp','alveslima','2capi','owen'];   // a 2C da tela é "owen" por dentro: as linhas dela são da 2capi
 let _dpI=null, _dpPedido=false;
 /* o componente vem de /admin/de-para/tabela.js (21/10/2026): com o Nexus na raiz o Caddy manda /static/* ao Nexus (menos
@@ -1051,7 +1054,7 @@ window.toggleDpMode=()=>{
   if(!_dpPode()) return;
   state.osMode=false; _osSel.clear(); _osBar(); state.dpMode=true;
   const f=SKEY[state.source]==='owen'?'2capi':SKEY[state.source];
-  _dpI=window.DeparaTabela.criar({fonte:f, redesenhar:()=>{ if(state.dpMode) render(); }, aoBarra:_prendeOverlays,
+  _dpI=window.DeparaTabela.criar({fonte:f, resumo:true, redesenhar:()=>{ if(state.dpMode) render(); }, aoBarra:_prendeOverlays,
     aoDescartar:()=>{ _dpSair(); render(); return false; }});
   _dpI.entrar(_dpLinhas(), f);
   render();
