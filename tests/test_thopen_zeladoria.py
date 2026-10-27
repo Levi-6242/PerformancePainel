@@ -155,6 +155,7 @@ def test_carteira_invalida_e_400(cli):
 
 
 def test_cliente_so_ve_as_carteiras_dele(cli, monkeypatch):
+    monkeypatch.setitem(dth.LIBERADO_AO_CLIENTE, "zeladoria", True)       # liberada; fechada, ver test_thopen_liberacao
     monkeypatch.setenv("THOPEN_LOGIN", "1")
     monkeypatch.setitem(dth.app.config, "SESSION_COOKIE_SECURE", False)
     conta = {"conta_id": "c1", "nome": "Cliente Teste", "email": "cliente@exemplo.com", "carteiras": ["Thopen"],

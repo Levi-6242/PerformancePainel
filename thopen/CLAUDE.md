@@ -37,7 +37,10 @@ e evite alterar layout sem pedido.
   REAIS do Nexus), cada uma atrás de um túnel trycloudflare próprio; ver "Como provar".
 - **Destino: o servidor da T.I.**, em `https://app.gridco.com.br/performance/` (entrada em `/performance/login`), no
   lugar do Dashboard Thopen com login próprio que a T.I. montou lá (campos Usuário e Senha). Roteiro e `thopen.env` em
-  `C:\GridcoAuto\entrega-ti\thopen-login-2026-10-14\`. Até lá, o cliente segue no clone deste PC.
+  `C:\GridcoAuto\entrega-ti\thopen-login-2026-10-14\`. **Desde 27/10/2026 o servidor anda sozinho com a `main`**
+  (Levi: "A TI já está subindo automático, assim que vc commita já carrega no server"): push = cliente atualizado.
+  O 5080 deste PC ainda roda; atualize-o do mesmo jeito. Por isso novidade sobe fechada ao cliente (seção
+  "Liberação ao cliente").
 - **O 5080 deste PC com o login ligado (16/10/2026**, Levi: "com login claro"): o `servir_thopen.py` põe
   `THOPEN_LOGIN=1` e `THOPEN_PREFIXO=/performance` (o mesmo caminho do servidor da T.I.: o link de senha do Nexus,
   `https://app.gridco.com.br/performance/convite/...`, vale no túnel trocando só o endereço; a raiz do túnel leva à
@@ -103,6 +106,16 @@ limite de tentativas), `livro_banco.py` (ler/acrescentar livro do banco, genéri
   senha → só a carteira Thopen (outra usina, outra carteira e o Atualizar: 403) → link de novo: "já foi usado" → sair e
   entrar → desativada no Nexus, fora em 37 s. A conta TESTE ficou no livro, desativada.
 
+## Liberação ao cliente (27/10/2026)
+
+Levi: "vamos subir as atualizações primeiro para o usuário de performance, o usuário thopen que é o do cliente só vê
+se eu liberar". Como o push já chega ao cliente, toda tela ou aba nova sobe com uma chave em `LIBERADO_AO_CLIENTE`
+(`dashboard_thopen.py`) valendo `False`: o papel `grid` (a conta Performance) vê; a conta de cliente (a `thopen`) não
+vê a aba (o `libera` do template) e a rota responde 403 "ainda não está liberada" (`_portao`). Liberar = o Levi pede,
+a chave vira `True` e sobe. Mudança dentro de uma tela que o cliente já vê não tem chave sozinha: precisa dos dois
+caminhos (`_liberado(chave)` escolhe) até a liberação, e o velho sai quando ela vem. Login desligado (as cópias de
+prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria`. Prova: `tests/test_thopen_liberacao.py`.
+
 ## Dados
 
 **A fonte é o PostgreSQL** (Levi, 28/08/2026): a coleta continua ESCREVENDO no `BD_Thopen.xlsx`,
@@ -166,7 +179,8 @@ Levi, 26/10/2026, pela sessão do Campo no Nexus: "agora faz a mesma tela no das
 App > Zeladoria, no modelo "Rondas Sujidade e Vegetação"). Decisões dele: **o Nexus publica a visão pronta** e o 5080 só
 mostra (a conta fica num lugar só); a evolução agrupada pela **carteira**; "Aprovar recomendação" e "Solicitar orçamento"
 **fora** por enquanto. Código: `zeladoria_cliente.py` (puro), `fonte_zeladoria.py` (leitura), a rota `/api/t/zeladoria` e
-a aba no `dashboard_thopen.html` (`renderZeladoria`, `_zlDesenha`, `abrirZelUsina`).
+a aba no `dashboard_thopen.html` (`renderZeladoria`, `_zlDesenha`, `abrirZelUsina`). **Fechada ao cliente desde
+27/10/2026** ("zeladoria pode tirar da visualização do cliente thopen"): só o papel `grid` vê a aba.
 
 - **De onde.** O livro `nexus_zeladoria` do banco (Nexus, commit d6f37d7, 27/10/2026; a visão é registrada no catálogo do
   Nexus): `zeladoria_semana`, uma linha por usina × semana COM leitura (segunda a domingo, 12 semanas até a corrente, os

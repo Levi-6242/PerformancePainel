@@ -581,7 +581,7 @@
     <button class="tab active" type="button" role="tab" data-page="mensal" aria-selected="true">Mensal</button>
     <button class="tab" type="button" role="tab" data-page="diario">Diário</button>
     <button class="tab" type="button" role="tab" data-page="registros">Registros</button>
-    <button class="tab" type="button" role="tab" data-page="zeladoria">Zeladoria</button>
+    {% if libera.zeladoria %}<button class="tab" type="button" role="tab" data-page="zeladoria">Zeladoria</button>{% endif %}
     <span class="nav-sep"></span>
     <button class="tab tab-met" type="button" role="tab" data-page="metodologia"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>Metodologia</button>
   </nav>

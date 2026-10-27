@@ -1051,6 +1051,18 @@ def _e_grid():
     return not _login_ligado() or (_usuario() or {}).get("papel") == "grid"
 
 
+# O que o cliente já pode ver (Levi, 27/10/2026: "vamos subir as atualizações primeiro para o usuário de performance, o
+# usuário thopen que é o do cliente só vê se eu liberar"). Novidade sobe com a chave aqui em False: o papel grid (a conta
+# Performance) vê assim que o servidor anda; a conta de cliente só quando o Levi liberar (trocar para True e subir).
+LIBERADO_AO_CLIENTE = {
+    "zeladoria": False,   # a aba Zeladoria (26/10/2026); 27/10: "zeladoria pode tirar da visualização do cliente"
+}
+
+
+def _liberado(chave):
+    return _e_grid() or bool(LIBERADO_AO_CLIENTE.get(chave))
+
+
 _POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina=
 _SO_GRID = {"comentario_extra", "reload_bd"}                           # gravar e forçar a releitura
 
@@ -1066,6 +1078,8 @@ def _portao():
             return jsonify({"ok": False, "erro": "Sua sessão terminou. Entre de novo."}), 401
         return redirect(request.script_root + "/login")
     ep = request.endpoint
+    if ep == "api_zeladoria" and not _liberado("zeladoria"):
+        return jsonify({"ok": False, "erro": "Esta tela ainda não está liberada."}), 403
     fora = jsonify({"ok": False, "erro": "Esta usina não está no seu acesso."}), 403
     if ep in _POR_USINA and not _pode(request.args.get("usina", "")):
         return fora
@@ -1876,6 +1890,7 @@ def index():
     # Operação no Mês manda para o card (operacao_mes.REGUA); o HTML não repete frase nenhuma
     u = _usuario() if _login_ligado() else None
     return render_template("dashboard_thopen.html", regua=operacao_mes.REGUA, raiz=request.script_root,
+                           libera={k: _liberado(k) for k in LIBERADO_AO_CLIENTE},
                            usuario={"nome": u["nome"], "email": u["email"], "usuario": u.get("usuario") or u["email"],
                                     "papel": u["papel"]} if u else None)
 
