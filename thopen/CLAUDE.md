@@ -462,15 +462,16 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
     ocupa a largura e o cabeçalho quebra (1.330 de 1.330 px; sem isso ia a 1.658 e o PDF cortava).
   - **Diário**: `pontos[].possivel` = meta mensal × IPOA medido do dia ÷ meta mensal de IPOA, com `ipoa_med` e
     `fonte_ipoa` (o mouse: "Possível pelo IPOA 21.705 kWh · IPOA 4,65 kWh/m² (ETM)"); `possivel_info` diz a cobertura.
-  - **As linhas do gráfico e o seletor** (Levi, 26/10/2026: "Tem como dar para ver duas linhas? a linha do POA e a linha
-    da projeção? para comparativo mesmo! (...) Quero que no gráfico também dê para escolher qual quer mostrar, se quer
-    tirar algum e não vai sair no pdf claro"): de outubro em diante, a preta (possível, eixo da energia) e o **IPOA
-    medido** que a gera (`ipoa_med`, ETM ou GHI, pontilhado verde-azulado no eixo da direita; o dia sem medição fica sem
-    ponto); antes, a irradiação de sempre. O seletor acima do gráfico (`#glSel`) e o clique na legenda tiram e põem
-    Possível, IPOA e Meta; a escolha fica no navegador (`localStorage` `thopen_linhas`) e vale para o Ctrl+P, o Baixar
-    PDF e o PDF Carteira. O seletor não vai para a folha; a linha tirada sai do gráfico e da legenda, e o título acompanha.
-    O desenho mora no `_desenhaDiario` (o `renderDiario` busca e chama). A possível é o IPOA × (meta ÷ meta de IPOA):
-    as duas linhas sobem e descem juntas por construção — o comparativo de verdade é a barra contra a preta.
+  - **As linhas do gráfico e o seletor** (Levi, 26/10/2026: "Quero que no gráfico também dê para escolher qual quer
+    mostrar"; 27/10/2026: "tira o possível pelo POA e deixa só o POA medido mesmo!"): de outubro em diante a linha é o
+    **IPOA medido** (`ipoa_med`, ETM ou GHI, no eixo da direita; preto e sólido; o dia sem medição fica sem ponto), com a
+    Meta; antes, a irradiação de sempre. A geração possível saiu do gráfico e segue nas colunas da Visão Geral. Sem
+    botões em cima ("tire esses botões de cima também, deixe só a legenda!", 27/10/2026): o clique na legenda tira e põe
+    IPOA e Meta (a tirada fica cinza na legenda, para voltar); a escolha fica no navegador (`localStorage`
+    `thopen_linhas`) e no Ctrl+P, no Baixar PDF e no PDF Carteira a linha tirada sai do gráfico e da legenda
+    (`body.printing`). Mês com medição em
+    menos da metade dos dias: a nota sob o gráfico diz quantos dias têm irradiação medida. O desenho mora no
+    `_desenhaDiario` (o `renderDiario` busca e chama).
   - Medido em 20/10, carteira Thopen de outubro (59 usinas): 8 sem ETM, 11 com furo. Altair: meta do período 596.874
     kWh (1.027.950 ÷ 31 × 18), irradiação 95,18 contra 127,92 esperados, possível 444.128 kWh, produzida 439.566 (−1,03%).
   - Prova: `tests/test_thopen_geracao_possivel.py` (a regra, números à mão) e `tests/test_thopen_geracao_possivel_rotas.py`

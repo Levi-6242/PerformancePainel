@@ -20,9 +20,10 @@ def _funcao(nome):
     return h[i:h.index("\n}\n", i)]
 
 
-def test_de_outubro_em_diante_a_possivel_e_o_ipoa_medido_juntos():
+def test_de_outubro_em_diante_so_o_ipoa_medido():
+    # 27/10/2026 (Levi: "tira o possível pelo POA e deixa só o POA medido mesmo!"): a linha da possível saiu do gráfico
     f = _funcao("_desenhaDiario")
-    assert "'Possível pelo IPOA (kWh)'" in f and "'IPOA medido (kWh/m²)'" in f
+    assert "Possível pelo IPOA" not in f and "p.possivel" not in f and "'IPOA medido (kWh/m²)'" in f
     # o IPOA medido é o mesmo que gera a possível (ETM ou GHI), no eixo da direita, com a fonte no mouse
     assert "p.ipoa_med" in f and "p.fonte_ipoa" in f and re.search(r"yaxis:\s*'y2'", f)
 
@@ -32,12 +33,10 @@ def test_o_zero_do_ipoa_casa_com_o_zero_da_energia():
     assert "range:[0," in f and "rangemode:'nonnegative'" in f
 
 
-def test_seletor_das_linhas_no_card_e_fora_da_folha():
+def test_sem_botoes_em_cima_so_a_legenda():
+    # 27/10/2026 (Levi: "tire esses botões de cima também, deixe só a legenda!")
     h = _html()
-    card = h[h.index('id="grafCard"'):h.index('id="chDiario"')]
-    assert 'id="glSel"' in card
-    assert "body.printing .gl-sel, #printArea .gl-sel{ display:none !important; }" in h
-    assert re.search(r"@media print\{[^}]*\.gl-sel", h)
+    assert 'id="glSel"' not in h and "gl-chip" not in h and "plotly_legendclick" in h
 
 
 def test_a_escolha_fica_guardada_e_vale_para_o_pdf():
@@ -47,7 +46,8 @@ def test_a_escolha_fica_guardada_e_vale_para_o_pdf():
     f = _funcao("_desenhaDiario")
     assert "_LINHAS" in f
     # a linha tirada sai do gráfico (e da legenda), não fica cinza na folha
-    assert "legendonly" not in f
+    # na tela a linha tirada fica cinza na legenda (para voltar); na folha (body.printing) ela sai de vez
+    assert "legendonly" in f and "classList.contains('printing')" in f
 
 
 def test_clicar_na_legenda_tambem_tira_a_linha():
@@ -58,3 +58,8 @@ def test_metodologia_fala_das_duas_linhas_e_do_seletor():
     h = _html()
     met = h[h.index('id="pageMetodologia"'):h.index('id="pageRegistros"')]
     assert "IPOA medido (linha" in met and "escolhe" in met
+
+
+def test_linha_do_ipoa_preta_e_solida():
+    f = _funcao("_desenhaDiario")
+    assert "line:{color:'#222',width:esp?2:1.5}" in f and "dash" not in f

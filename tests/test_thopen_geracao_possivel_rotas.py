@@ -146,8 +146,9 @@ def test_tela_do_diario_desenha_a_possivel_e_a_metodologia():
     h = _html()
     i = h.index("function _desenhaDiario(")                # 26/10/2026: o desenho saiu do renderDiario (o seletor)
     d = h[i:h.index("\n}\n", i)]
-    assert "d.possivel_info" in d and "p.possivel" in d and "Possível pelo IPOA" in d
-    assert "medição de irradiação em" in d                                           # a nota sem cobertura
+    # 27/10/2026: a linha da possível saiu do gráfico (só o IPOA medido); a nota diz a cobertura da medição
+    assert "d.possivel_info" in d and "p.possivel" not in d and "Possível pelo IPOA" not in d
+    assert "Irradiação medida em" in d
     assert "Irradiação (kWh/m²)" in d and "yaxis2" in d                               # antes de outubro, como era
     assert "esperada_base" not in d
     h = _html()

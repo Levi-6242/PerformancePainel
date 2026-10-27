@@ -330,8 +330,8 @@ def test_o_valor_do_grafico_diario_vem_com_a_unidade_e_sem_o_dia():
     # Levi, 15/10/2026: "ao passar o mouse na coluna não precisa mostrar o dia mas precisamos da unidade de medida
     # certa" — o Plotly dizia "(9, 31.2495k)"; agora "31.249,5 kWh". Desde 26/10/2026 o desenho mora no _desenhaDiario
     d = corpo("_desenhaDiario")
-    # 4 = barras, a linha esperada pelo IPOA (20/10/2026), a da irradiação (sem kWp ou PR na meta) e a meta
-    assert d.count("hovertemplate:'%{customdata}<extra></extra>'") == 4 or d.count("hovertemplate:_HOV") == 5
+    # 3 = barras, a irradiação (o IPOA medido de 10/2026 em diante) e a meta; a linha da possível saiu em 27/10/2026
+    assert d.count("hovertemplate:'%{customdata}<extra></extra>'") == 3
     assert "fmt(p.ger,1,'kWh')" in d and "fmt(p.ipoa,2,'kWh/m²')" in d and "'Meta '+fmt(d.meta_dia,0,'kWh')" in d
     assert "const fmt=_fmtU;" in d and "const _fmtU=(v,c,u)=>v==null?'—':v.toLocaleString('pt-BR'" in T
 
