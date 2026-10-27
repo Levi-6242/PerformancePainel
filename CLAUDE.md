@@ -71,6 +71,14 @@ Fractall) quando só os espaços diferem — a "Assis Chateaubriand  Skid 1 (79)
 **coletor ainda não tem as duas regras** (o repositório dele tinha trabalho de outra sessão sem commit): quem ligar o
 `load_name_mapping` põe as duas antes.
 
+## Acoplamento conhecido: Nexus → plataforma (chamados no Diagnóstico, 27/10/2026)
+
+O Diagnóstico da usina (`/painel/usina/<id>`, NEXUS > PERFORMANCE > DIAGNÓSTICO) lê o livro que o Nexus publica,
+`nexus_chamados · fato_chamado` (o Acompanhamento de chamados), para pôr o problema com chamado aberto em "Explicado / em
+tratamento". O cabeçalho está COPIADO em `plataforma/diag_tratamento.py` (o dono é `nexus/dados/fato_chamado.py`); a leitura
+é por nome de coluna: coluna nova lá não quebra, renomear quebra. Detalhe em `plataforma/CLAUDE.md`, seção "Diagnóstico: o
+que já tem tratamento".
+
 ## Acoplamento conhecido: Nexus → plataforma (porta única, 09/10/2026)
 
 O Nexus (outro repositório, `Grid-Co-CODE/nexus`) abre as telas da plataforma numa moldura com um passe assinado

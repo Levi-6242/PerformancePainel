@@ -735,6 +735,61 @@ dá 503 e o Painel NOC/Gerencial não zeram com `erro`; o link "Entrar" da faixa
 o Nexus lê, igual a `location.pathname+search`) e `tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus"
 com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no GET com sessão e no login Microsoft).
 
+## Diagnóstico: o que já tem tratamento (fase 1, 27/10/2026)
+
+**Para que serve.** NEXUS > PERFORMANCE > DIAGNÓSTICO é esta tela (`/painel/usina/<id>`, `painel_usina_v2.html`, aberta
+pela porta única; o Nexus só põe a moldura e o seletor). Levi, 27/10/2026: cada problema sai com CAUSA PROVÁVEL + PROVA +
+AÇÃO, e o que já tem tratamento vai para um grupo "Explicado / em tratamento", deixando na frente só o que ninguém está
+olhando. A lista (`renderDiags`) agora tem "Sem tratamento N" na frente (a tabela de sempre) e, embaixo, um `<details>`
+recolhido "Explicado / em tratamento N" com inversor/escopo · problema · causa provável · prova (o nº da OS com link
+`/os/os/folio/<n>`, o mesmo das Falhas) · desde · ação. Faixa âmbar = em tratamento (OS ou chamado aberto), verde =
+explicado (a OS que tirou o ativo já fechou). Um nível de superfície, sem emoji (saíram o `causaIco` da linha e o da frase
+"Sem anomalias").
+
+**A regra (fase 1, SEM parâmetro: nenhum limite de dias, nenhum filtro), em `diag_tratamento.py` (puro):**
+- **OS de desligamento/religamento no período que cobre o ativo = explicado.** Desligamento/religamento = os tipos da
+  Disponibilidade (`disponibilidade.TIPOS_ALVO`: Religamento, Religamento Remoto, Corretiva Emergencial), lidos do índice
+  que o worker já monta para o Gerencial (`_frac_disp_dados`, o `frac_disp_index.json`; as `oss` do mês, sem as `excl`).
+  Nenhuma chamada nova ao Fracttal. Cobrir = a hierarquia da Disponibilidade: OS da usina inteira cobre todo inversor; a
+  da cabine N, os inversores da cabine N (a cabine vem do `inversores` do índice; sem ele, do N de "Inversor N.M"); a do
+  inversor, só ele. Período: o problema DE AGORA (motor da fonte R-07..R-10, o básico das strings) só se explica pela OS que
+  pega hoje (aberta, ou fechada hoje); o problema DO MÊS (`_per:'mes'`: "Subperformance mensal", "abaixo da meta",
+  "Usina abaixo da meta no mês", este só pelas OS da usina inteira) pela que pegou algum dia do mês (o mês do seletor do
+  PR). A prova leva as horas de sol que a OS tirou no mês (`h_solar` do índice): a regra não pesa, mas quem lê vê se 2 h
+  de religamento "explicam" um mês abaixo da meta.
+- **Chamado de garantia aberto para o ativo = em tratamento, "Aguardando fabricante há N dias"** (`verificacao`: "Chamado
+  em verificação (aberto há N dias)"). Fonte: o Acompanhamento de chamados do Nexus, NÃO a planilha de tickets (regra de
+  12/10/2026): o livro `nexus_chamados · fato_chamado` (situação `aberto`/`verificacao`), lido pelo `cobertura.Decisoes` +
+  `depara_fracttal.LivroEmFundo` (cópia de 10 min em `nexus_chamados.json`; o Nexus regrava aos :50). Usina = o site
+  (`site_fracttal` = a "Usina Fractall" do cadastro). Ativo = o código, pela régua da Disponibilidade (INVR/DINV N.M =
+  inversor; CABN/SKID/QGBT/PECN/DTRF N = cabine; o code-base sozinho = usina). N dias = hoje − `data_id_abertura` (a da nota
+  na OS retroativa). Chamado de tracker (ETKR), NCU, RSU, estação e o inversor de almoxarifado (`-PGINVR`) NÃO ligam a
+  problema nesta fase (vão em `outros`): o nº do tracker do Fracttal não tem de-para provado com o do supervisório.
+- **A OS aberta que a tela já lê do Fracttal** (`OSBYINV`, Corretiva inclusive: o "Acompanhar OS" que já existia) também
+  põe o problema em tratamento: alguém está olhando.
+- Fase 2 (sujidade, vegetação, rondas) espera os limites do Levi (dias sem limpeza, dias sem ronda): não invente.
+
+**Rota:** `GET /api/diagnostico/tratamento?usina=<nome de exibição>&mes=AAAA-MM` → `{usina, cabines, inversores, outros}`
+(cada inversor já com tudo o que o cobre), `os_ok`/`os_erro` (índice frio, mês fora do índice, mês do BD_Thopen) e
+`chamados_ok`/`chamados_erro`. A leitura que faltou fica dita: a tela põe tudo na frente com o selo "não cruzei com as OS
+de desligamento e os chamados: o que está abaixo pode já ter tratamento", nunca "sem tratamento" afirmado. O gestor do
+Nexus alcança pelo prefixo `/api/diagnostico` do `_GET_GESTOR` (só leitura, sem API PV); a ponte não precisa.
+
+**Medida no dado real (27/10/2026 ~15h, só leitura: o índice do servidor pela `/api/gerencial/disponibilidade`, o PR do
+mês pela `/api/inv/pr-mes` das 136 usinas e o livro de chamados do banco; os problemas DE AGORA não entraram, porque o
+motor lê a API PV na hora):** 68 problemas do mês em 136 usinas; 61 iriam para "Explicado / em tratamento" (25 usinas) e 7
+ficariam na frente. Dos 61: 12 com OS aberta, 8 com chamado aberto do inversor, e 41 SÓ por OS já fechada no mês (37 delas
+de "Usina abaixo da meta no mês" pela OS da usina inteira) — 20 desses 41 somam menos de 12 h de sol fora. É o ponto a
+decidir com o Levi: a regra pedida não pesa a OS contra o tamanho do problema. Dos 247 chamados em aberto, 96 são de
+inversor/cabine/usina (os outros 151, tracker e afins, ficam em `outros`); 3 da Nobres não ligam porque o site no Fracttal
+diz "Nobres 1 - CE" e o cadastro "MT".
+
+**Como provar:** `tests/test_diagnostico_tratamento.py` (os casos reais de Barretos 1 em 27/10: OS 17016 aberta no 1.14,
+OS 15510 da cabine 1 fechada em 13/10, OS 16520 da usina de madrugada, chamado 17159 do 1.1 com a Sungrow há 127 dias,
+chamado de tracker e de almoxarifado fora; a rota; a página inteira no node). Mutações conferidas: a OS fechada valendo
+para hoje, o chamado concluído contando, a cabine sem cobrir, a OS excluída contando, a tela sem o período, a tela sem
+separar, o OSBYINV de fora e o N de dias errado quebram os testes.
+
 ## Painel NOC (`/painel`, `templates/painel_portfolio.html`)
 
 - **Enxuto (13/10/2026)**, Levi: "Em painel NOC tire o botão de "Ao vivo" e remova o dashboard "Agrupamento"". Saíram a

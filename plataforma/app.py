@@ -19598,6 +19598,73 @@ def api_diagnostico_pv(idusina):
     return jsonify(res)
 
 
+# ── O que já tem tratamento no Diagnóstico (fase 1, 27/10/2026) ───────────────────────────────────────────────────────
+# Levi: cada problema sai com causa provável + prova + ação, e o que já tem OS de desligamento/religamento no período ou
+# chamado de garantia aberto vai para "Explicado / em tratamento". As duas leituras já existem, nenhuma chamada nova a
+# fonte paga nem ao Fracttal: as OS do índice da Disponibilidade que o worker monta (`_frac_disp_dados`, o mesmo do
+# Gerencial) e os chamados do livro que o Nexus publica (`nexus_chamados · fato_chamado`, o Acompanhamento de chamados).
+# A regra mora em `diag_tratamento.py` (puro); a tela casa cada problema com os itens do alvo dele.
+import diag_tratamento as _dtr  # noqa: E402
+_DTR_CHAMADOS_PATH = _p_cache("nexus_chamados.json")
+_DTR = {"leitores": {}}
+
+
+def _dtr_chamados_livro():
+    """O leitor em fundo do livro de chamados (um por caminho: os testes trocam o caminho). O Nexus regrava o livro de
+    hora em hora (aos :50), então a cópia de 10 min não atrasa nada que importe; a 1ª leitura da máquina espera até 20 s."""
+    if _DTR_CHAMADOS_PATH not in _DTR["leitores"]:
+        _DTR["leitores"][_DTR_CHAMADOS_PATH] = _dpf.LivroEmFundo(_cob.Decisoes(
+            _bd_api.API_BASE, lambda: "", _DTR_CHAMADOS_PATH, ttl=600, livro=_dtr.LIVRO_CHAMADO, aba=_dtr.ABA_CHAMADO,
+            cab=_dtr.CAB_CHAMADO, nome_livro=_dtr.NOME_LIVRO_CHAMADO))
+    return _DTR["leitores"][_DTR_CHAMADOS_PATH]
+
+
+@app.route("/api/diagnostico/tratamento")
+def api_diagnostico_tratamento():
+    """?usina=<nome de exibição>&mes=YYYY-MM (padrão = o corrente) → os itens que explicam problemas desta usina, por alvo
+    (`diag_tratamento.montar`), com `os_ok`/`chamados_ok`: a leitura que faltou fica dita, nunca vira "sem tratamento"."""
+    usina = (flask_request.args.get("usina") or "").strip()
+    agora = datetime.now()
+    mes = (flask_request.args.get("mes") or "").strip() or agora.strftime("%Y-%m")
+    if not usina or not re.fullmatch(r"\d{4}-\d{2}", mes):
+        return jsonify({"erro": "informe ?usina= e, se quiser, ?mes=AAAA-MM"}), 400
+    # a usina no índice: pelo nome (a convenção do `_religamentos_abertos_usina`) e, sem ele, pelo site do Fracttal
+    # ("Usina Fractall" do cadastro). O site também é a chave dos chamados.
+    try:
+        site = (_frac_fractall_map() or {}).get(usina.lower())
+    except Exception:                                                        # noqa: BLE001
+        site = None
+    out = {"usina": usina, "mes": mes, "site_fracttal": site, "agora": agora.isoformat(timespec="minutes"),
+           "os_ok": True, "chamados_ok": True}
+    meses = ((_frac_disp_dados() or {}).get("meses") or {})
+    mdx = meses.get(mes)
+    if mdx is None:
+        out.update(os_ok=False, os_erro=("o índice da Disponibilidade ainda não foi montado nesta máquina" if not meses
+                                         else f"o índice da Disponibilidade não tem {mes} (tem {', '.join(sorted(meses))})"))
+    elif mdx.get("fonte") == "BD_Thopen":
+        out.update(os_ok=False, os_erro=f"{mes} vem do BD_Thopen, sem as OS")
+    usinas = (mdx or {}).get("usinas") or []
+    alvo = [u for u in usinas if _dtr.nrm(u.get("usina")) == _dtr.nrm(usina)]
+    if not alvo and site:
+        alvo = [u for u in usinas if _dtr.nrm(u.get("fracttal")) == _dtr.nrm(site)]
+    chaves = {u.get("usina") for u in alvo} or {usina}
+    sites = {s for s in [site] + [u.get("fracttal") for u in alvo] if s}
+    inversores = [(i.get("inversor"), i.get("cabine")) for u in alvo for i in (u.get("inversores") or [])]
+    itens = _dtr.itens_os(mdx or {}, chaves, mes, agora) if out["os_ok"] else []
+    linhas, carregando, lido = _dtr_chamados_livro().linhas()
+    if linhas is None:
+        out.update(chamados_ok=False, chamados_erro=("lendo o Acompanhamento de chamados no banco" if carregando
+                                                     else "o livro de chamados do Nexus não foi lido"))
+    else:
+        cab = list(_dtr.CAB_CHAMADO)
+        dic = [dict(zip(cab, x)) if isinstance(x, (list, tuple)) else dict(x) for x in linhas]
+        itens += _dtr.itens_chamado(dic, sites, agora, mes)
+        out["chamados_lido_em"] = lido
+    out.update(_dtr.montar(itens, inversores))
+    out["usinas_indice"] = sorted(k for k in chaves if k)
+    return jsonify(out)
+
+
 # ── Correlação tracker × inversor (card "Correlação" do drill do Painel NOC) ────
 # Devolve a curva de PRODUÇÃO do inversor associado ao tracker p/ sobrepor ao ângulo:
 # de-para da aba BD_Trackers quando existir; sem de-para → inversor de PIOR performance

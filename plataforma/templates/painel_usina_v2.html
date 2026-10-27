@@ -91,6 +91,25 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .dtab .act .k{color:var(--faint);}
 .dtab .seec{font-size:10.5px;color:var(--blue);margin-left:auto;cursor:pointer;}
 .dtab .seec:hover{text-decoration:underline;}
+/* Sem tratamento × Explicado / em tratamento (27/10/2026): um nível de superfície (sem fundo novo dentro do card), o
+   estado pela cor da faixa — âmbar = em tratamento (OS ou chamado aberto), verde = explicado (a OS que tirou já fechou) */
+.tgrupo{display:flex;align-items:baseline;gap:8px;font-size:12px;font-weight:600;color:var(--txt);margin:4px 0 6px;}
+.tgrupo b{font-weight:700;}
+.tgrupo span{font-size:11px;font-weight:400;color:var(--faint);}
+.tdet{margin-top:14px;border-top:1px solid var(--line);padding-top:8px;}
+.tdet>summary{cursor:pointer;list-style:none;}
+.tdet>summary::-webkit-details-marker{display:none;}
+.tdet>summary::before{content:"▸";color:var(--faint);font-size:10px;margin-right:2px;display:inline-block;transition:transform .15s;}
+.tdet[open]>summary::before{transform:rotate(90deg);}
+.ttab td{padding:7px 10px;vertical-align:top;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);}
+.ttab td.sev{padding:0;width:4px;}
+.ttab td.sev i{display:block;width:4px;height:26px;border-radius:3px;margin-top:6px;background:var(--off);}
+.ttab tr.trat td.sev i{background:var(--amber);} .ttab tr.expl td.sev i{background:var(--ok);}
+.ttab .dnome{color:var(--txt);}
+.ttab .test{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+.ttab tr.trat .test{color:var(--amber);} .ttab tr.expl .test{color:var(--ok);}
+.ttab .tprova{font-size:11.5px;line-height:1.55;}
+.ttab a.tlink{color:var(--brand);font-weight:600;text-decoration:none;} .ttab a.tlink:hover{text-decoration:underline;}
 .cwrap{position:relative;width:100%;}
 .read{margin-top:10px;background:rgba(3,105,161,.06);border:1px solid rgba(3,105,161,.2);border-radius:9px;padding:9px 12px;font-size:11.5px;color:var(--blue);line-height:1.5;}
 .read b{color:var(--txt);}
@@ -578,7 +597,7 @@ async function boot(){
   document.getElementById('footsrc').textContent=CFG.label+' · '+(_sl||ts);
   _safe('below',renderBelow); _safe('diags',renderDiags); _safe('heat',()=>renderHeat(plant));
   _safe('invalerta',renderInvAlerta);
-  loadFracttalOS(); loadCascata();
+  loadFracttalOS(); loadCascata(); loadTratamento();
   // trackers vêm por último, quando resolverem — a fonte lenta não segura o resto
   // (só se a tela ainda está em hoje: com ?dia= no link, quem lê os trackers é o v2CarregaDia daquele dia, e os de hoje
   // chegando depois trocavam o dia escolhido pelo de hoje sob o mesmo rótulo)
@@ -1202,7 +1221,7 @@ function enrichDiags(base){
     const dref=v.pr-ref; if(dref>-DIAG_PR_GAP) return;
     const os=(OSBYINV[nm]||[])[0];
     const dmeta=(meta!=null)?` vs meta ${nf(meta,0)}% (${_pp(v.pr-meta)})`:'';
-    base.push({causa:'Subperformance mensal do inversor', escopo:nm, _inv:nm,
+    base.push({causa:'Subperformance mensal do inversor', escopo:nm, _inv:nm, _per:'mes',
       severidade:(v.pr<50||dref<=-20)?'critico':'atencao', confianca:'media',
       evidencia:[`PR do mês ${nf(v.pr,1)}%${dmeta} · ${_pp(dref)} vs a usina (${nf(ref,0)}%) · ${v.gen_mwh} MWh no mês.`
         +(os?` OS ${os.folio} (${os.tipo}) já aberta.`:'')],
@@ -1220,14 +1239,14 @@ function enrichDiags(base){
     const uniforme=(INVPR_USINA!=null&&INVPR_USINA<meta-2&&semCausa.length>=4);
     if(uniforme){
       const lst=semCausa.map(([nm,v])=>nm.replace('Inversor ','')+' '+nf(v.pr,0)+'%').slice(0,12).join(', ');
-      base.push({causa:'Usina abaixo da meta no mês', escopo:`${semCausa.length} inversores abaixo`,
+      base.push({causa:'Usina abaixo da meta no mês', escopo:`${semCausa.length} inversores abaixo`, _per:'mes', _nivel:'usina',
         severidade:(meta-INVPR_USINA>=8?'atencao':'informativo'), confianca:'media',
         evidencia:[`PR MTD da usina ${nf(INVPR_USINA,1)}% vs meta ${nf(meta,0)}% (${_pp(INVPR_USINA-meta)}), de forma uniforme. Abaixo: ${lst}. Motivo não identificado individualmente — verificar recurso (IPOA), soiling geral ou disponibilidade da usina.`],
         acao:'Conferir IPOA/soiling e disponibilidade geral; comparar com usinas vizinhas.'});
     } else {
       semCausa.forEach(([nm,v])=>{
         const os=(OSBYINV[nm]||[])[0], dpp=v.pr-meta;
-        base.push({causa:'Inversor abaixo da meta — motivo não identificado', escopo:nm, _inv:nm,
+        base.push({causa:'Inversor abaixo da meta — motivo não identificado', escopo:nm, _inv:nm, _per:'mes',
           severidade:(dpp<=-8?'atencao':'informativo'), confianca:'baixa',
           evidencia:[`PR do mês ${nf(v.pr,1)}% vs meta ${nf(meta,0)}% (${_pp(dpp)})`
             +(v.pr-refU<-2?` · ${_pp(v.pr-refU)} vs a usina (${nf(refU,0)}%)`:'')
@@ -1250,6 +1269,93 @@ function enrichDiags(base){
   return base;
 }
 function refreshDiag(){ renderBelow(); renderDiags(); }
+
+/* ── O que já tem tratamento (fase 1, 27/10/2026) ──────────────────────────────────────────────────────────────────────
+   Levi: cada problema sai com causa provável + prova + ação, e o que já tem tratamento vai para "Explicado / em
+   tratamento", deixando na frente só o que ninguém está olhando. Regra sem parâmetro (plataforma/diag_tratamento.py):
+   OS de desligamento/religamento (Religamento, Religamento Remoto, Corretiva Emergencial, as da Disponibilidade) que cobre
+   o ativo NO PERÍODO do problema, ou chamado de garantia aberto para ele (o Acompanhamento de chamados do Nexus). O
+   período: o problema de agora (motor da fonte, básico das strings) só se explica pelo que pega HOJE; o do mês (`_per:
+   'mes'`, PR do mês) pelo que pegou o mês. A OS aberta que esta tela já lê do Fracttal (OSBYINV, o "Acompanhar OS" de
+   antes) também conta: alguém já está olhando. Sem a leitura do tratamento, nada vai para o grupo de baixo e a lista diz
+   que não cruzou — nunca "sem tratamento" afirmado. */
+let TRAT=null, _tratSeq=0;
+async function loadTratamento(mes){
+  const seq=++_tratSeq;
+  if(mes&&TRAT&&TRAT.mes!==mes) TRAT=null;      // o mês trocou: o tratamento do anterior não vale para o novo
+  try{
+    const d=await _dgLer('/api/diagnostico/tratamento?usina='+encodeURIComponent(NOME)+(mes?'&mes='+encodeURIComponent(mes):''),{ms:60000});
+    if(seq!==_tratSeq) return;
+    TRAT=d; _dgVoltou('trat');
+  }catch(e){
+    if(seq!==_tratSeq) return;
+    TRAT=null; _dgFalhou('trat','OS e chamados do diagnóstico',e,{semFaixa:true});
+  }
+  try{ refreshDiag(); }catch(_e){}
+}
+const _tratNrm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'').toLowerCase();
+// a chave do mapa para o escopo do problema: o nome igual e, sem ele, o nome MAIS LONGO contido no escopo (não casar
+// "Inversor 1.1" dentro de "Inversor 1.10"), a mesma régua do _invKeyForEscopo
+function _tratChave(mapa, escopo){
+  const e=_tratNrm(escopo), ks=Object.keys(mapa||{});
+  return ks.find(k=>_tratNrm(k)===e)
+    || ks.slice().sort((a,b)=>b.length-a.length).find(k=>{ const n=_tratNrm(k); const i=e.indexOf(n);
+         return i>=0&&!/[\d.]/.test(e.charAt(i+n.length)); }) || null;
+}
+// → os itens que explicam o problema `d` ([] = nenhum). T = o payload da /api/diagnostico/tratamento; abertas = OSBYINV.
+function _tratDe(d, T, abertas){
+  const per=d._per==='mes'?'mes':'hoje', its=[];
+  if(T){
+    let lst;
+    if(d._nivel==='usina') lst=T.usina||[];
+    else {
+      const k=_tratChave(T.inversores, d._inv||d.escopo);
+      if(k) lst=T.inversores[k];
+      else {                                      // inversor fora do cadastro do índice: a usina e a cabine dele
+        const m=String(d._inv||d.escopo||'').match(/(\d+)\.\d+/);
+        lst=(T.usina||[]).concat(m?((T.cabines||{})[String(+m[1])]||[]):[]);
+      }
+    }
+    (lst||[]).forEach(x=>{ if(per==='mes'?x.mes:x.hoje) its.push(x); });
+  }
+  const inv=d._nivel==='usina'?null:_tratChave(abertas, d._inv||d.escopo);
+  ((inv&&abertas[inv])||[]).forEach(o=>{
+    if(its.some(x=>x.tipo==='os'&&String(x.os)===String(o.folio))) return;
+    const f=String(o.folio||'');
+    its.push({tipo:'os', os:o.folio, link:/^\d+$/.test(f)?'/os/os/folio/'+f:null, aberta:true, hoje:true, mes:true,
+      desde:o.evento||o.criada||null, causa:`OS ${o.tipo||''} aberta — ${inv}`,
+      prova:`OS ${f} · ${o.tipo||''} · ${o.ativo||inv} · criada ${o.criada||'—'} · aberta`,
+      acao:`Já tem OS ${f} aberta: acompanhar.`});
+  });
+  return its.sort((a,b)=>(b.aberta?1:0)-(a.aberta?1:0));   // o aberto primeiro: é o que alguém está olhando agora
+}
+// separa a lista: o que ninguém está olhando (na frente) e o que já tem OS ou chamado
+function _dgSeparar(ds){
+  const livres=[], tratados=[];
+  (ds||[]).forEach(d=>{ const its=_tratDe(d, TRAT, OSBYINV); if(its.length) tratados.push({d,its}); else livres.push(d); });
+  return {livres, tratados};
+}
+function _tratData(s){ const m=String(s||'').match(/(\d{4})-(\d{2})-(\d{2})/); return m?`${m[3]}/${m[2]}/${m[1]}`:'—'; }
+function _tratProva(x){
+  const p=v2esc(x.prova||''), alvo=v2esc((x.tipo==='chamado'?'OS de acompanhamento ':'OS ')+x.os);
+  if(!x.link||!p.startsWith(alvo)) return p;
+  return `<a class="tlink" href="${v2esc(x.link)}" target="_blank" rel="noopener" title="Abrir a OS ${v2esc(String(x.os))} no OS Creator (nova aba)">${alvo}</a>`+p.slice(alvo.length);
+}
+// "em tratamento" = ainda aberto (OS aberta, chamado); "explicado" = a OS que tirou o ativo já fechou
+function _tratEstado(its){ return its.some(x=>x.aberta)?'em tratamento':'explicado'; }
+function _tratTabela(tratados){
+  return `<table class="dtab ttab"><thead><tr><th></th><th>Inversor / escopo</th><th>Problema</th><th>Causa provável</th>
+    <th>Prova</th><th>Desde</th><th>Ação</th></tr></thead><tbody>`+tratados.map(({d,its})=>{
+      const x=its[0], est=_tratEstado(its);
+      return `<tr class="trow ${est==='explicado'?'expl':'trat'}"><td class="sev"><i></i></td>`+
+        `<td class="dnome">${v2esc(d.escopo||'—')}<div class="test">${est}</div></td>`+
+        `<td class="dcausa">${v2esc(d.causa||'')}</td>`+
+        `<td>${v2esc(x.causa||'')}</td>`+
+        `<td class="tprova">${its.map(_tratProva).join('<br>')}</td>`+
+        `<td class="num" style="white-space:nowrap">${_tratData(x.desde)}</td>`+
+        `<td>${v2esc(x.acao||'')}</td></tr>`;
+    }).join('')+`</tbody></table>`;
+}
 
 // Notificação de inversor SEM LEITURA de strings — trocado/renomeado (ex.: nome "…NOVO" na API) ou
 // sem telemetria de combiner ainda (recém-trocado). Pedido do Levi (23/07 — Tanabi 1.6, Mandaguaçu
@@ -1335,21 +1441,36 @@ function renderDiags(){
     if(semTrk||semPRm){ el.innerHTML=avisoLeit+'<div class="empty">Nenhum diagnóstico no que foi lido; a parte sem leitura está acima, não é usina dentro do esperado.</div>'; return; }
     if(CFG.diag&&!DIAG){ el.innerHTML=nota+'<div class="loading">Cruzando string, inversor e tracker…</div>'; return; }   // o motor ainda não respondeu
     if(INVPR===null){ el.innerHTML=nota+'<div class="loading">Cruzando com o PR do mês por inversor…</div>'; return; }   // o PR do mês ainda não veio
-    el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado. 🎉</div>';return;}
+    el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado.</div>';return;}
+  // Na frente só o que ninguém está olhando; o que já tem OS de desligamento/religamento no período ou chamado aberto vai
+  // para o grupo recolhido de baixo (fase 1, 27/10/2026). A leitura do tratamento que faltou fica dita aqui: sem ela, tudo
+  // fica na frente, mas a lista não afirma que não há OS nem chamado.
+  const {livres, tratados}=_dgSeparar(ds);
+  const avisoTrat=FALHA.trat?`<div class="csub" style="margin:0 0 8px">${_dgSelo('trat','não cruzei com as OS de desligamento e os chamados: o que está abaixo pode já ter tratamento')}.</div>`
+    :!TRAT?'<div class="csub" style="margin:0 0 8px">Cruzando com as OS de desligamento e os chamados…</div>'
+    :((TRAT.os_ok===false?`<div class="csub" style="margin:0 0 8px"><span class="selo">OS de desligamento sem leitura (${v2esc(TRAT.os_erro||'')}): o que está abaixo pode já ter OS</span>.</div>`:'')
+     +(TRAT.chamados_ok===false?`<div class="csub" style="margin:0 0 8px"><span class="selo">Chamados sem leitura (${v2esc(TRAT.chamados_erro||'')}): o que está abaixo pode já ter chamado</span>.</div>`:''));
+  const cabLivres=`<div class="tgrupo">Sem tratamento <b class="num">${livres.length}</b><span>ninguém com OS de desligamento nem chamado aberto para o ativo</span></div>`;
+  const blocoTrat=tratados.length?`<details class="tdet"><summary class="tgrupo">Explicado / em tratamento <b class="num">${tratados.length}</b>`
+    +`<span>OS de desligamento/religamento no período ou chamado de garantia aberto</span></summary>${_tratTabela(tratados)}</details>`:'';
+  if(!livres.length){
+    el.innerHTML=avisoLeit+avisoTrat+nota+cabLivres+`<div class="empty">Nada sem tratamento: ${tratados.length===1?'o problema abaixo já tem':'os '+tratados.length+' problemas abaixo já têm'} OS ou chamado.</div>`+blocoTrat;
+    return;
+  }
   // LINHA fina por diagnóstico; evidência e ação abrem no clique. A linha carrega só o que
   // decide a triagem: onde, o quê e quanto abaixo — o "porquê" é leitura, não varredura.
-  el.innerHTML=avisoLeit+nota+`<table class="dtab">
+  el.innerHTML=avisoLeit+avisoTrat+nota+cabLivres+`<table class="dtab">
     <thead><tr><th></th><th>Inversor / escopo</th><th>Causa provável</th>
       <th class="r" title="PR do mês do inversor menos a meta da UFV, em pontos percentuais.">Δ vs meta</th>
       <th class="r">Conf.</th><th></th></tr></thead>
-    <tbody>`+ds.map((d,i)=>{
+    <tbody>`+livres.map((d,i)=>{
       const dpp=d._dpp;
       const ppTxt=(dpp==null)?'—':_pp(dpp);
       const ppCls=(dpp==null)?'':(dpp<0?'neg':'pos');
       return `<tr class="drow ${SEVCLS[d.severidade]||'atencao'}" data-i="${i}">`+
         `<td class="sev"><i></i></td>`+
         `<td class="dnome">${d.escopo||'—'}</td>`+
-        `<td class="dcausa">${causaIco(d.causa)} ${d.causa||''}</td>`+
+        `<td class="dcausa">${d.causa||''}</td>`+
         `<td class="r dpp ${ppCls}">${ppTxt}</td>`+
         `<td class="r">${d.confianca?`<span class="conf ${d.confianca}">${d.confianca}</span>`:''}</td>`+
         `<td class="r"><span class="dcar">▶</span></td></tr>`+
@@ -1358,7 +1479,7 @@ function renderDiags(){
         `<div class="act"><span class="k">Ação:</span> ${d.acao||'—'}`+
         `<span class="seec" data-curva="${i}">ver curva →</span></div>`+
       `</div></td></tr>`;
-    }).join('')+`</tbody></table>`;
+    }).join('')+`</tbody></table>`+blocoTrat;
 
   const curva=(d)=>{     // tracker → curva de ângulo; inversor → curva do inversor (heatmap)
     const m=((d.acao||'')+' '+(d.evidencia||[]).join(' ')).match(/tracker\(?s?\)?\s*([\d, ]+)/i);
@@ -1376,7 +1497,7 @@ function renderDiags(){
     };
   });
   // a curva é ação explícita do link, não efeito colateral de abrir a linha
-  el.querySelectorAll('.seec').forEach(s=>s.onclick=(ev)=>{ ev.stopPropagation(); curva(ds[+s.dataset.curva]); });
+  el.querySelectorAll('.seec').forEach(s=>s.onclick=(ev)=>{ ev.stopPropagation(); curva(livres[+s.dataset.curva]); });
 }
 
 // O PR do mês por inversor vem do BD_Performance, não da fonte ao vivo: é pedido em TODA saída do mapa de strings. Antes só
@@ -1439,6 +1560,8 @@ async function loadInvPR(mes){
   // Trocar o mês no seletor não deixa o PR do mês anterior sob o rótulo do novo enquanto a leitura não volta (nem depois,
   // se ela falhar): limpa antes de pedir.
   if(mes){ INVPR=null; INVPR_META=null; INVPR_USINA=null; document.querySelectorAll('.hm-pr').forEach(t=>{ t.textContent=''; }); }
+  // o problema do mês se explica pela OS DAQUELE mês: o mês escolhido relê o tratamento (27/10/2026)
+  if(mes&&!HIST) loadTratamento(mes);
   let d;
   try{ d=await _dgLer('/api/inv/pr-mes?usina='+encodeURIComponent(NOME)+(mes?'&mes='+mes:''),{exige:'inversores',ms:60000}); }
   catch(e){

@@ -180,7 +180,9 @@ _GET_GESTOR = (
     "/api/cos/mtta",                                          # Acompanhamento COS
     "/api/gerencial",                                         # Visão gerencial, grupos e Disponibilidade (e o Excel)
     "/api/cascata", "/api/macro", "/api/g", "/api/inv/pr-mes",  # Painel NOC e Diagnóstico
-    "/api/diagnostico", "/api/painel/correlacao",             # Diagnóstico (o lado API PV fica de fora, abaixo)
+    # Diagnóstico (o lado API PV fica de fora, abaixo); inclui /api/diagnostico/tratamento (27/10/2026: as OS de
+    # desligamento do índice da Disponibilidade e os chamados do livro do Nexus, sem Fracttal nem API PV na hora)
+    "/api/diagnostico", "/api/painel/correlacao",
     # Strings e trackers: o pacote, as tiradas da conta, os vínculos gravados e a busca de OS do "Vincular OS"
     # (/api/painel/falhas/os, 20/10/2026: só no clique; o gestor alcança como já alcança a /api/fracttal/os). O
     # desconsiderar e o POST dos vínculos são gravação: fora, pelo método
