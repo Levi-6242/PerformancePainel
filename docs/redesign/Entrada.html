@@ -254,7 +254,7 @@
   .u-resumo .m.mais .val{font-size:26px;letter-spacing:.1em;line-height:1}
   .u-resumo .m.mais .sub{font-size:11.5px;text-align:center}
   .mais-lista{position:absolute;right:0;top:calc(100% + 8px);z-index:30;min-width:210px;padding:6px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);box-shadow:0 26px 54px rgba(0,0,0,.55)}
-  .mais-lista button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-radius:8px;background:none;color:var(--n300);font:600 13px var(--f-ui);cursor:pointer}
+  .mais-lista button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-radius:8px;background:none;color:var(--n300);font:600 13px var(--f-ui);cursor:pointer;white-space:nowrap}
   .mais-lista button:hover,.mais-lista button.on{background:rgba(163,217,0,.10);color:var(--text)}
   /* seta no titulo: trocar de cliente/fonte sem voltar */
   .troca{position:relative;display:inline-block}
@@ -531,7 +531,7 @@
     var partes = _partesDoCaminho(location.pathname, window.APP_PREFIX || "");   // ["tempo-real"] ou ["tempo-real", "athon"]
     if (partes[0] !== "tempo-real") return;
     var fonteSel = partes[1] || null;
-    var VIEWS = ["strings", "etm", "geracao", "trackers", "pr", "curva", "perdas"];
+    var VIEWS = ["strings", "etm", "geracao", "trackers", "pr", "curva", "perdas", "potinv", "potusina"];
     var viewSel = (function () { var v = new URLSearchParams(location.search).get("view"); return VIEWS.indexOf(v) >= 0 ? v : "strings"; })();
     document.querySelectorAll(".n1").forEach(function (e) { e.hidden = true; });
     document.body.classList.add("largo");
@@ -564,7 +564,14 @@
     function esqueleto() { if (fonteSel) return; grade.innerHTML = "<div class='esq'></div><div class='esq'></div><div class='esq'></div>"; }
     // Strings, ETM e Trackers SAO os botoes de aba do Monitoramento embutido (pedido do Levi, 05/09: "muitos cards para
     // pouca funcao"). "Sem comunicacao" e so leitura. O card "..." abre as demais abas (Geracao, PR, Curva, Perdas).
-    var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"], ["perdas", "Perdas"]];
+    // Potencia + POA e GHI (Levi, 27/10/2026): so nas fontes com historico de potencia por inversor, as do relatorio
+    // Potencia Ativa dos Inversores (Athon, Axis e Sal Energia nao tem). RenoGrid e GreenYellow nao expoem a estacao por
+    // usina, entao o rotulo nao promete o POA/GHI; o RenoGrid e potencia CC. O 3o item e o rotulo curto do card "...".
+    var POT_FONTES = ["thopen-pv", "thopen-db", "renogrid", "2c", "semp", "alveslima", "greenyellow"];
+    var POT_ROT = (fonteSel === "renogrid" ? "Potência CC" : "Potência ativa"), POT_IRR = (fonteSel === "renogrid" || fonteSel === "greenyellow") ? "" : " + POA e GHI";
+    var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"], ["perdas", "Perdas"]]
+      .concat(POT_FONTES.indexOf(fonteSel) >= 0 ? [["potinv", POT_ROT + " dos inversores" + POT_IRR, "Potência · inversores"],
+                                                   ["potusina", POT_ROT + " da usina" + POT_IRR, "Potência · usina"]] : []);
     var frPronto = false;
     // 21/09/2026: o card de ETM NAO liga mais o filtro do Monitoramento. Ele conta alarme do MES
     // (BD_Performance) e a aba passou a mostrar so o AGORA — a tela abria filtrada por um motivo que
@@ -573,7 +580,7 @@
       var res = document.getElementById("us-resumo");
       res.querySelectorAll(".m.aba").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-view") === viewSel); });
       var mais = document.getElementById("us-mais"), outra = OUTRAS.filter(function (o) { return o[0] === viewSel; })[0];
-      if (mais) { mais.classList.toggle("on", !!outra); mais.querySelector(".sub").textContent = outra ? outra[1] : "mais"; }
+      if (mais) { mais.classList.toggle("on", !!outra); mais.querySelector(".sub").textContent = outra ? (outra[2] || outra[1]) : "mais"; }
       res.querySelectorAll("#us-mais-lista button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-view") === viewSel); });
     }
     function fechaMais() { var l = document.getElementById("us-mais-lista"), m = document.getElementById("us-mais"); if (l) l.hidden = true; if (m) m.classList.remove("aberto"); }
@@ -742,7 +749,7 @@
       nt.hidden = false; nt.className = "tr-nota" + (noite ? " noite" : "");
       nt.textContent = g.sem_leitura
         ? "Esta fonte não entregou leitura de nenhuma usina. O card existe para ela não sumir da vista; quando a fonte voltar, os números aparecem aqui."
-        : (noite ? "Sem sol agora: strings e trackers não contam até o amanhecer. À noite o que vale é comunicação. Clique num card para ver a aba dele; em ··· estão as outras." : "Clique em Strings, ETM ou Trackers para ver a aba do Monitoramento só desta fonte; em ··· estão Geração, PR, Curva e Perdas.");
+        : (noite ? "Sem sol agora: strings e trackers não contam até o amanhecer. À noite o que vale é comunicação. Clique num card para ver a aba dele; em ··· estão as outras." : "Clique em Strings, ETM ou Trackers para ver a aba do Monitoramento só desta fonte; em ··· estão Geração, PR, Curva" + (OUTRAS.length > 4 ? ", Perdas e Potência." : " e Perdas."));
       var mostr = function (rot, val, sub, cls, view) {
         var tag = view ? "button" : "div", extra = view ? " type='button' data-view='" + view + "' title='ver " + rot.toLowerCase() + " desta fonte'" : "";
         return "<" + tag + " class='m" + (view ? " aba" : "") + "'" + extra + "><div class='rot'>" + rot + "</div><div class='val" + (cls || "") + "'>" + val + "</div><div class='sub'>" + sub + "</div></" + tag + ">";

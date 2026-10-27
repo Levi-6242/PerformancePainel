@@ -2926,3 +2926,38 @@ POTÊNCIA ATIVA" do `app.py` (`/api/relatorio/potencia-ativa?fonte&usina&ini&fim
   o gestor, os três leitores com a fonte dublada, a lista de usinas e o JS da página no node). A tela foi conferida num
   Chrome sem janela abrindo o template como arquivo, com o `fetch` dublado e a rede cortada (proxy morto): escuro, claro,
   390 px dentro de iframe (o Chrome sem janela não desce de ~500 px de largura) e o PDF.
+
+### No Tempo real: ··· → Potência + POA e GHI (27/10/2026)
+
+Levi: "Em relatórios > performance temos a Potência Ativa dos Inversores. Quero que vá para os três pontos no tempo real
+e seja Potência Ativa dos Inversores + POA e GHI / E POTÊNCIA ATIVA DA USINA + POA E GHI!". São duas abas do Monitoramento
+embutido (`potinv` e `potusina`), abertas pelo ··· da Entrada (`/tempo-real/<fonte>?view=potinv`): uma usina (a lista da
+aba Strings, em ordem alfabética) e um dia (hoje por padrão) por vez.
+- **Só onde há histórico**: o ··· mostra as duas só nas fontes do relatório (`POT_FONTES` da Entrada; Athon, Axis e Sal
+  Energia não têm, e um teste amarra a lista ao `potencia_ativa.FONTES`). Na 2C só entram as usinas da API PV (id
+  numérico, fonte `2capi`); as da Owen não têm potência por inversor. RenoGrid é "Potência CC"; RenoGrid e GreenYellow
+  não expõem a estação por usina, então o rótulo delas não promete o POA/GHI.
+- **De onde vem**: a potência é a rota do relatório (`/api/relatorio/potencia-ativa`, ini = fim = o dia: o mesmo cache,
+  a mesma reserva da cota histórica da API PV); o POA/GHI é a rota do gráfico do ETM (`_etmChartUrl`). A API PV só
+  entrega a curva da estação do dia de HOJE (`day_meteo`): dia passado mostra a potência e diz que não há POA/GHI. Nada é
+  lido antes de escolher a usina; hoje fica 5 min na tela (o "Atualizar" relê na hora), dia passado lido não é relido,
+  falha nunca fica guardada.
+- **Dois gráficos, um eixo de hora**: potência em cima (kW), POA e GHI embaixo (W/m²), com a mesma largura e margens e
+  a mira correndo nos dois; o balão traz a potência do passo de 5 min e o POA/GHI mais perto dele. Não é um gráfico só
+  com duas escalas (skill dataviz: a escala escolhida decide se a curva parece colada na irradiância). Inversores com a
+  paleta do relatório (8 cores × traço); POA e GHI em tinta neutra, porque as 8 cores já são dos inversores.
+- **A usina = a soma dos inversores, só nos passos em que todos os que leram no dia leram**: no passo em que um ficou sem
+  leitura a linha falha (somar só os que leram desenharia uma queda que não houve), e a tela conta esses passos.
+  Inversor sem leitura o dia inteiro fica fora da soma e é dito; inversor que não veio da fonte também, com o aviso de
+  que a usina gerou mais que a linha.
+- **Pelo Nexus**: a rota da potência entrou na lista da ponte (`leitura_nexus._GET`; o gestor já a tinha em
+  `/api/relatorio`). Pedido do Nexus não abre a API PV: o dia vem "falhou" com o motivo do perfil (só o que um analista já
+  leu aparece) e o `/api/etm/chart` segue negado, então pelo Nexus a API PV fica sem POA/GHI; o banco mostra os dois.
+- **Banco da Thopen lento (27/10/2026)**: na produção a consulta da potência estourou o teto de 45 s para a Aparecida do
+  Taboado 1 (hoje e 26/10); daqui do PC a mesma consulta levou 119 s para 14 linhas, com o plano no índice
+  (power_plant_id, timestamp) de cada chunk. A aba (e o relatório) diz "o banco da Thopen não respondeu"; o POA/GHI do
+  banco veio.
+- Prova: `tests/test_tempo_real_potencia.py` (a lista do ··· × relatório, nada lido sem usina, as rotas por fonte, a
+  Owen fora, cache e falha, a soma que só fecha com todos, as mensagens e o nome escapado, rodando o bloco da tela no
+  node). Tela conferida numa bancada (Entrada e Monitoramento do worktree; linhas e POA/GHI reais do banco pela produção,
+  potência sintética porque o banco estourava) em 1280 px: mira alinhada nos dois gráficos, balão, modo usina e as falhas.

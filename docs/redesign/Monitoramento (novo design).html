@@ -217,8 +217,8 @@ function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
   ['gc-osbar','gc-trkosbar','gc-dpbar'].forEach(id=>{ const bar=document.getElementById(id); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }); }
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
-const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, dpMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
+const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','potinv','potusina'];
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, potPid:null, potData:null, invData:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, dpMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -513,14 +513,16 @@ function _curvaBlock(inv){
 }
 async function loadCurrent(force){
   const view=state.view, src=state.source, url=_urlFor(view,src), key=view+'|'+src;
-  if(view==='curva'){                                                                   // Curva das strings: reusa a lista de usinas da aba Strings (mesma fonte)
+  const pot=view==='potinv'||view==='potusina';
+  if(view==='curva'||pot){                                                              // Curva das strings e Potência: reusam a lista de usinas da aba Strings (mesma fonte)
     const su=_urlFor('strings',src);
     if(!su){ RD.pv=null; RD.loading=false; RD.na=true; render(); return; }
     RD.na=false; const ck='strings|'+src;
-    if(!force&&RD.cache[ck]){ RD.pv=RD.cache[ck]; RD.loading=false; render(); return; }
+    if(!force&&RD.cache[ck]){ RD.pv=RD.cache[ck]; RD.loading=false; render(); if(pot) _loadPot(); return; }
     RD.loading=true; RD.pv=null; RD.erro=null; render();
-    try{ const d=_exigeLinhas(await fetchJSON(su,{exigeOk:true})); if(state.view!=='curva'||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
-    catch(e){ RD.loading=false; if(state.view!=='curva'||state.source!==src) return; _guardaUltimo(e,ck); render(); }   // antes: RD.pv nulo e a curva de EXEMPLO na tela
+    try{ const d=_exigeLinhas(await fetchJSON(su,{exigeOk:true})); if(state.view!==view||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
+    catch(e){ RD.loading=false; if(state.view!==view||state.source!==src) return; _guardaUltimo(e,ck); render(); }   // antes: RD.pv nulo e a curva de EXEMPLO na tela
+    if(pot) _loadPot(force);
     return;
   }
   if(view==='geracao'){ RD.na=false; RD.loading=false; loadGeracao(force); return; }     // Geração: pivô por inversor (o backend calcula o período dos últimos 7 dias)
@@ -2415,11 +2417,11 @@ function computeVals(){
   const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
   // SunOp pausada (domingo / teto do dia, 04/10/2026): o dado da Athon/Axis fica parado de propósito
   const _sp=RD.pv&&RD.pv.sunop_pausa, _spTxt={domingo:'domingo',teto:'teto do dia'}[_sp]||'';
-  return {sunopPausa:_spTxt,lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+  return {sunopPausa:_spTxt,lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showPot:_ehPot(s.view),showGeracao:s.view==='geracao',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
 }
 
 /* ── handlers globais ── */
-window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; state.trkOsMode=false; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); _dpSair(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
+window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.potPid=null; state.osMode=false; state.trkOsMode=false; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); _dpSair(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
 window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); state.trkOsMode=false; _trkOsSel.clear(); _trkOsBar(); _dpSair(); loadCurrent(); _loadSub(); };
 window.setTracking=(key,value)=>{   // strings em acompanhamento por usina → /api/state/tracking (mesmo estado da plataforma original)
   const n=parseInt(value,10);
@@ -3274,6 +3276,201 @@ async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||
 }
 window.setCurvaUsina=pid=>{ state.curvaPid=pid||null; render(); if(pid)loadCurvaView(pid); };
 window.setCurvaData=v=>{ state.curvaData=v; render(); if(state.curvaPid)loadCurvaView(state.curvaPid); };
+// ── Potência + POA e GHI (Levi, 27/10/2026): "Em relatórios > performance temos a Potência Ativa dos Inversores. Quero
+// que vá para os três pontos no tempo real e seja Potência Ativa dos Inversores + POA e GHI / E POTÊNCIA ATIVA DA USINA
+// + POA E GHI!". São as abas potinv e potusina do ··· da Entrada, uma usina e um dia por vez. A potência é a do relatório
+// (/api/relatorio/potencia-ativa: as mesmas leituras, o mesmo cache e a mesma reserva da cota da API PV) e o POA/GHI é o
+// do gráfico do ETM (_etmChartUrl). São DOIS gráficos no mesmo eixo de hora, um embaixo do outro, e a mira corre nos dois:
+// kW e W/m² num gráfico só pedem duas escalas, e a escala escolhida decide se a curva parece colada na irradiância ou não.
+const _POT_FONTES=['pv','pg','solaredge','2capi','semp','alveslima','greenyellow','salenergia'];   // as do relatório: Athon e Axis saíram dele em 13/10
+// A paleta do relatório: 8 cores em ordem fixa (validadas contra o fundo #161d30) × traço; o 9º inversor é a cor 1 tracejada
+const _POT_COR=['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+const _POT_TRACO=['','7 5','0.1 4.5','12 4 0.1 4','18 5','9 4 0.1 4 0.1 4'];
+// POA e GHI em tinta neutra: as 8 cores já são dos inversores, e a mesma cor nos dois gráficos diria que é a mesma coisa
+const _POT_IRR={poa:{nome:'POA',cor:'var(--color-neutral-200)',traco:''},ghi:{nome:'GHI',cor:'var(--color-neutral-400)',traco:'6 4'}};
+let _POTM=null;   // o que está desenhado agora (escala e séries), para a mira ler sem reler o SVG
+function _ehPot(v){ return v==='potinv'||v==='potusina'; }
+// A fonte da potência de cada usina. A 2C mistura usinas da API PV (id numérico, conta oem@ = "2capi") com as da Owen,
+// que não têm histórico de potência por inversor.
+function _potFonte(pid){ const f=_fonte(); if(f==='owen') return /^\d+$/.test(String(pid||''))?'2capi':null; return _POT_FONTES.includes(f)?f:null; }
+function _potLinhas(){ return ((RD.pv&&RD.pv.rows)||[]).filter(r=>r&&r.plant_id!=null&&_potFonte(r.plant_id))
+  .sort((a,b)=>String(a.usina||'').localeCompare(String(b.usina||''),'pt-BR',{numeric:true})); }
+function _potChave(pid){ return _potFonte(pid)+'|'+pid+'|'+(state.potData||_todayISO()); }
+function _potNum(v,c){ c=c==null?1:c; return Number(v).toLocaleString('pt-BR',{minimumFractionDigits:c,maximumFractionDigits:c}); }
+function _potHora(m){ return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
+function _potAmostra(cor,traco){ return `<svg width="20" height="8" aria-hidden="true" style="flex:none"><line x1="1" x2="19" y1="4" y2="4" stroke="${cor}" stroke-width="2.2" stroke-linecap="round"${traco?` stroke-dasharray="${traco}"`:''}></line></svg>`; }
+async function _loadPot(force){
+  const pid=state.potPid, pf=pid?_potFonte(pid):null; if(!pf) return;
+  const dia=state.potData||_todayISO(), k=_potChave(pid), C=RD.pot||(RD.pot={}), ant=C[k];
+  // dia que já acabou não muda; o de hoje vale 5 min (a régua do cache do relatório). Falha não fica guardada.
+  const falhou=o=>!o||o.erro||o.error||(((o.dias||[])[0]||{}).situacao==='falhou');
+  if(!force&&ant&&(ant.lendo||(!falhou(ant.pot)&&!(ant.irr&&(ant.irr.erro||ant.irr.error))&&(dia!==_todayISO()||Date.now()-ant.ts<300000)))) return;
+  const nome=(_potLinhas().find(r=>String(r.plant_id)===String(pid))||{}).usina||'';
+  const ent={lendo:true,ts:Date.now(),pot:null,irr:null}; C[k]=ent; render();
+  const uIrr=_etmChartUrl(pid,nome,dia);
+  const [p,i]=await Promise.all([
+    // dia passado da API PV custa 1 consulta da cota histórica por usina (a Tupi Paulista, uma por inversor): até 2 min
+    fetchJSON('/api/relatorio/potencia-ativa?'+new URLSearchParams({fonte:pf,usina:String(pid),ini:dia,fim:dia}).toString(),{timeout:120000})
+      .catch(e=>({erro:(e&&e.message)||'a leitura falhou',sessao:!!(e&&e.sessao)})),
+    uIrr?fetchJSON(uIrr).catch(e=>({erro:(e&&e.message)||'a leitura falhou'})):Promise.resolve({semFonte:true})]);
+  ent.pot=p||{erro:'resposta vazia'}; ent.irr=i||{erro:'resposta vazia'}; ent.lendo=false; ent.ts=Date.now();
+  if(C[k]===ent&&_ehPot(state.view)) render();
+}
+window.setPotUsina=pid=>{ state.potPid=pid||null; render(); _loadPot(); };
+window.setPotData=v=>{ state.potData=(v&&v<=_todayISO())?v:null; render(); _loadPot(); };
+window.atualizaPot=()=>{ if(!(((RD.pot||{})[_potChave(state.potPid)]||{}).lendo)) _loadPot(true); };   // o dia de hoje anda: relê na hora
+// A potência da usina em cada passo de 5 min = a soma dos inversores, e só onde TODO inversor com leitura no dia leu.
+// No passo em que um deles ficou sem leitura a linha falha: somar só os que leram desenharia uma queda que não houve
+// (sem leitura não é zero, a régua do relatório). Inversor sem leitura o dia inteiro já vem fora, em `sem_leitura`.
+function _potSoma(invs){
+  const mapas=(invs||[]).map(iv=>new Map((iv.pontos||[]).map(p=>[p[0],p[1]])));
+  const passos=new Set(); mapas.forEach(mp=>mp.forEach((_v,m)=>passos.add(m)));
+  const pts=[], falta={};
+  [...passos].sort((a,b)=>a-b).forEach(m=>{ let s=0,n=0; mapas.forEach(mp=>{ if(mp.has(m)){ s+=mp.get(m); n++; } });
+    if(n===mapas.length) pts.push([m,Math.round(s*10)/10]); else falta[m]=mapas.length-n; });
+  return {pts,falta,n:mapas.length};
+}
+// Os ticks do eixo Y: a mesma régua do relatório (passo 1, 2, 2,5 ou 5 × 10ⁿ, uns 5 intervalos)
+function _potTicks(min,max){
+  const bruto=(max-min)/5||1, mag=Math.pow(10,Math.floor(Math.log10(bruto)));
+  const passo=[1,2,2.5,5,10].map(k=>k*mag).find(s=>s>=bruto)||10*mag;
+  const a=Math.floor(min/passo)*passo, b=Math.max(a+passo,Math.ceil(max/passo)*passo), out=[];
+  for(let v=a; v<=b+passo/2; v+=passo) out.push(Math.round(v*1000)/1000);
+  return out;
+}
+// Um gráfico (potência ou irradiância). Os dois têm a MESMA largura e as mesmas margens: a hora cai no mesmo x nos dois.
+function _potSvg(id,H,E,ticks,unid,linhas,rotulo){
+  const G=E.G, W=G.W, l=G.l, r=G.r, t=26, b=26, pw=W-l-r, ph=H-t-b, y0=ticks[0], y1=ticks[ticks.length-1];   // t: a unidade mora acima do 1º tick
+  const X=m=>l+(m-E.x0)/(E.x1-E.x0)*pw, Y=v=>t+(1-(v-y0)/((y1-y0)||1))*ph;
+  let s='';
+  ticks.forEach(v=>{ const y=Y(v).toFixed(1); s+=`<line x1="${l}" x2="${W-r}" y1="${y}" y2="${y}" stroke="${v===0?'var(--color-divider)':'var(--color-neutral-900)'}"></line><text x="${l-8}" y="${y}" dy="0.32em" text-anchor="end" fill="#75798c" font-size="11">${_potNum(v,v%1?1:0)}</text>`; });
+  s+=`<text x="${l-8}" y="11" text-anchor="end" fill="#75798c" font-size="11">${unid}</text>`;
+  const px=(E.x1-E.x0)>14*60?120:60;
+  for(let m=Math.ceil(E.x0/px)*px; m<=E.x1; m+=px) s+=`<text x="${X(m).toFixed(1)}" y="${H-7}" text-anchor="middle" fill="#75798c" font-size="11">${_potHora(m)}</text>`;
+  s+=`<clipPath id="gc-pot-clip-${id}"><rect x="${l}" y="${t-3}" width="${pw}" height="${ph+6}"></rect></clipPath><g clip-path="url(#gc-pot-clip-${id})">`;
+  // mais de `lacuna` min entre dois passos com leitura quebra a linha (sem leitura não é zero); passo sozinho vira um ponto
+  linhas.forEach(o=>{ let d='',seg=[],ant=null;
+    const fecha=()=>{ if(seg.length===1) d+=`M${seg[0]}h0.1`; else if(seg.length) d+='M'+seg.join('L'); seg=[]; };
+    o.pts.forEach(([m,v])=>{ if(v==null||!isFinite(v)) return; if(ant!==null&&m-ant>E.lacuna) fecha(); seg.push(X(m).toFixed(1)+' '+Y(v).toFixed(1)); ant=m; });
+    fecha();
+    if(d) s+=`<path d="${d}" fill="none" stroke="${o.cor}" stroke-width="${o.w||1.8}"${o.traco?` stroke-dasharray="${o.traco}"`:''} stroke-linejoin="round" stroke-linecap="round"></path>`; });
+  s+=`</g><line class="gc-pot-mira" x1="0" x2="0" y1="${t}" y2="${t+ph}" stroke="var(--color-neutral-300)" stroke-width="1" visibility="hidden"></line>`;
+  return `<svg data-pot="${id}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${_he(rotulo)}" style="width:100%;height:auto;display:block;cursor:crosshair" onmousemove="_potMira(event,this)" onmouseleave="_potMiraSai()">${s}</svg>`;
+}
+function _gtipCria(){ if(!_gtip){ _gtip=document.createElement('div'); _gtip.style.cssText='position:fixed;z-index:300;pointer-events:none;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:8px;padding:6px 10px;font-size:12px;line-height:1.55;box-shadow:0 6px 22px rgba(0,0,0,.45);white-space:nowrap;opacity:0;transition:opacity .08s'; document.body.appendChild(_gtip); } return _gtip; }
+// A mira: a mesma hora nos dois gráficos e, no balão, a potência daquele passo de 5 min com o POA e o GHI mais perto dele
+function _potMira(evt,svg){
+  const M=_POTM; if(!M) return;
+  let loc; try{ const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; loc=pt.matrixTransform(svg.getScreenCTM().inverse()); }catch(e){ return; }
+  const G=M.G, pw=G.W-G.l-G.r;
+  if(loc.x<G.l-4||loc.x>G.W-G.r+4){ _potMiraSai(); return; }
+  const m=Math.max(M.x0,Math.min(M.x1,Math.round((M.x0+(loc.x-G.l)/pw*(M.x1-M.x0))/M.passo)*M.passo));
+  const x=(G.l+(m-M.x0)/(M.x1-M.x0)*pw).toFixed(1);
+  document.querySelectorAll('svg[data-pot] .gc-pot-mira').forEach(li=>{ li.setAttribute('x1',x); li.setAttribute('x2',x); li.setAttribute('visibility','visible'); });
+  const lin=(cor,traco,nome,val)=>`<div style="display:flex;align-items:center;gap:7px">${_potAmostra(cor,traco)}<span style="flex:1">${_he(nome)}</span><b style="font-variant-numeric:tabular-nums;margin-left:14px">${val}</b></div>`;
+  let h=`<div style="font-weight:600;margin-bottom:3px">${_potHora(m)}</div>`;
+  if(M.usina){ const v=M.usina.get(m), f=M.falta[m];
+    h+=v!=null?lin(M.series[0].cor,'',M.rotUsina,_potNum(v)+' kW'):`<div class="text-muted">${f?'sem a soma: '+f+' inversor'+(f>1?'es':'')+' sem leitura':'sem leitura'}</div>`; }
+  else if(M.series.length){ const vals=M.series.map(s=>({s,v:s.mapa.get(m)})).filter(o=>o.v!=null).sort((a,b)=>b.v-a.v);
+    vals.slice(0,12).forEach(o=>{ h+=lin(o.s.cor,o.s.traco,o.s.nome,_potNum(o.v)+' kW'); });
+    if(vals.length>12) h+=`<div class="text-muted">+${vals.length-12} inversores</div>`;
+    if(!vals.length) h+=`<div class="text-muted">nenhum inversor leu neste passo</div>`; }
+  if(M.irr){ const perto=arr=>{ let b=null,bd=1e9; arr.forEach(([mm,vv])=>{ const dd=Math.abs(mm-m); if(dd<bd){ bd=dd; b=vv; } }); return bd<=M.passo?b:null; };
+    const a=perto(M.irr.poa), g=perto(M.irr.ghi);
+    h+=`<div style="border-top:1px solid var(--color-divider);margin:5px 0 3px"></div>`+lin(_POT_IRR.poa.cor,'','POA',a==null?'—':_potNum(a,0)+' W/m²')+lin(_POT_IRR.ghi.cor,_POT_IRR.ghi.traco,'GHI',g==null?'—':_potNum(g,0)+' W/m²'); }
+  const tip=_gtipCria(); tip.innerHTML=h; tip.style.opacity='1';
+  const w=tip.offsetWidth, hh=tip.offsetHeight;
+  tip.style.left=(evt.clientX+16+w>window.innerWidth?Math.max(8,evt.clientX-16-w):evt.clientX+16)+'px';
+  tip.style.top=Math.max(8,Math.min(window.innerHeight-hh-8,evt.clientY-12))+'px';
+}
+function _potMiraSai(){ if(_gtip)_gtip.style.opacity='0'; document.querySelectorAll('svg[data-pot] .gc-pot-mira').forEach(li=>li.setAttribute('visibility','hidden')); }
+function renderPotencia(v){
+  _potMiraSai();   // o SVG vai ser trocado: o balão e a mira do desenho anterior não podem ficar soltos na tela
+  const f=_fonte(), usinaModo=state.view==='potusina';
+  if((!_POT_FONTES.includes(f)&&f!=='owen')||v.na) return _naPanel('histórico de potência por inversor');
+  const dia=state.potData||_todayISO(), grand=f==='solaredge'?'Potência CC':'Potência ativa';
+  const temIrr=!['renogrid','greenyellow','salenergia'].includes(state.source);   // as que não expõem a estação por usina
+  const tit=grand+(usinaModo?' da usina':' dos inversores')+(temIrr?' + POA e GHI':'');
+  const rows=_potLinhas();
+  const opts=['<option value="">Selecione uma usina…</option>'].concat(rows.map(r=>`<option value="${_he(String(r.plant_id))}"${state.potPid===String(r.plant_id)?' selected':''}>${_he(r.usina)}</option>`)).join('');
+  const sel=`<select onchange="setPotUsina(this.value)" aria-label="Usina" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:13px;padding:8px 12px;min-width:230px;max-width:100%">${opts}</select>`;
+  const dInput=`<input type="date" value="${dia}" max="${_todayISO()}" aria-label="Dia" onchange="setPotData(this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:7px 10px">`;
+  const header=`<div class="card" style="padding:16px 20px;margin-bottom:16px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px"><span style="font-family:var(--font-heading);font-size:17px;margin-right:4px">${tit}</span>${sel}<span class="text-muted" style="font-size:12.5px">Dia</span>${dInput}${state.potPid?`<button class="btn btn-secondary" onclick="atualizaPot()" title="Ler de novo a potência${temIrr?' e a irradiância':''} deste dia"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>`:''}</div></div>`;
+  if(RD.loading) return header+_loadingPanel();
+  if(!state.potPid) return header+_subMsg(rows.length?'Selecione uma usina para ver a '+grand.toLowerCase()+(usinaModo?' da usina':' de cada inversor')+(temIrr?' com o POA e o GHI do dia.':' do dia.'):'Nenhuma usina desta fonte tem histórico de potência por inversor.');
+  const e=(RD.pot||{})[_potChave(state.potPid)];
+  if(!e||e.lendo) return header+_subLoad('Lendo a potência'+(temIrr?' e a irradiância':'')+' de '+_brData(dia)+'…'+((dia!==_todayISO()&&['pv','2capi','semp','alveslima'].includes(_potFonte(state.potPid)))?' (dia passado da API PV: pode levar até 2 min)':''));
+  return header+_potCorpo(e,usinaModo,grand,dia);
+}
+function _potCorpo(e,usinaModo,grand,dia){
+  const p=e.pot||{}, i=e.irr||{}, d=(p.dias||[])[0]||null, passo=p.passo_min||5, lacuna=p.lacuna_max_min||15;
+  const nomeU=p.usina_nome||(_potLinhas().find(r=>String(r.plant_id)===state.potPid)||{}).usina||'';
+  // 1) a potência: o que veio, ou por que não veio
+  let msgP=null, series=[], soma=null;
+  if(p.erro||p.error) msgP=p.sessao?'A sessão venceu: entre de novo para ler a potência.':'Não consegui ler a potência: '+(p.erro||p.error)+'. Tente Atualizar em instantes.';
+  else if(p.ok===false) msgP=p.motivo||'a plataforma recusou o pedido.';
+  else if(p.sem_historico) msgP=p.motivo||'Esta fonte não tem histórico de potência por inversor.';
+  else if(!d) msgP='A plataforma respondeu sem o dia pedido.';
+  else if(d.situacao==='falhou') msgP=(d.perfil?'':'A fonte não respondeu: ')+(d.motivo||'tente de novo em instantes.');
+  else if(d.situacao!=='ok') msgP='Sem leitura de potência em '+_brData(dia)+': '+(d.motivo||'a fonte respondeu sem leitura.');
+  else if(usinaModo){ soma=_potSoma(d.inversores);
+    if(soma.pts.length) series=[{nome:'Usina',cor:_POT_COR[0],traco:'',w:2,pts:soma.pts}];
+    else msgP='Nenhum passo de 5 min teve leitura de todos os '+soma.n+' inversores: a soma da usina não fecha em nenhuma hora de '+_brData(dia)+'.'; }
+  else series=d.inversores.map((iv,k)=>({nome:iv.nome,cor:_POT_COR[k%8],traco:_POT_TRACO[Math.floor(k/8)%_POT_TRACO.length],pts:iv.pontos||[]}));
+  // 2) o POA e o GHI
+  let msgI=null, irr=null;
+  if(i.semFonte) msgI=_fonte()==='solaredge'?'A SolarEdge não entrega o POA/GHI por usina.':'Esta fonte não expõe o POA/GHI por usina.';
+  else if(i.erro||i.error) msgI='O POA/GHI não veio: '+(i.erro||i.error)+'.';
+  else if(i.sem_historico) msgI='A API PV só entrega o POA/GHI do dia de hoje: '+_brData(dia)+' não tem curva.';
+  else { const poa=[], ghi=[];
+    (i.labels||[]).forEach((lb,k)=>{ const m=_hm(lb), a=(i.poa||[])[k], g=(i.ghi||[])[k];
+      if(a!=null&&isFinite(a)) poa.push([m,+a]); if(g!=null&&isFinite(g)) ghi.push([m,+g]); });
+    if(poa.length||ghi.length) irr={poa,ghi}; else msgI='Sem leitura de POA/GHI em '+_brData(dia)+'.'; }
+  // 3) o eixo de hora, o MESMO nos dois: do 1º ao último minuto com sol ou potência, em horas cheias
+  let x0=Infinity, x1=-Infinity;
+  series.forEach(s=>s.pts.forEach(([m,v])=>{ if(v>0){ if(m<x0)x0=m; if(m+passo>x1)x1=m+passo; } }));
+  if(irr) irr.poa.concat(irr.ghi).forEach(([m,v])=>{ if(v>0){ if(m<x0)x0=m; if(m>x1)x1=m; } });
+  if(!isFinite(x0)){ x0=5*60; x1=19*60; }
+  x0=Math.max(0,Math.floor(x0/60)*60); x1=Math.min(24*60,Math.ceil(x1/60)*60);
+  if(x1-x0<180){ x0=Math.max(0,x0-60); x1=Math.min(24*60,x0+180); }
+  const E={G:{W:1200,l:58,r:16},x0,x1,lacuna};
+  const dentro=pts=>pts.filter(([m])=>m>=x0&&m<=x1).map(([,v])=>v).filter(v=>v!=null&&isFinite(v));
+  series.forEach(s=>{ s.mapa=new Map(s.pts); });
+  _POTM={G:E.G,x0,x1,passo,series,irr,usina:usinaModo&&series.length?series[0].mapa:null,falta:(soma&&soma.falta)||{},rotUsina:'Usina'};
+  // resumo e notas do dia
+  let resumo='', notas=[];
+  if(series.length){ let top=null; series.forEach(s=>s.pts.forEach(([m,v])=>{ if(top===null||v>top.v) top={v,m,nome:s.nome}; }));
+    resumo=usinaModo?`soma de ${soma.n} inversor${soma.n>1?'es':''}`+(top?` · pico ${_potNum(top.v)} kW às ${_potHora(top.m)}`:'')
+      :`${series.length} inversor${series.length>1?'es':''} com leitura`+(top?` · maior potência: ${_potNum(top.v)} kW às ${_potHora(top.m)} (${_he(top.nome)})`:''); }
+  if(d&&d.situacao==='ok'){
+    if(d.parcial) notas.push('Dia em andamento: lido às '+_he(d.lido_em||'')+'.');
+    if((d.sem_leitura||[]).length) notas.push('Sem leitura de potência no dia: '+d.sem_leitura.map(_he).join(', ')+(usinaModo?' (fora da soma).':'.'));
+    if((d.faltaram||[]).length) notas.push('Não vieram da fonte: '+d.faltaram.map(_he).join(', ')+(usinaModo?'. A soma não os inclui: a usina gerou mais do que a linha mostra.':'.'));
+    if(usinaModo&&soma&&soma.pts.length){ const a=soma.pts[0][0], z=soma.pts[soma.pts.length-1][0];
+      const nf=Object.keys(soma.falta).filter(m=>+m>a&&+m<z).length;
+      if(nf) notas.push(nf+' passo'+(nf>1?'s':'')+' de 5 min sem a soma (algum inversor sem leitura): a linha falha ali.'); }
+    if(d.obs) notas.push(_he(d.obs)); }
+  // 4) os dois gráficos
+  let blocoP;
+  if(msgP) blocoP=`<div style="padding:26px 12px;text-align:center;font-size:13px;color:var(--color-neutral-400)">${_he(msgP)}</div>`;
+  else{ const vs=[]; series.forEach(s=>vs.push(...dentro(s.pts)));
+    const ticks=_potTicks(Math.min(0,...vs),Math.max(1,...vs));
+    const leg=series.length>1?`<div style="display:flex;flex-wrap:wrap;gap:5px 16px;margin:0 0 8px;font-size:12px;color:var(--color-neutral-300)">${series.map(s=>`<span style="display:inline-flex;align-items:center;gap:6px">${_potAmostra(s.cor,s.traco)}${_he(s.nome)}</span>`).join('')}</div>`:'';
+    blocoP=leg+_potSvg('kw',300,E,ticks,'kW',series,`${grand} ${usinaModo?'da usina':'de '+series.length+' inversores'} em ${_brData(dia)}`); }
+  let blocoI;
+  if(msgI) blocoI=`<div style="padding:14px 12px;text-align:center;font-size:12.5px;color:var(--color-neutral-400)">${_he(msgI)}</div>`;
+  else{ const ticks=_potTicks(0,Math.max(1,...dentro(irr.poa),...dentro(irr.ghi)));
+    blocoI=_potSvg('irr',170,E,ticks,'W/m²',[{...(_POT_IRR.ghi),pts:irr.ghi,w:1.8},{...(_POT_IRR.poa),pts:irr.poa,w:2}],`POA e GHI da estação em ${_brData(dia)}`); }
+  const legI=`<span style="display:inline-flex;gap:14px;margin-left:12px">${['poa','ghi'].map(k=>`<span style="display:inline-flex;align-items:center;gap:6px">${_potAmostra(_POT_IRR[k].cor,_POT_IRR[k].traco)}${_POT_IRR[k].nome}${irr&&!irr[k].length?' <span style="color:var(--color-neutral-500)">(sem leitura)</span>':''}</span>`).join('')}</span>`;
+  const rodape=[p.origem?_he(p.origem)+'.':'', 'Média de '+passo+' min; mais de '+lacuna+' min sem leitura quebra a linha (sem leitura não é zero).', irr?'POA e GHI: a estação da usina, a mesma curva do gráfico do ETM.':''].filter(Boolean).join(' ');
+  return `<div class="card" style="padding:16px 20px">
+    <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin-bottom:6px"><span style="font-weight:600;font-size:14px">${_he(nomeU)}</span><span class="text-muted" style="font-size:12px">${_brData(dia)}${resumo?' · '+resumo:''}</span></div>
+    ${notas.length?`<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:10px;font-size:12px;color:var(--color-neutral-400)">${notas.map(n=>`<span><i class="ph ph-info" style="margin-right:5px"></i>${n}</span>`).join('')}</div>`:''}
+    ${blocoP}
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:14px 0 4px;font-size:12px;color:var(--color-neutral-300)"><span style="font-weight:600">Irradiância</span>${msgI?'':legI}</div>
+    ${blocoI}
+    <div class="text-muted" style="font-size:11.5px;margin-top:10px;line-height:1.5">${rodape}</div></div>`;
+}
 // ── Bloco D — vista "Geração": tabela pivô (usina/dia × inversor) dos últimos 7 dias + POA/GHI/pluviômetro + XLSX ──
 function _gerKey(){ const f=_fonte(); return f+'|'+(state.gerIni||'auto')+'|'+(state.gerFim||'auto'); }
 async function loadGeracao(force){ const f=_fonte(), k=_gerKey(); if(!force&&RD.gerPivo[k]!==undefined)return; RD.gerPivo[k]=null; render();
@@ -3415,7 +3612,7 @@ function _tnum(){ return 'font-variant-numeric:tabular-nums'; }
 function render(){
   const v=computeVals();
   let panel='';
-  if(v.showStrings)panel=renderStrings(v); else if(v.showEtm)panel=renderETM(v); else if(v.showGeracao)panel=renderGeracao(); else if(v.showTrackers)panel=renderTrackers(v); else if(v.showPr)panel=renderPR(v); else if(v.showCurva)panel=renderCurva(v);
+  if(v.showStrings)panel=renderStrings(v); else if(v.showEtm)panel=renderETM(v); else if(v.showGeracao)panel=renderGeracao(); else if(v.showTrackers)panel=renderTrackers(v); else if(v.showPr)panel=renderPR(v); else if(v.showCurva)panel=renderCurva(v); else if(v.showPot)panel=renderPotencia(v);
   // A fonte não respondeu: o painel vira aviso. Fica DEPOIS do cálculo normal de propósito — as
   // abas, os chips de fonte e o botão Atualizar continuam desenhados, então dá para trocar de
   // fonte ou tentar de novo sem recarregar a página.

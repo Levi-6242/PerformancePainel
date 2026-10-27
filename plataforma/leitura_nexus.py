@@ -27,6 +27,9 @@ _GET = tuple(f"/api/{f}" for f in FONTES_API) + (
     "/api/fracttal/ativo-do-inversor",
     # o que a sessão abre (13/10/2026: o atalho do Tempo real para o de-para); pela chave, sempre "não abre"
     "/api/eu",
+    # a potência das abas Potência + POA e GHI do ··· (27/10/2026), a rota do relatório: o banco e o scadaGridco leem; a
+    # API PV, pedido do Nexus não abre (trava acima), e o dia vem "falhou" com o motivo
+    "/api/relatorio/potencia-ativa",
 )
 
 # POSTs que só consultam (corpo com a lista de usinas): contagem de OS, de-para do Fracttal, OS da ETM
