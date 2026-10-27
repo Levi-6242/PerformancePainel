@@ -3280,8 +3280,10 @@ window.setCurvaData=v=>{ state.curvaData=v; render(); if(state.curvaPid)loadCurv
 // que vá para os três pontos no tempo real e seja Potência Ativa dos Inversores + POA e GHI / E POTÊNCIA ATIVA DA USINA
 // + POA E GHI!". São as abas potinv e potusina do ··· da Entrada, uma usina e um dia por vez. A potência é a do relatório
 // (/api/relatorio/potencia-ativa: as mesmas leituras, o mesmo cache e a mesma reserva da cota da API PV) e o POA/GHI é o
-// do gráfico do ETM (_etmChartUrl). São DOIS gráficos no mesmo eixo de hora, um embaixo do outro, e a mira corre nos dois:
-// kW e W/m² num gráfico só pedem duas escalas, e a escala escolhida decide se a curva parece colada na irradiância ou não.
+// do gráfico do ETM (_etmChartUrl). Num gráfico SÓ (Levi, 27/10/2026, no print da Araputanga: "quero que o IPOA e GHI
+// fique junto do gráfico da geração/potência ativa"): kW no eixo da esquerda, W/m² no da direita. As duas escalas têm o
+// MESMO número de intervalos e o zero no mesmo lugar, então cada linha de grade é uma marca dos dois eixos; a escala da
+// direita é a régua 1-2-2,5-5 que cobre o maior POA/GHI. Sem potência, o POA/GHI ocupa o gráfico sozinho (eixo da esquerda).
 const _POT_FONTES=['pv','pg','solaredge','2capi','semp','alveslima','greenyellow','salenergia'];   // as do relatório: Athon e Axis saíram dele em 13/10
 // A paleta do relatório: 8 cores em ordem fixa (validadas contra o fundo #161d30) × traço; o 9º inversor é a cor 1 tracejada
 const _POT_COR=['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
@@ -3338,20 +3340,33 @@ function _potTicks(min,max){
   for(let v=a; v<=b+passo/2; v+=passo) out.push(Math.round(v*1000)/1000);
   return out;
 }
+// Os ticks do eixo da direita alinhados aos da esquerda: o mesmo número de intervalos, o zero na mesma linha (k0 = quantos
+// passos da esquerda ficam abaixo do zero), e o passo da direita = a régua 1-2-2,5-5 × 10ⁿ que cobre o maior valor dela.
+function _potTicksPar(ticks,max){
+  const n=ticks.length-1, passoL=(ticks[n]-ticks[0])/(n||1), k0=Math.round(ticks[0]/(passoL||1)), acima=Math.max(1,n+k0);
+  const bruto=Math.max(1,max)/acima, mag=Math.pow(10,Math.floor(Math.log10(bruto)));
+  const passo=[1,2,2.5,5,10].map(k=>k*mag).find(s=>s>=bruto-1e-9)||10*mag;
+  return ticks.map((_v,i)=>Math.round((k0+i)*passo*1000)/1000);
+}
 // Um gráfico (potência ou irradiância). Os dois têm a MESMA largura e as mesmas margens: a hora cai no mesmo x nos dois.
-function _potSvg(id,H,E,ticks,unid,linhas,rotulo){
+function _potSvg(id,H,E,ticks,unid,linhas,rotulo,dir){
   const G=E.G, W=G.W, l=G.l, r=G.r, t=26, b=26, pw=W-l-r, ph=H-t-b, y0=ticks[0], y1=ticks[ticks.length-1];   // t: a unidade mora acima do 1º tick
   const X=m=>l+(m-E.x0)/(E.x1-E.x0)*pw, Y=v=>t+(1-(v-y0)/((y1-y0)||1))*ph;
   let s='';
-  ticks.forEach(v=>{ const y=Y(v).toFixed(1); s+=`<line x1="${l}" x2="${W-r}" y1="${y}" y2="${y}" stroke="${v===0?'var(--color-divider)':'var(--color-neutral-900)'}"></line><text x="${l-8}" y="${y}" dy="0.32em" text-anchor="end" fill="#75798c" font-size="11">${_potNum(v,v%1?1:0)}</text>`; });
+  ticks.forEach((v,k)=>{ const y=Y(v).toFixed(1); s+=`<line x1="${l}" x2="${W-r}" y1="${y}" y2="${y}" stroke="${v===0?'var(--color-divider)':'var(--color-neutral-900)'}"></line><text x="${l-8}" y="${y}" dy="0.32em" text-anchor="end" fill="#75798c" font-size="11">${_potNum(v,v%1?1:0)}</text>`;
+    if(dir){ const d=dir.ticks[k]; s+=`<text x="${W-r+8}" y="${y}" dy="0.32em" text-anchor="start" fill="#75798c" font-size="11">${_potNum(d,d%1?1:0)}</text>`; } });
   s+=`<text x="${l-8}" y="11" text-anchor="end" fill="#75798c" font-size="11">${unid}</text>`;
+  if(dir) s+=`<text x="${W-r+8}" y="11" text-anchor="start" fill="#75798c" font-size="11">${dir.unid}</text>`;
+  // o eixo da direita: a mesma faixa de pixels, com a escala dele (dir.ticks tem o mesmo número de marcas)
+  const d0=dir?dir.ticks[0]:0, d1=dir?dir.ticks[dir.ticks.length-1]:1, Y2=v=>t+(1-(v-d0)/((d1-d0)||1))*ph;
   const px=(E.x1-E.x0)>14*60?120:60;
   for(let m=Math.ceil(E.x0/px)*px; m<=E.x1; m+=px) s+=`<text x="${X(m).toFixed(1)}" y="${H-7}" text-anchor="middle" fill="#75798c" font-size="11">${_potHora(m)}</text>`;
   s+=`<clipPath id="gc-pot-clip-${id}"><rect x="${l}" y="${t-3}" width="${pw}" height="${ph+6}"></rect></clipPath><g clip-path="url(#gc-pot-clip-${id})">`;
   // mais de `lacuna` min entre dois passos com leitura quebra a linha (sem leitura não é zero); passo sozinho vira um ponto
-  linhas.forEach(o=>{ let d='',seg=[],ant=null;
+  // o POA/GHI vai primeiro: fica por baixo das curvas de potência
+  (dir?dir.linhas.map(o=>({...o,_y:Y2})):[]).concat(linhas).forEach(o=>{ let d='',seg=[],ant=null; const Yo=o._y||Y;
     const fecha=()=>{ if(seg.length===1) d+=`M${seg[0]}h0.1`; else if(seg.length) d+='M'+seg.join('L'); seg=[]; };
-    o.pts.forEach(([m,v])=>{ if(v==null||!isFinite(v)) return; if(ant!==null&&m-ant>E.lacuna) fecha(); seg.push(X(m).toFixed(1)+' '+Y(v).toFixed(1)); ant=m; });
+    o.pts.forEach(([m,v])=>{ if(v==null||!isFinite(v)) return; if(ant!==null&&m-ant>E.lacuna) fecha(); seg.push(X(m).toFixed(1)+' '+Yo(v).toFixed(1)); ant=m; });
     fecha();
     if(d) s+=`<path d="${d}" fill="none" stroke="${o.cor}" stroke-width="${o.w||1.8}"${o.traco?` stroke-dasharray="${o.traco}"`:''} stroke-linejoin="round" stroke-linecap="round"></path>`; });
   s+=`</g><line class="gc-pot-mira" x1="0" x2="0" y1="${t}" y2="${t+ph}" stroke="var(--color-neutral-300)" stroke-width="1" visibility="hidden"></line>`;
@@ -3433,7 +3448,7 @@ function _potCorpo(e,usinaModo,grand,dia){
   if(!isFinite(x0)){ x0=5*60; x1=19*60; }
   x0=Math.max(0,Math.floor(x0/60)*60); x1=Math.min(24*60,Math.ceil(x1/60)*60);
   if(x1-x0<180){ x0=Math.max(0,x0-60); x1=Math.min(24*60,x0+180); }
-  const E={G:{W:1200,l:58,r:16},x0,x1,lacuna};
+  const E={G:{W:1200,l:58,r:(!msgP&&irr)?58:16},x0,x1,lacuna};   // a margem da direita abriga o eixo do W/m²
   const dentro=pts=>pts.filter(([m])=>m>=x0&&m<=x1).map(([,v])=>v).filter(v=>v!=null&&isFinite(v));
   series.forEach(s=>{ s.mapa=new Map(s.pts); });
   _POTM={G:E.G,x0,x1,passo,series,irr,usina:usinaModo&&series.length?series[0].mapa:null,falta:(soma&&soma.falta)||{},rotUsina:'Usina'};
@@ -3450,25 +3465,26 @@ function _potCorpo(e,usinaModo,grand,dia){
       const nf=Object.keys(soma.falta).filter(m=>+m>a&&+m<z).length;
       if(nf) notas.push(nf+' passo'+(nf>1?'s':'')+' de 5 min sem a soma (algum inversor sem leitura): a linha falha ali.'); }
     if(d.obs) notas.push(_he(d.obs)); }
-  // 4) os dois gráficos
-  let blocoP;
-  if(msgP) blocoP=`<div style="padding:26px 12px;text-align:center;font-size:13px;color:var(--color-neutral-400)">${_he(msgP)}</div>`;
-  else{ const vs=[]; series.forEach(s=>vs.push(...dentro(s.pts)));
+  // 4) um gráfico: a potência (eixo da esquerda) com o POA/GHI (eixo da direita); sem a potência, o POA/GHI sozinho
+  const irrLinhas=irr?[{...(_POT_IRR.ghi),pts:irr.ghi,w:1.8},{...(_POT_IRR.poa),pts:irr.poa,w:2}]:[];
+  const maxIrr=irr?Math.max(1,...dentro(irr.poa),...dentro(irr.ghi)):1;
+  const amostra=(cor,traco,nome,extra)=>`<span style="display:inline-flex;align-items:center;gap:6px">${_potAmostra(cor,traco)}${_he(nome)}${extra||''}</span>`;
+  const legIrr=irr?['poa','ghi'].map(k=>amostra(_POT_IRR[k].cor,_POT_IRR[k].traco,_POT_IRR[k].nome+' (W/m²)',!irr[k].length?' <span style="color:var(--color-neutral-500)">(sem leitura)</span>':'')):[];
+  const legenda=itens=>itens.length>1?`<div style="display:flex;flex-wrap:wrap;gap:5px 16px;margin:0 0 8px;font-size:12px;color:var(--color-neutral-300)">${itens.join('')}</div>`:'';
+  let bloco;
+  if(!msgP){ const vs=[]; series.forEach(s=>vs.push(...dentro(s.pts)));
     const ticks=_potTicks(Math.min(0,...vs),Math.max(1,...vs));
-    const leg=series.length>1?`<div style="display:flex;flex-wrap:wrap;gap:5px 16px;margin:0 0 8px;font-size:12px;color:var(--color-neutral-300)">${series.map(s=>`<span style="display:inline-flex;align-items:center;gap:6px">${_potAmostra(s.cor,s.traco)}${_he(s.nome)}</span>`).join('')}</div>`:'';
-    blocoP=leg+_potSvg('kw',300,E,ticks,'kW',series,`${grand} ${usinaModo?'da usina':'de '+series.length+' inversores'} em ${_brData(dia)}`); }
-  let blocoI;
-  if(msgI) blocoI=`<div style="padding:14px 12px;text-align:center;font-size:12.5px;color:var(--color-neutral-400)">${_he(msgI)}</div>`;
-  else{ const ticks=_potTicks(0,Math.max(1,...dentro(irr.poa),...dentro(irr.ghi)));
-    blocoI=_potSvg('irr',170,E,ticks,'W/m²',[{...(_POT_IRR.ghi),pts:irr.ghi,w:1.8},{...(_POT_IRR.poa),pts:irr.poa,w:2}],`POA e GHI da estação em ${_brData(dia)}`); }
-  const legI=`<span style="display:inline-flex;gap:14px;margin-left:12px">${['poa','ghi'].map(k=>`<span style="display:inline-flex;align-items:center;gap:6px">${_potAmostra(_POT_IRR[k].cor,_POT_IRR[k].traco)}${_POT_IRR[k].nome}${irr&&!irr[k].length?' <span style="color:var(--color-neutral-500)">(sem leitura)</span>':''}</span>`).join('')}</span>`;
-  const rodape=[p.origem?_he(p.origem)+'.':'', 'Média de '+passo+' min; mais de '+lacuna+' min sem leitura quebra a linha (sem leitura não é zero).', irr?'POA e GHI: a estação da usina, a mesma curva do gráfico do ETM.':''].filter(Boolean).join(' ');
+    const dir=irr?{ticks:_potTicksPar(ticks,maxIrr),unid:'W/m²',linhas:irrLinhas}:null;
+    bloco=legenda(series.map(s=>amostra(s.cor,s.traco,usinaModo?grand+' da usina':s.nome)).concat(legIrr))
+      +_potSvg('kw',340,E,ticks,'kW',series,`${grand} ${usinaModo?'da usina':'de '+series.length+' inversores'}${irr?' com o POA e o GHI':''} em ${_brData(dia)}`,dir); }
+  else bloco=`<div style="padding:26px 12px;text-align:center;font-size:13px;color:var(--color-neutral-400)">${_he(msgP)}</div>`
+    +(irr?legenda(legIrr)+_potSvg('irr',220,E,_potTicks(0,maxIrr),'W/m²',irrLinhas,`POA e GHI da estação em ${_brData(dia)}`):'');
+  if(msgI) bloco+=`<div style="padding:10px 12px 0;text-align:center;font-size:12.5px;color:var(--color-neutral-400)">${_he(msgI)}</div>`;
+  const rodape=[p.origem?_he(p.origem)+'.':'', 'Média de '+passo+' min; mais de '+lacuna+' min sem leitura quebra a linha (sem leitura não é zero).', irr?'POA e GHI (eixo da direita, W/m²): a estação da usina, a mesma curva do gráfico do ETM.':''].filter(Boolean).join(' ');
   return `<div class="card" style="padding:16px 20px">
     <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin-bottom:6px"><span style="font-weight:600;font-size:14px">${_he(nomeU)}</span><span class="text-muted" style="font-size:12px">${_brData(dia)}${resumo?' · '+resumo:''}</span></div>
     ${notas.length?`<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:10px;font-size:12px;color:var(--color-neutral-400)">${notas.map(n=>`<span><i class="ph ph-info" style="margin-right:5px"></i>${n}</span>`).join('')}</div>`:''}
-    ${blocoP}
-    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:14px 0 4px;font-size:12px;color:var(--color-neutral-300)"><span style="font-weight:600">Irradiância</span>${msgI?'':legI}</div>
-    ${blocoI}
+    ${bloco}
     <div class="text-muted" style="font-size:11.5px;margin-top:10px;line-height:1.5">${rodape}</div></div>`;
 }
 // ── Bloco D — vista "Geração": tabela pivô (usina/dia × inversor) dos últimos 7 dias + POA/GHI/pluviômetro + XLSX ──

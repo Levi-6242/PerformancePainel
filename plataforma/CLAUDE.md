@@ -3009,10 +3009,12 @@ aba Strings, em ordem alfabética) e um dia (hoje por padrão) por vez.
   entrega a curva da estação do dia de HOJE (`day_meteo`): dia passado mostra a potência e diz que não há POA/GHI. Nada é
   lido antes de escolher a usina; hoje fica 5 min na tela (o "Atualizar" relê na hora), dia passado lido não é relido,
   falha nunca fica guardada.
-- **Dois gráficos, um eixo de hora**: potência em cima (kW), POA e GHI embaixo (W/m²), com a mesma largura e margens e
-  a mira correndo nos dois; o balão traz a potência do passo de 5 min e o POA/GHI mais perto dele. Não é um gráfico só
-  com duas escalas (skill dataviz: a escala escolhida decide se a curva parece colada na irradiância). Inversores com a
-  paleta do relatório (8 cores × traço); POA e GHI em tinta neutra, porque as 8 cores já são dos inversores.
+- **Um gráfico, dois eixos** (Levi, 27/10/2026, no print da Araputanga: "quero que o IPOA e GHI fique junto do gráfico
+  da geração/potência ativa"; antes eram dois gráficos empilhados): kW à esquerda, W/m² à direita (`_potSvg(..., dir)`).
+  `_potTicksPar` dá à direita o MESMO número de intervalos e o zero na mesma linha, com o passo 1-2-2,5-5 × 10ⁿ que cobre
+  o maior POA/GHI: cada linha de grade é marca dos dois eixos. O POA/GHI é desenhado por baixo da potência; a legenda diz
+  "POA (W/m²)". Sem a potência, o POA/GHI ocupa o gráfico sozinho. O balão segue com a potência do passo de 5 min e o
+  POA/GHI mais perto dele. Inversores com a paleta do relatório (8 cores × traço); POA e GHI em tinta neutra.
 - **A usina = a soma dos inversores, só nos passos em que todos os que leram no dia leram**: no passo em que um ficou sem
   leitura a linha falha (somar só os que leram desenharia uma queda que não houve), e a tela conta esses passos.
   Inversor sem leitura o dia inteiro fica fora da soma e é dito; inversor que não veio da fonte também, com o aviso de

@@ -180,3 +180,20 @@ def test_a_tela_diz_por_que_falta_cada_parte():
 def test_fonte_sem_historico_nem_desenha_a_aba():
     r = _node("state.source='athon'; process.stdout.write(JSON.stringify(renderPotencia({})));")
     assert r.startswith("[NA ")
+
+
+def test_poa_e_ghi_no_mesmo_grafico_da_potencia_com_o_eixo_da_direita():
+    """Levi, 27/10/2026 (print da Araputanga): "quero que o IPOA e GHI fique junto do gráfico da geração/potência ativa".
+    Um SVG só, o W/m² à direita, e cada marca dos dois eixos na mesma linha de grade (o zero com o zero)."""
+    r = _node(f"state.potPid='9';"
+              f"RESPOSTAS={{'/api/relatorio':{_DIA_OK.replace("2026-10-26", "'+_todayISO()+'")},"
+              "'/api/etm':{labels:['10:00','10:05','10:10'],poa:[400,980,1210],ghi:[300,700,800]}};"
+              "await _loadPot(); const h=renderPotencia({});"
+              "process.stdout.write(JSON.stringify({h, par:_potTicksPar([0,5,10,15,20,25],1210),"
+              "neg:_potTicksPar([-5,0,5,10],1000)}));")
+    h = r["h"]
+    assert h.count("<svg data-pot=") == 1 and 'data-pot="kw"' in h and 'data-pot="irr"' not in h
+    assert "W/m²</text>" in h and "kW</text>" in h, "as duas unidades no mesmo gráfico"
+    assert "POA (W/m²)" in h and "GHI (W/m²)" in h, "a legenda diz que a irradiância é do eixo da direita"
+    assert r["par"] == [0, 250, 500, 750, 1000, 1250], "5 intervalos dos dois lados, zero com zero, cobre 1210"
+    assert r["neg"] == [-500, 0, 500, 1000], "kW abaixo de zero: o zero da direita na mesma linha"
