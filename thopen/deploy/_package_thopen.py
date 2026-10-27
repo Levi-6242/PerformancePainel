@@ -6,12 +6,14 @@ render.yaml na raiz). Este zip é para quando alguém precisa instalar à mão �
 provedor, ou um servidor sem acesso ao GitHub. O conteúdo é o MESMO que a nuvem usaria, e o
 layout também: `thopen/` mais os arquivos de raiz, porque o startCommand faz `--chdir thopen`.
 
-O QUE ENTRA — o app são catorze arquivos (~280 KB), como dizem os comentários do railway.toml:
+O QUE ENTRA — o app são dezesseis arquivos (~300 KB), como dizem os comentários do railway.toml:
   thopen/dashboard_thopen.py, thopen/fonte_api.py, thopen/fonte_operacao.py, thopen/operacao_mes.py,
   thopen/rondas_cliente.py, thopen/fotos_ronda.py, thopen/contestacao.py, thopen/contestacao_banco.py,
-  thopen/acessos.py, thopen/livro_banco.py, thopen/geracao_possivel.py, thopen/trip_os.py,
+  thopen/acessos.py, thopen/livro_banco.py, thopen/geracao_possivel.py, thopen/trip_os.py, thopen/fonte_zeladoria.py,
+  thopen/zeladoria_cliente.py,
   thopen/templates/dashboard_thopen.html, thopen/templates/entrar.html
 (trip_os desde 23/10/2026: o trip das OS no comentário do dia, lido do Fracttal)
+(fonte_zeladoria + zeladoria_cliente desde 26/10/2026: a aba Zeladoria, com a conta que o Nexus publica)
 (geracao_possivel desde 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário)
 (acessos + livro_banco + entrar.html desde 14/10/2026: o login por pessoa, com as contas do Nexus)
 (rondas_cliente + fotos_ronda + contestacao desde 09/10/2026: a janela das rondas do card e a contestação do cliente;
@@ -56,6 +58,8 @@ ITENS = [
     ("thopen/livro_banco.py",                   "thopen/livro_banco.py"),
     ("thopen/geracao_possivel.py",              "thopen/geracao_possivel.py"),
     ("thopen/trip_os.py",                       "thopen/trip_os.py"),
+    ("thopen/fonte_zeladoria.py",               "thopen/fonte_zeladoria.py"),
+    ("thopen/zeladoria_cliente.py",             "thopen/zeladoria_cliente.py"),
     ("thopen/templates/entrar.html",            "thopen/templates/entrar.html"),
     ("thopen/templates/dashboard_thopen.html",  "thopen/templates/dashboard_thopen.html"),
     ("requirements-thopen.txt",                 "requirements-thopen.txt"),
@@ -65,7 +69,7 @@ ITENS = [
 
 LEIAME = """# Dashboard Thopen — instalação
 
-O app são catorze arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
+O app são dezesseis arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
 (PostgreSQL); ele NÃO abre planilha nenhuma.
 
 ## Subir
@@ -117,6 +121,10 @@ raiz do clone (linhas NOME=valor, ao lado da pasta thopen/):
                            que atuou, "Trip 27/86", lida da OS no Fracttal com a mesma credencial).
     THOPEN_TRIP_TTL        opcional, padrão 21600 (segundos que o trip lido fica guardado)
     THOPEN_TRIP_CACHE      opcional. Arquivo do que já foi lido (padrão thopen/cache_trip_os.json).
+    THOPEN_ZELADORIA       opcional. "0" desliga a aba Zeladoria (26/10/2026: a visão que o Nexus publica no
+                           banco, lida pelo mesmo GRIDCO_SQL_TOKEN).
+    THOPEN_ZELADORIA_TTL   opcional, padrão 600 (segundos entre uma releitura e outra)
+    THOPEN_ZELADORIA_CACHE opcional. Arquivo da última leitura boa (padrão thopen/cache_zeladoria.json.gz).
     THOPEN_CONTESTACAO_CHAVE_PUBLICA  a chave PÚBLICA (X25519, base64) do Nexus: a contestação vai
                            também ao banco (livro thopen_contestacoes), com nome, contato e mensagem
                            cifrados; só o Nexus abre. Sem ela, não grava no banco (o Teams segue).

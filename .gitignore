@@ -155,6 +155,8 @@ thopen/cache_bd_thopen.json.gz
 thopen/cache_operacao.json.gz*
 # o trip das OS já lido do Fracttal (trip_os.py, 23/10/2026) — refeito sozinho
 thopen/cache_trip_os.json*
+# a Zeladoria que o Nexus publica, a última leitura boa (fonte_zeladoria.py, 26/10/2026) — refeita sozinha
+thopen/cache_zeladoria.json.gz*
 
 # ── os_creator: MIGRADO em 28/08 para Grid-Co-CODE/oem ───────────────────────
 # Só o MOVIDO.md fica versionado. O resto é sobra da máquina de quem migrou:

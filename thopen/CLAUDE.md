@@ -160,6 +160,34 @@ da forma nova! / quero que a visão seja em corner-shape bevel conforme referên
 - **Medido em 23/10/2026** (cópia de prova): Thopen de outubro com 59 usinas e 1.289 linhas no Excel; a Altair com 22
   dias, 13/10 a 73,56% (a mesma conta do card do Diário).
 
+## Zeladoria (26 e 27/10/2026)
+
+Levi, 26/10/2026, pela sessão do Campo no Nexus: "agora faz a mesma tela no dashboard do cliente" (a de Nexus > Campo ·
+App > Zeladoria, no modelo "Rondas Sujidade e Vegetação"). Decisões dele: **o Nexus publica a visão pronta** e o 5080 só
+mostra (a conta fica num lugar só); a evolução agrupada pela **carteira**; "Aprovar recomendação" e "Solicitar orçamento"
+**fora** por enquanto. Código: `zeladoria_cliente.py` (puro), `fonte_zeladoria.py` (leitura), a rota `/api/t/zeladoria` e
+a aba no `dashboard_thopen.html` (`renderZeladoria`, `_zlDesenha`, `abrirZelUsina`).
+
+- **De onde.** O livro `nexus_zeladoria` do banco (Nexus, commit d6f37d7, 27/10/2026; a visão é registrada no catálogo do
+  Nexus): `zeladoria_semana`, uma linha por usina × semana COM leitura (segunda a domingo, 12 semanas até a corrente, os
+  níveis da última leitura da semana, a recomendação e a situação sobre a leitura daquela semana, datas em data_id
+  AAAAMMDD), e `atualizacao` (uma linha: `semana_corrente` e `linhas_qtd`). O Nexus grava de hora em hora (entre :32 e
+  :37) e troca o livro inteiro. Os nomes moram em `zeladoria_cliente` (WORKBOOK, ABA, CAMPOS).
+- **Leitura** (`fonte_zeladoria`): o mesmo cuidado do `fonte_operacao` — a requisição nunca espera a rede, relê em segundo
+  plano a cada 10 min, só aceita a leitura que bate com `linhas_qtd` e guarda a última boa em `cache_zeladoria.json.gz`.
+  Sem o livro: a aba diz "carregando". `THOPEN_ZELADORIA=0` desliga.
+- **A usina** sai do de-para do sistema do 5080 pelo `usina_id` do Nexus (o mesmo que o `fonte_operacao` lê): 80 das 131
+  usinas do Nexus têm a linha; das 81 da Thopen, só a Ouro Branco (usina_id 105) não.
+- **A tela.** Semana (a corrente e as 4 anteriores; a corrente "em andamento" mesmo sem linha), usina e situação; seis
+  números (com leitura na semana, vegetação e sujidade acima de 3 e a média, recomendações a programar); a evolução das 8
+  semanas da carteira, com a linha da carteira "acima de 3 / com leitura"; as recomendações (a mais grave primeiro, a
+  feita fora da fila); a tabela por usina (a última leitura até a semana escolhida, com a seta para a anterior); a gaveta
+  (as 8 semanas, a recomendação e o botão "Ver a ronda e as fotos", que abre a janela das rondas na ronda da última
+  leitura); e a régua "Como classificamos" (`operacao_mes.REGUA`). A situação em palavras do cliente: "a programar",
+  "programada para 28/10", "feita em 23/10"; sem nome de técnico. Fora do PDF.
+- **Prova:** `tests/test_thopen_zeladoria.py` (semanas, carteira, números, fila, nível 3 que não pede ação, data_id,
+  conferência, rota, portão, tela).
+
 ## Acoplamento com a plataforma
 
 `plataforma/app.py` importa este módulo (`sys.path` para `thopen/`) e usa **7 atributos**: `_CARTEIRA_DE`,

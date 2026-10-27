@@ -215,7 +215,9 @@ def test_frases_da_regua_na_metodologia_vem_do_python():
     met = _metodologia(html)
     for k, niveis in operacao_mes.REGUA.items():
         for n, frase in niveis.items():
-            assert frase not in T and html.count(frase) == 1 and frase in met, (k, n)
+            # duas vezes desde 26/10/2026: a régua da Metodologia e a "Como classificamos" da aba Zeladoria, as duas
+            # vindas do Python
+            assert frase not in T and html.count(frase) == 2 and frase in met, (k, n)
     assert met.index(operacao_mes.REGUA["sujidade"][5]) < met.index(operacao_mes.REGUA["sujidade"][1])   # 5 no topo
     assert "regua.sujidade[n]" in T and "regua.vegetacao[n]" in T
 

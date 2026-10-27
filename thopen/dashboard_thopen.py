@@ -53,6 +53,8 @@ import contestacao_banco     # rodada 5 (13/10/2026): ... e fica no banco, cifra
 import acessos               # login por pessoa (14/10/2026): as contas vêm do Nexus, a senha o 5080 grava (o banco)
 import geracao_possivel      # 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário (puro)
 import trip_os               # 23/10/2026: o trip das OS no comentário do dia, lido do Fracttal (nada roda no import)
+import fonte_zeladoria       # 26/10/2026: a Zeladoria que o Nexus publica no banco (nada roda no import)
+import zeladoria_cliente     # ... e a tela da semana (puro)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -1067,7 +1069,7 @@ def _portao():
     fora = jsonify({"ok": False, "erro": "Esta usina não está no seu acesso."}), 403
     if ep in _POR_USINA and not _pode(request.args.get("usina", "")):
         return fora
-    if ep in ("geral", "registros", "registros_xlsx") and request.args.get("carteira", "Thopen") not in _carteiras_vistas():
+    if ep in ("geral", "registros", "registros_xlsx", "api_zeladoria")             and request.args.get("carteira", "Thopen") not in _carteiras_vistas():
         return fora
     if ep == "api_contestar" and not _pode(str((request.get_json(silent=True) or {}).get("usina") or "").strip()):
         return fora
@@ -1591,6 +1593,30 @@ def registros_xlsx():
     nome = "Registros_%s_%d-%02d.xlsx" % (re.sub(r"[^A-Za-z0-9]+", "_", carteira), ano, mes)
     return send_file(buf, as_attachment=True, download_name=nome,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/t/zeladoria")
+def api_zeladoria():
+    """A aba Zeladoria (Levi, 26/10/2026: "agora faz a mesma tela no dashboard do cliente"): a visão que o Nexus publica
+    (usina × semana; zeladoria_cliente) para as usinas da carteira que a conta vê, na semana escolhida (?semana=2026-W43;
+    sem ela, a mais nova). O nome da usina no 5080 sai do de-para do sistema do 5080 pelo usina_id do Nexus."""
+    carteira = request.args.get("carteira", "")
+    if carteira not in CARTEIRAS:
+        return jsonify({"ok": False, "erro": "carteira inválida"}), 400
+    vazio = {"disponivel": False, "carteira": carteira}
+    if not fonte_zeladoria.ligada():
+        return jsonify(dict(vazio, motivo="desligado"))
+    d, op = fonte_zeladoria.dados(), fonte_operacao.dados()
+    if d is None or op is None:
+        return jsonify(dict(vazio, motivo="carregando"))
+    usinas = [u for u in _usinas_disponiveis() if _CARTEIRA_DE.get(u) == carteira and _pode(u)]
+    atu = zeladoria_cliente.ultima_atualizacao(d) or {}
+    r = zeladoria_cliente.montar(d.get("linhas"), zeladoria_cliente.nomes_por_id(op.get("de_para")), usinas,
+                                 semana=(request.args.get("semana") or "").strip() or None,
+                                 semana_corrente=str(atu.get("semana_corrente") or "").strip() or None)
+    r.update(disponivel=True, motivo=None, carteira=carteira,
+             atualizado_em=str(atu.get("atualizado_em") or "")[:16] or None)
+    return jsonify(r)
 
 
 @app.route("/api/t/fonte")

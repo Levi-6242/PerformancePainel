@@ -498,6 +498,87 @@
     .rg-dias th{ white-space:normal; vertical-align:bottom; }
   }
   @media print{ #pageRegistros{ display:none !important; } }
+  /* Zeladoria (Levi, 26/10/2026: "agora faz a mesma tela no dashboard do cliente"): a do Nexus > Campo · App >
+     Zeladoria, com a conta pronta que o Nexus publica. Os níveis nas cores da régua (z1 a z5, as do card do Diário).
+     Tela de consulta: fora do Ctrl+P, do Baixar PDF e do PDF Carteira */
+  .zl-filtros{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:0 0 14px; }
+  .zl-filtros label{ display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; color:var(--muted);
+    letter-spacing:1px; text-transform:uppercase; }
+  .zl-filtros select{ height:34px; border:1px solid #d3d7de; border-radius:8px; font-size:13.5px; padding:0 10px;
+    text-transform:none; letter-spacing:0; font-weight:400; color:var(--txt); }
+  .zl-fonte{ margin-left:auto; color:var(--muted); font-size:12px; }
+  .zl-kpis{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:0 0 16px; }
+  .zl-k{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:grid; gap:2px; }
+  .zl-k .t{ font-size:10.5px; font-weight:700; color:var(--muted); letter-spacing:.8px; text-transform:uppercase; }
+  .zl-k .n{ font-size:26px; font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; line-height:1.15; }
+  .zl-k .n small{ font-size:12px; font-weight:600; color:var(--muted); margin-left:4px; }
+  .zl-k.alerta .n{ color:#c8432f; }
+  .zl-k .s{ font-size:12px; color:var(--muted); }
+  .zl-k button{ justify-self:start; border:0; background:none; padding:2px 0 0; font:inherit; font-size:12.5px;
+    font-weight:700; color:var(--ora); cursor:pointer; }
+  .zl-grid{ display:grid; grid-template-columns:minmax(0, 1.7fr) minmax(0, 1fr); gap:14px; align-items:start; }
+  @media (max-width:1100px){ .zl-grid{ grid-template-columns:1fr; } }
+  .zl-cab{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 8px; }
+  .zl-cab h3{ margin:0 !important; text-align:left !important; }
+  .zl-cab .sub{ color:var(--muted); font-size:12px; }
+  .zl-seg{ display:inline-flex; background:#fff; border:1px solid #d3d7de; border-radius:9px; padding:3px; gap:2px; }
+  .zl-seg button{ border:0; background:none; font:inherit; font-weight:600; font-size:12.5px; color:var(--muted);
+    padding:5px 12px; border-radius:6px; cursor:pointer; }
+  .zl-seg button[aria-pressed="true"]{ background:var(--navy); color:#fff; }
+  .zl-evo{ overflow-x:auto; }
+  .zl-evo table{ width:100%; border-collapse:separate; border-spacing:4px; font-size:12px; }
+  .zl-evo th{ background:none; font-size:10.5px; color:var(--muted); font-weight:700; text-align:center; padding:2px; }
+  .zl-evo th small{ display:block; font-weight:400; }
+  .zl-evo th.on{ color:var(--navy); box-shadow:inset 0 -2px 0 var(--ora); }
+  .zl-evo td{ border:0; padding:0; text-align:center; }
+  .zl-evo td:first-child{ text-align:left; font-weight:600; white-space:nowrap; padding-right:8px; }
+  .zl-evo tr.grupo td{ font-size:11px; color:var(--muted); font-weight:700; padding:4px 0 2px; }
+  .zl-evo tr.grupo td:first-child{ color:var(--navy); font-size:12px; }
+  .zl-c{ display:flex; align-items:center; justify-content:center; height:26px; min-width:40px; border-radius:5px;
+    font-weight:700; cursor:pointer; border:0; font:inherit; font-size:12px; font-weight:700; width:100%; }
+  .zl-c.z1{ background:#dcefe3; color:#24704a; } .zl-c.z2{ background:#e6f3d3; color:#4e7a1b; }
+  .zl-c.z3{ background:#fbf1cf; color:#7a5e0b; } .zl-c.z4{ background:#fbe1cd; color:#9a4a12; }
+  .zl-c.z5{ background:#f6d3cd; color:#a12f1f; }
+  .zl-c.sem{ background:repeating-linear-gradient(135deg, #eef0f3 0 4px, #f8f9fb 4px 8px); cursor:default; }
+  .zl-c.and{ background:#fff; box-shadow:inset 0 0 0 1px #d3d7de; cursor:default; }
+  .zl-leg{ display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; font-size:11.5px; color:var(--muted); }
+  .zl-leg i{ display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-2px; margin-right:5px; }
+  .zl-recs{ display:grid; gap:8px; max-height:620px; overflow:auto; }
+  .zl-rec{ border:1px solid var(--line); border-left:4px solid #e8833a; border-radius:8px; padding:9px 12px; background:#fff;
+    cursor:pointer; display:grid; gap:2px; text-align:left; font:inherit; }
+  .zl-rec.n5{ border-left-color:#c8432f; }
+  .zl-rec .l1{ display:flex; justify-content:space-between; gap:8px; font-weight:700; font-size:13px; }
+  .zl-rec .l2, .zl-rec .l3{ font-size:12px; color:var(--muted); }
+  .zl-sit{ font-size:11.5px; font-weight:700; border-radius:999px; padding:1px 9px; white-space:nowrap; }
+  .zl-sit.prog{ background:#fff4e5; color:#b45309; } .zl-sit.apr{ background:#fdecea; color:#b3261e; }
+  .zl-sit.feita{ background:#e7f5ec; color:#1f7a46; } .zl-sit.semd{ background:#eef0f3; color:#6b6f76; }
+  .zl-tab{ margin-top:14px; }
+  .zl-tab table td, .zl-tab table th{ text-align:left; white-space:nowrap; }
+  .zl-tab tbody tr{ cursor:pointer; } .zl-tab tbody tr:hover{ background:#f7f8fb; }
+  .zl-n{ display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:20px; border-radius:5px;
+    font-weight:800; font-size:12px; padding:0 5px; }
+  .zl-n.z1{ background:#3a8f5c; color:#fff; } .zl-n.z2{ background:#8cc63f; color:#1d2b12; }
+  .zl-n.z3{ background:#e8c547; color:#2b2410; } .zl-n.z4{ background:#e8833a; color:#2b1a0e; } .zl-n.z5{ background:#c8432f; color:#fff; }
+  .zl-seta{ font-size:11px; color:var(--muted); margin-left:5px; }
+  .zl-seta.sobe{ color:#c8432f; } .zl-seta.desce{ color:#1f9d57; }
+  .zl-vazio{ color:var(--muted); text-align:center; padding:22px 10px; }
+  .zl-aviso{ background:#fff3cd; border:1px solid #f0d58a; color:#8a5a00; border-radius:8px; padding:9px 13px; font-size:13px; margin:0 0 12px; }
+  .zl-fundo{ position:fixed; inset:0; background:rgba(15,20,35,.35); display:flex; justify-content:flex-end; z-index:60; }
+  .zl-fundo.hidden{ display:none; }
+  .zl-gaveta{ width:min(460px, 100%); height:100%; background:#fff; overflow:auto; padding:18px 20px 28px;
+    box-shadow:-8px 0 24px rgba(0,0,0,.12); display:grid; align-content:start; gap:14px; }
+  .zl-gaveta h4{ margin:0; font-size:17px; color:var(--navy); }
+  .zl-gaveta .x{ justify-self:end; border:1px solid var(--line); background:#fff; border-radius:8px; width:34px; height:34px;
+    font-size:20px; line-height:1; cursor:pointer; margin:-4px 0 -40px; }
+  .zl-fatos{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .zl-fatos div{ border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .zl-fatos b{ display:block; font-size:10.5px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase; }
+  .zl-mini{ display:grid; grid-template-columns:80px repeat(8, minmax(0, 1fr)); gap:3px; font-size:11px; align-items:center; }
+  .zl-mini span{ text-align:center; color:var(--muted); }
+  .zl-mini .zl-c{ height:22px; min-width:0; cursor:default; }
+  .zl-btn{ justify-self:start; height:34px; border-radius:8px; border:1px solid var(--navy); background:var(--navy); color:#fff;
+    font:inherit; font-size:13px; font-weight:700; padding:0 14px; cursor:pointer; }
+  @media print{ #pageZeladoria, .zl-fundo{ display:none !important; } }
 </style>
 </head>
 <body>
@@ -513,6 +594,7 @@
     <button class="tab active" type="button" role="tab" data-page="mensal" aria-selected="true">Mensal</button>
     <button class="tab" type="button" role="tab" data-page="diario">Diário</button>
     <button class="tab" type="button" role="tab" data-page="registros">Registros</button>
+    <button class="tab" type="button" role="tab" data-page="zeladoria">Zeladoria</button>
     <span class="nav-sep"></span>
     <button class="tab tab-met" type="button" role="tab" data-page="metodologia"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>Metodologia</button>
   </nav>
@@ -656,6 +738,55 @@
     <div id="rgLista"></div>
   </div>
 
+  <!-- ───────────── ZELADORIA (Levi, 26/10/2026) — a do Nexus, com a conta que o Nexus publica; fora da impressão ───────────── -->
+  <div class="wrap hidden" id="pageZeladoria">
+    <div class="sec">VEGETAÇÃO E SUJIDADE <u>DOS MÓDULOS</u></div>
+    <div class="zl-filtros">
+      <label for="zlSemana">Semana <select id="zlSemana"></select></label>
+      <label for="zlUsina">Usina <select id="zlUsina"><option value="">todas</option></select></label>
+      <label for="zlSit">Situação <select id="zlSit">
+        <option value="">todas</option><option value="vegetacao">vegetação acima de 3</option>
+        <option value="sujidade">sujidade acima de 3</option><option value="aprogramar">recomendação a programar</option>
+        <option value="semleitura">sem leitura na semana</option></select></label>
+      <span class="zl-fonte" id="zlFonte"></span>
+    </div>
+    <div class="zl-aviso hidden" id="zlAviso"></div>
+    <div class="zl-kpis" id="zlKpis"></div>
+    <div class="zl-grid">
+      <div class="card">
+        <div class="zl-cab"><h3>Evolução da carteira</h3>
+          <span class="zl-seg" role="group" aria-label="Campo"><button type="button" id="zlVeg" aria-pressed="true">Vegetação</button>
+            <button type="button" id="zlSuj" aria-pressed="false">Sujidade</button></span>
+          <span class="sub" id="zlEvoSub"></span></div>
+        <div class="zl-evo" id="zlEvo"></div>
+        <div class="zl-leg"><span><i style="background:#dcefe3"></i>1 e 2 sem alerta</span><span><i style="background:#fbf1cf"></i>3</span>
+          <span><i style="background:#fbe1cd"></i>4 alta</span><span><i style="background:#f6d3cd"></i>5 muito alta</span>
+          <span><i class="zl-c sem" style="display:inline-block;min-width:0;width:12px;height:12px"></i>sem leitura</span>
+          <span><i style="background:#fff;box-shadow:inset 0 0 0 1px #d3d7de"></i>semana em andamento</span></div>
+      </div>
+      <div class="card">
+        <div class="zl-cab"><h3>Recomendações</h3><span class="sub" id="zlRecSub"></span></div>
+        <div class="zl-recs" id="zlRecs"></div>
+      </div>
+    </div>
+    <div class="card zl-tab">
+      <div class="zl-cab"><h3>Situação por usina</h3><span class="sub">a última leitura até a semana escolhida · a mais crítica primeiro · clique na linha para ver a usina e as fotos</span></div>
+      <div style="overflow:auto"><table><thead><tr><th>Usina</th><th>Leitura</th><th>Vegetação</th><th>Sujidade</th><th>Vala</th>
+        <th>Última supressão</th><th>Última limpeza</th><th>Recomendação</th></tr></thead><tbody id="zlTab"></tbody></table></div>
+    </div>
+    <div class="card met" style="margin-top:14px"><h3>Como classificamos</h3>
+      <p class="met-p">Em cada ronda o técnico compara a vegetação sob os módulos e a sujidade dos painéis com as fotos de referência e dá um nível de 1 a 5. Acima de 3 pede ação: vegetação pede supressão vegetal; sujidade, limpeza de módulos. Nível 5 é imediato; nível 4, em até 7 dias da leitura. Na semana (de segunda a domingo) vale a última leitura.</p>
+      <table class="regua-t"><thead><tr><th>Nível</th><th>Sujidade dos módulos</th><th>Altura da vegetação</th></tr></thead><tbody>
+        {%- for n in (5, 4, 3, 2, 1) %}
+        <tr><td class="n z{{ n }}">{{ n }}</td><td>{{ regua.sujidade[n] }}</td><td>{{ regua.vegetacao[n] }}</td></tr>
+        {%- endfor %}
+      </tbody></table>
+    </div>
+  </div>
+  <div class="zl-fundo hidden" id="zlFundo" role="dialog" aria-modal="true" aria-labelledby="zlGTit">
+    <div class="zl-gaveta" id="zlGaveta"></div>
+  </div>
+
   <!-- ───────────── PÁGINA VISÃO GERAL ───────────── -->
   <div class="wrap hidden" id="pageGeral">
     <div class="header pgh"><h1>Performance UFVs — Geração</h1><div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
@@ -732,11 +863,14 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   $('pageCapa').classList.toggle('hidden',p!=='capa');
   $('pageMetodologia').classList.toggle('hidden',p!=='metodologia');
   $('pageRegistros').classList.toggle('hidden',p!=='registros');
+  $('pageZeladoria').classList.toggle('hidden',p!=='zeladoria');
   // Geral/Capa são por CARTEIRA (o filtro de MÊS é global — aparece em todas as abas); a Metodologia não é de usina
-  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa'||p==='metodologia'||p==='registros');
+  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa'||p==='metodologia'||p==='registros'||p==='zeladoria');
+  $('fldMes').classList.toggle('hidden', p==='zeladoria');          // a Zeladoria é por semana (o filtro dela)
   if(p==='geral') renderGeral();
   else if(p==='capa') renderCapa();
   else if(p==='registros') renderRegistros();
+  else if(p==='zeladoria') renderZeladoria();
   // Redimensiona os gráficos da página recém-exibida. `void offsetWidth` força o reflow do
   // display:block ANTES do resize — senão o Plotly mede a largura-fallback (~700px) e, em telas
   // < ~1840px, o gráfico estoura o card. Rede de segurança: o .card tem overflow:hidden.
@@ -790,6 +924,7 @@ async function setCarteira(nome){
   if(PAGE==='geral') renderGeral();
   else if(PAGE==='capa') renderCapa();
   else if(PAGE==='registros') renderRegistros();
+  else if(PAGE==='zeladoria') renderZeladoria();
 }
 
 // ---------- Visão Geral (resumo da carteira no mês de referência) ----------
@@ -921,6 +1056,126 @@ async function renderRegistros(){
 }
 $('rgAbrir').onclick=()=>document.querySelectorAll('#rgLista .rg-us').forEach(el=>_rgAlterna(el,true));
 $('rgFechar').onclick=()=>document.querySelectorAll('#rgLista .rg-us').forEach(el=>_rgAlterna(el,false));
+
+// ---------- Zeladoria (Levi, 26/10/2026) ----------
+// A mesma tela do Nexus > Campo · App > Zeladoria, para o cliente: a conta é a que o Nexus publica (/api/t/zeladoria),
+// aqui só se desenha. Para o cliente a situação vem em palavras dele ("a programar", "programada para 28/10", "feita em
+// 23/10") e o nome de quem fez a ronda não vem.
+let _zl={d:null, campo:'vegetacao', seq:0};
+const _zlDia=s=>s?s.slice(8,10)+'/'+s.slice(5,7):'—';
+const _zlN=v=>v==null?'—':`<span class="zl-n z${v}">${v}</span>`;
+const _zlSitCls=s=>({'a programar':'apr','programada':'prog','feita':'feita'})[s]||'semd';
+function _zlSeta(a,b){ if(a==null||b==null||a===b) return ''; return a>b?'<span class="zl-seta sobe" title="subiu desde a leitura anterior">▲</span>'
+  :'<span class="zl-seta desce" title="desceu desde a leitura anterior">▼</span>'; }
+function _zlPrazo(r){ if(!r.prazo) return ''; const hoje=new Date().toISOString().slice(0,10);
+  if(r.situacao==='feita') return ''; if(r.prazo<hoje){ const d=Math.round((new Date(hoje)-new Date(r.prazo))/864e5);
+    return `prazo vencido há ${d} dia${d===1?'':'s'}`; } return r.prazo===hoje?'prazo hoje':`prazo até ${_zlDia(r.prazo)}`; }
+async function renderZeladoria(){
+  const seq=++_zl.seq, cart=CART||'Thopen', sem=$('zlSemana').value;
+  $('zlKpis').innerHTML=''; $('zlRecs').innerHTML='<div class="zl-vazio">Carregando a zeladoria…</div>';
+  let d=null; try{ d=await get(`${RAIZ}/api/t/zeladoria?carteira=${encodeURIComponent(cart)}${sem?'&semana='+encodeURIComponent(sem):''}`); }catch(e){ d=null; }
+  if(seq!==_zl.seq) return;
+  _zl.d=d;
+  const av=$('zlAviso');
+  if(!d||!d.disponivel){
+    av.textContent=!d?'Não foi possível ler a zeladoria agora. Tente de novo em alguns segundos.'
+      :d.motivo==='carregando'?'A zeladoria está sendo carregada. Use Atualizar ou abra a aba de novo em alguns segundos.'
+      :'A zeladoria não está disponível neste painel.';
+    av.classList.remove('hidden'); ['zlEvo','zlRecs','zlTab'].forEach(i=>$(i).innerHTML=''); return;
+  }
+  av.classList.add('hidden');
+  $('zlSemana').innerHTML=d.semanas.map(s=>`<option value="${_opEsc(s.semana)}" ${s.semana===d.semana?'selected':''}>${_opEsc(s.semana.slice(5))} · ${_zlDia(s.ini)}${s.em_andamento?' · em andamento':''}</option>`).join('');
+  const us=$('zlUsina').value;
+  $('zlUsina').innerHTML='<option value="">todas</option>'+d.evolucao.usinas.map(u=>`<option ${u.usina===us?'selected':''}>${_opEsc(u.usina)}</option>`).join('');
+  $('zlFonte').textContent=d.atualizado_em?`rondas do App de Campo · atualizado em ${_zlDia(d.atualizado_em)} às ${d.atualizado_em.slice(11,16)}`:'';
+  _zlDesenha();
+}
+function _zlDesenha(){
+  const d=_zl.d; if(!d||!d.disponivel) return;
+  const k=d.kpis||{}, fu=$('zlUsina').value, fs=$('zlSit').value, campo=_zl.campo;
+  const pass=t=>(!fu||t.usina===fu)&&(!fs||(fs==='vegetacao'&&t.vegetacao>3)||(fs==='sujidade'&&t.sujidade>3)
+    ||(fs==='aprogramar'&&t.recomendacoes.some(r=>r.situacao==='a programar')));
+  const sem=d.semanas.find(s=>s.semana===d.semana)||{};
+  const kc=(t,n,sub,cls,filtro,de)=>`<div class="zl-k ${cls||''}"><span class="t">${t}</span><span class="n">${n}${de?`<small>${de}</small>`:''}</span>`
+    +`<span class="s">${sub}</span>${filtro?`<button type="button" data-f="${filtro}">ver quais</button>`:''}</div>`;
+  const md=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+  $('zlKpis').innerHTML=kc('Com leitura na semana',k.com_leitura??'—',`${_opEsc(d.semana.slice(5))} · ${_zlDia(sem.ini)}${sem.em_andamento?' · em andamento':''}`,'',k.usinas-k.com_leitura?'semleitura':'',`de ${k.usinas}`)
+    +kc('Vegetação acima de 3',k.vegetacao_acima,`${k.vegetacao_5} no nível 5 · na última leitura`,k.vegetacao_acima?'alerta':'',k.vegetacao_acima?'vegetacao':'')
+    +kc('Vegetação média',md(k.vegetacao_media),`${k.com_leitura_total} usinas com leitura`,'','','de 1 a 5')
+    +kc('Sujidade acima de 3',k.sujidade_acima,`${k.sujidade_5} no nível 5 · na última leitura`,k.sujidade_acima?'alerta':'',k.sujidade_acima?'sujidade':'')
+    +kc('Sujidade média',md(k.sujidade_media),`${k.com_leitura_total} usinas com leitura`,'','','de 1 a 5')
+    +kc('Recomendações a programar',k.a_programar,`de ${k.recomendacoes} · ${k.programadas} programada${k.programadas===1?'':'s'} · ${k.feitas} feita${k.feitas===1?'':'s'}`,k.a_programar?'alerta':'',k.a_programar?'aprogramar':'');
+  // a evolução: as 8 semanas até a escolhida, a linha da carteira com quantas passaram de 3 sobre quantas tiveram leitura
+  const ev=d.evolucao, grp=ev.grupo[campo];
+  const cab='<tr><th style="text-align:left">Usina</th>'+ev.semanas.map(s=>`<th class="${s.semana===d.semana?'on':''}">${_opEsc(s.semana.slice(5))}<small>${_zlDia(s.ini)}</small></th>`).join('')+'</tr>';
+  const lg=`<tr class="grupo"><td>${_opEsc(d.carteira)} · ${ev.usinas.length}</td>`+grp.map((g,i)=>`<td title="${g.acima} acima de 3 de ${g.com_leitura} com leitura">${ev.semanas[i].em_andamento&&!g.com_leitura?'—':`${g.acima}/${g.com_leitura}`}</td>`).join('')+'</tr>';
+  const linhas=ev.usinas.filter(u=>!fu||u.usina===fu).map(u=>`<tr><td>${_opEsc(u.usina)}</td>`+u[campo].map((v,i)=>{
+      const s=ev.semanas[i]; if(v==null) return `<td><span class="zl-c ${s.em_andamento?'and':'sem'}" title="${s.em_andamento?'semana em andamento':'sem leitura'}"></span></td>`;
+      return `<td><button type="button" class="zl-c z${v}" data-u="${_opEsc(u.usina)}" title="${_opEsc(u.usina)} · ${_opEsc(s.semana)}: nível ${v}">${v}</button></td>`; }).join('')+'</tr>').join('');
+  $('zlEvo').innerHTML=ev.usinas.length?`<table>${cab}${lg}${linhas}</table>`:'<div class="zl-vazio">Nenhuma leitura nas usinas desta carteira.</div>';
+  $('zlEvoSub').textContent=`nível de ${campo==='vegetacao'?'vegetação':'sujidade'} nas ${ev.semanas.length} semanas até a ${d.semana.slice(5)}`;
+  // as recomendações: a mais grave primeiro (a fila vem do servidor)
+  const recs=d.recomendacoes.filter(r=>!fu||r.usina===fu);
+  $('zlRecSub').textContent=`${recs.length} pede${recs.length===1?'':'m'} ação · acima de 3 na última leitura`;
+  $('zlRecs').innerHTML=recs.map(r=>`<button type="button" class="zl-rec n${r.nivel}" data-u="${_opEsc(r.usina)}">`
+      +`<span class="l1"><span>${_opEsc(r.tipo)}</span><span class="zl-sit ${_zlSitCls(r.situacao)}">${_opEsc(r.texto)}</span></span>`
+      +`<span class="l2">${_opEsc(r.usina)} · ${r.campo==='vegetacao'?'vegetação':'sujidade'} ${r.nivel} · lida em ${_zlDia(r.data_leitura)}</span>`
+      +`${_zlPrazo(r)?`<span class="l3">${_zlPrazo(r)}</span>`:''}</button>`).join('')
+    ||'<div class="zl-vazio">Nenhuma usina acima de 3 na última leitura.</div>';
+  // a tabela
+  let tab=d.tabela.filter(pass);
+  if(fs==='semleitura') tab=[];
+  const sl=fs==='semleitura'?(d.usinas_sem_leitura||[]).concat(d.tabela.filter(t=>t.semana!==d.semana).map(t=>t.usina)).filter(u=>!fu||u===fu):[];
+  $('zlTab').innerHTML=tab.map(t=>`<tr data-u="${_opEsc(t.usina)}"><td><b>${_opEsc(t.usina)}</b></td><td>${_zlDia(t.data_leitura)}</td>`
+      +`<td>${_zlN(t.vegetacao)}${_zlSeta(t.vegetacao,t.vegetacao_antes)}</td><td>${_zlN(t.sujidade)}${_zlSeta(t.sujidade,t.sujidade_antes)}</td>`
+      +`<td>${_opEsc(t.vala||'—')}</td><td>${_zlDia(t.ultima_supressao)}</td><td>${_zlDia(t.ultima_limpeza)}</td>`
+      +`<td>${t.recomendacoes.map(r=>`${_opEsc(r.tipo)} · <span class="zl-sit ${_zlSitCls(r.situacao)}">${_opEsc(r.texto)}</span>`).join('<br>')||'—'}</td></tr>`).join('')
+    +sl.map(u=>`<tr><td><b>${_opEsc(u)}</b></td><td colspan="7" style="color:var(--muted)">sem leitura na semana</td></tr>`).join('')
+    ||'<tr><td colspan="8" class="zl-vazio">Nenhuma usina com esse filtro.</td></tr>';
+}
+function abrirZelUsina(nome){
+  const d=_zl.d; if(!d) return;
+  const t=d.tabela.find(x=>x.usina===nome)||{usina:nome,recomendacoes:[]}, ev=d.evolucao.usinas.find(u=>u.usina===nome);
+  const mini=c=>`<div class="zl-mini"><span style="text-align:left">${c==='vegetacao'?'Vegetação':'Sujidade'}</span>`
+    +(ev?ev[c]:[]).map((v,i)=>v==null?`<i class="zl-c ${d.evolucao.semanas[i].em_andamento?'and':'sem'}"></i>`:`<i class="zl-c z${v}">${v}</i>`).join('')+'</div>';
+  const semanas='<div class="zl-mini"><span></span>'+d.evolucao.semanas.map(s=>`<span>${_opEsc(s.semana.slice(5))}</span>`).join('')+'</div>';
+  $('zlGaveta').innerHTML=`<button type="button" class="x" id="zlX" aria-label="Fechar">&times;</button><h4 id="zlGTit">${_opEsc(nome)}</h4>`
+    +`<div class="zl-fatos"><div><b>Última leitura</b>${_zlDia(t.data_leitura)}</div><div><b>Vala de drenagem</b>${_opEsc(t.vala||'—')}</div>`
+    +`<div><b>Vegetação</b>${_zlN(t.vegetacao)}${_zlSeta(t.vegetacao,t.vegetacao_antes)}</div><div><b>Sujidade</b>${_zlN(t.sujidade)}${_zlSeta(t.sujidade,t.sujidade_antes)}</div>`
+    +`<div><b>Última supressão</b>${_zlDia(t.ultima_supressao)}</div><div><b>Última limpeza</b>${_zlDia(t.ultima_limpeza)}</div></div>`
+    +`<div><b style="font-size:12px">As 8 semanas</b>${semanas}${mini('vegetacao')}${mini('sujidade')}</div>`
+    +(t.recomendacoes.length?`<div>${t.recomendacoes.map(r=>`<div class="zl-rec n${r.nivel}" style="cursor:default"><span class="l1"><span>${_opEsc(r.tipo)}</span><span class="zl-sit ${_zlSitCls(r.situacao)}">${_opEsc(r.texto)}</span></span>`
+      +`<span class="l2">${r.campo==='vegetacao'?'vegetação':'sujidade'} ${r.nivel} · lida em ${_zlDia(r.data_leitura)}</span>${_zlPrazo(r)?`<span class="l3">${_zlPrazo(r)}</span>`:''}</div>`).join('')}</div>`:'<div class="s" style="color:var(--muted)">Nenhuma recomendação na última leitura.</div>')
+    +(t.os_ronda&&t.data_leitura?`<button type="button" class="zl-btn" id="zlFotos">Ver a ronda e as fotos</button>`:'');
+  $('zlFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('zlX').focus();
+  $('zlX').onclick=fecharZelUsina;
+  const bf=$('zlFotos'); if(bf) bf.onclick=()=>{ fecharZelUsina(); abrirRondasDe(nome, +t.data_leitura.slice(0,4), +t.data_leitura.slice(5,7), t.os_ronda); };
+}
+function fecharZelUsina(){ $('zlFundo').classList.add('hidden'); document.body.style.overflow=''; }
+// a janela das rondas aberta numa ronda (a da última leitura): a mesma janela do card do Diário
+async function abrirRondasDe(usina, ano, mes, os){
+  const seq=++_rd.seq;
+  $('rdFundo').classList.remove('hidden'); document.body.style.overflow='hidden';
+  $('rdTit').textContent=`Rondas do mês · ${usina}`; $('rdSub').textContent=''; $('rdDatas').innerHTML='';
+  $('rdCorpo').innerHTML='<div class="rd-vazio">Carregando as rondas…</div>'; $('rdX').focus();
+  let d=null;
+  try{ d=await get(`${RAIZ}/api/t/rondas?usina=${encodeURIComponent(usina)}&ano=${ano}&mes=${mes}`); }catch(e){ d=null; }
+  if(seq!==_rd.seq) return;
+  _rd={lista:(d&&d.rondas)||[], sel:-1, det:null, usina, seq:_rd.seq};
+  if(!d||!d.disponivel||!_rd.lista.length){ $('rdCorpo').innerHTML='<div class="rd-vazio">As fotos desta ronda não estão disponíveis agora.</div>'; return; }
+  const k=_rd.lista.findIndex(x=>String(x.os)===String(os));
+  _rdAbre(k<0?0:k);
+}
+$('zlSemana').onchange=renderZeladoria;
+$('zlUsina').onchange=_zlDesenha; $('zlSit').onchange=_zlDesenha;
+$('zlVeg').onclick=()=>{ _zl.campo='vegetacao'; $('zlVeg').setAttribute('aria-pressed','true'); $('zlSuj').setAttribute('aria-pressed','false'); _zlDesenha(); };
+$('zlSuj').onclick=()=>{ _zl.campo='sujidade'; $('zlSuj').setAttribute('aria-pressed','true'); $('zlVeg').setAttribute('aria-pressed','false'); _zlDesenha(); };
+$('zlKpis').addEventListener('click', e=>{ const b=e.target.closest('button[data-f]'); if(!b) return; $('zlSit').value=b.dataset.f; _zlDesenha();
+  $('zlTab').closest('.card').scrollIntoView({behavior:'smooth', block:'start'}); });
+['zlEvo','zlRecs','zlTab'].forEach(id=>$(id).addEventListener('click', e=>{ const el=e.target.closest('[data-u]'); if(el) abrirZelUsina(el.dataset.u); }));
+$('zlFundo').addEventListener('click', e=>{ if(e.target===$('zlFundo')) fecharZelUsina(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !$('zlFundo').classList.contains('hidden')) fecharZelUsina(); });
+// ---------- fim da Zeladoria ----------
 
 // ---------- Capa ----------
 function renderCapa(){
@@ -1645,6 +1900,7 @@ async function refreshBD(){
     preencheSelUsina(usinaAtual);                // respeita a carteira ativa
     await loadUsina();                           // re-renderiza no MÊS global atual (preservado)
     if(PAGE==='registros') renderRegistros();
+    if(PAGE==='zeladoria') renderZeladoria();
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.classList.remove('girando'); btn.title=old; }
 }

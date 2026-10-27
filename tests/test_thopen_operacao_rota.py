@@ -112,23 +112,25 @@ def test_zip_gerado_tem_os_oito_arquivos_e_as_variaveis_da_operacao(tmp_path, mo
     app = {"thopen/dashboard_thopen.py", "thopen/fonte_api.py", "thopen/fonte_operacao.py", "thopen/operacao_mes.py",
            "thopen/rondas_cliente.py", "thopen/fotos_ronda.py", "thopen/contestacao.py",
            "thopen/contestacao_banco.py", "thopen/acessos.py", "thopen/livro_banco.py", "thopen/geracao_possivel.py", "thopen/trip_os.py",
+           "thopen/fonte_zeladoria.py", "thopen/zeladoria_cliente.py",
            "thopen/templates/dashboard_thopen.html", "thopen/templates/entrar.html"}
     assert app <= nomes and not any("cache" in n for n in nomes)
-    assert "catorze arquivos" in leiame and "treze arquivos" not in leiame
+    assert "dezesseis arquivos" in leiame and "catorze arquivos" not in leiame
     for v in ("THOPEN_OPERACAO", "THOPEN_OPERACAO_TTL", "THOPEN_OPERACAO_CACHE", "THOPEN_RONDAS",
               "FRACTTAL_CLIENT_ID", "FRACTTAL_CLIENT_SECRET", "THOPEN_TEAMS_PERFORMANCE", "THOPEN_TEAMS_COS",
               "THOPEN_TEAMS_ZELADORIA", "THOPEN_CONTESTACAO_CHAVE_PUBLICA", "GRIDCO_SQL_TOKEN", "THOPEN_LOGIN",
               "THOPEN_PREFIXO", "THOPEN_ACESSOS_CHAVE_PRIVADA", "THOPEN_SESSAO_CHAVE", "THOPEN_COOKIE_SEGURO",
-              "THOPEN_TRIP", "THOPEN_TRIP_TTL", "THOPEN_TRIP_CACHE"):
+              "THOPEN_TRIP", "THOPEN_TRIP_TTL", "THOPEN_TRIP_CACHE", "THOPEN_ZELADORIA", "THOPEN_ZELADORIA_TTL",
+              "THOPEN_ZELADORIA_CACHE"):
         assert re.search(r"^\s*%s\s" % v, leiame, re.M), v
 
 
 def test_comentarios_da_nuvem_dizem_oito_arquivos():
     for arq in ("railway.toml", "render.yaml"):
         txt = open(os.path.join(RAIZ, arq), encoding="utf-8").read()
-        assert "13 arquivos" not in txt and "14 arquivos" in txt, arq
+        assert "14 arquivos" not in txt and "16 arquivos" in txt, arq
         for m in ("fonte_operacao", "operacao_mes", "rondas_cliente", "fotos_ronda", "contestacao", "contestacao_banco",
-                  "acessos", "livro_banco", "geracao_possivel", "trip_os"):
+                  "acessos", "livro_banco", "geracao_possivel", "trip_os", "fonte_zeladoria", "zeladoria_cliente"):
             assert "thopen/%s.py" % m in txt, (arq, m)
 
 
