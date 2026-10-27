@@ -2936,7 +2936,8 @@ aba Strings, em ordem alfabética) e um dia (hoje por padrão) por vez.
 - **Só onde há histórico**: o ··· mostra as duas só nas fontes do relatório (`POT_FONTES` da Entrada; Athon, Axis e Sal
   Energia não têm, e um teste amarra a lista ao `potencia_ativa.FONTES`). Na 2C só entram as usinas da API PV (id
   numérico, fonte `2capi`); as da Owen não têm potência por inversor. RenoGrid é "Potência CC"; RenoGrid e GreenYellow
-  não expõem a estação por usina, então o rótulo delas não promete o POA/GHI.
+  não expõem a estação por usina, então o rótulo delas não promete o POA/GHI. O "Perdas" saiu do ··· no mesmo dia (Levi:
+  "Pode tirar perdas"): a aba acabou no 03fa176 e o item não abria nada.
 - **De onde vem**: a potência é a rota do relatório (`/api/relatorio/potencia-ativa`, ini = fim = o dia: o mesmo cache,
   a mesma reserva da cota histórica da API PV); o POA/GHI é a rota do gráfico do ETM (`_etmChartUrl`). A API PV só
   entrega a curva da estação do dia de HOJE (`day_meteo`): dia passado mostra a potência e diz que não há POA/GHI. Nada é

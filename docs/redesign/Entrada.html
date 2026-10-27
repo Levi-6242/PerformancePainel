@@ -531,7 +531,7 @@
     var partes = _partesDoCaminho(location.pathname, window.APP_PREFIX || "");   // ["tempo-real"] ou ["tempo-real", "athon"]
     if (partes[0] !== "tempo-real") return;
     var fonteSel = partes[1] || null;
-    var VIEWS = ["strings", "etm", "geracao", "trackers", "pr", "curva", "perdas", "potinv", "potusina"];
+    var VIEWS = ["strings", "etm", "geracao", "trackers", "pr", "curva", "potinv", "potusina"];
     var viewSel = (function () { var v = new URLSearchParams(location.search).get("view"); return VIEWS.indexOf(v) >= 0 ? v : "strings"; })();
     document.querySelectorAll(".n1").forEach(function (e) { e.hidden = true; });
     document.body.classList.add("largo");
@@ -563,13 +563,15 @@
     function ehNoite() { var h = new Date().getHours(); return h < 5 || h >= 19; }
     function esqueleto() { if (fonteSel) return; grade.innerHTML = "<div class='esq'></div><div class='esq'></div><div class='esq'></div>"; }
     // Strings, ETM e Trackers SAO os botoes de aba do Monitoramento embutido (pedido do Levi, 05/09: "muitos cards para
-    // pouca funcao"). "Sem comunicacao" e so leitura. O card "..." abre as demais abas (Geracao, PR, Curva, Perdas).
+    // pouca funcao"). "Sem comunicacao" e so leitura. O card "..." abre as demais abas (Geracao, PR, Curva).
+    // Perdas saiu do "..." em 27/10/2026 (Levi: "Pode tirar perdas"): a aba Perdas do Monitoramento acabou no 03fa176 e
+    // o item ficou no menu sem abrir nada.
     // Potencia + POA e GHI (Levi, 27/10/2026): so nas fontes com historico de potencia por inversor, as do relatorio
     // Potencia Ativa dos Inversores (Athon, Axis e Sal Energia nao tem). RenoGrid e GreenYellow nao expoem a estacao por
     // usina, entao o rotulo nao promete o POA/GHI; o RenoGrid e potencia CC. O 3o item e o rotulo curto do card "...".
     var POT_FONTES = ["thopen-pv", "thopen-db", "renogrid", "2c", "semp", "alveslima", "greenyellow"];
     var POT_ROT = (fonteSel === "renogrid" ? "Potência CC" : "Potência ativa"), POT_IRR = (fonteSel === "renogrid" || fonteSel === "greenyellow") ? "" : " + POA e GHI";
-    var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"], ["perdas", "Perdas"]]
+    var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"]]
       .concat(POT_FONTES.indexOf(fonteSel) >= 0 ? [["potinv", POT_ROT + " dos inversores" + POT_IRR, "Potência · inversores"],
                                                    ["potusina", POT_ROT + " da usina" + POT_IRR, "Potência · usina"]] : []);
     var frPronto = false;
@@ -749,7 +751,7 @@
       nt.hidden = false; nt.className = "tr-nota" + (noite ? " noite" : "");
       nt.textContent = g.sem_leitura
         ? "Esta fonte não entregou leitura de nenhuma usina. O card existe para ela não sumir da vista; quando a fonte voltar, os números aparecem aqui."
-        : (noite ? "Sem sol agora: strings e trackers não contam até o amanhecer. À noite o que vale é comunicação. Clique num card para ver a aba dele; em ··· estão as outras." : "Clique em Strings, ETM ou Trackers para ver a aba do Monitoramento só desta fonte; em ··· estão Geração, PR, Curva" + (OUTRAS.length > 4 ? ", Perdas e Potência." : " e Perdas."));
+        : (noite ? "Sem sol agora: strings e trackers não contam até o amanhecer. À noite o que vale é comunicação. Clique num card para ver a aba dele; em ··· estão as outras." : "Clique em Strings, ETM ou Trackers para ver a aba do Monitoramento só desta fonte; em ··· estão Geração, PR" + (OUTRAS.length > 3 ? ", Curva e Potência." : " e Curva."));
       var mostr = function (rot, val, sub, cls, view) {
         var tag = view ? "button" : "div", extra = view ? " type='button' data-view='" + view + "' title='ver " + rot.toLowerCase() + " desta fonte'" : "";
         return "<" + tag + " class='m" + (view ? " aba" : "") + "'" + extra + "><div class='rot'>" + rot + "</div><div class='val" + (cls || "") + "'>" + val + "</div><div class='sub'>" + sub + "</div></" + tag + ">";

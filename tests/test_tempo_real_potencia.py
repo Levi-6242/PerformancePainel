@@ -43,6 +43,8 @@ def test_o_tres_pontos_so_oferece_a_potencia_onde_o_relatorio_tem_historico():
     assert sorted(_lista_js(_ENT, "var POT_FONTES")) == esperado
     assert {"athon", "axis", "salenergia"}.isdisjoint(_lista_js(_ENT, "var POT_FONTES"))
     assert {"potinv", "potusina"} <= set(_lista_js(_ENT, "var VIEWS"))
+    # a aba Perdas do Monitoramento acabou no 03fa176 e o item ficou no ··· sem abrir nada (tirado em 27/10/2026)
+    assert "perdas" not in _lista_js(_ENT, "var VIEWS") and '["perdas"' not in _ENT
 
 
 def test_pelo_nexus_a_potencia_passa_e_a_estacao_da_api_pv_nao():
