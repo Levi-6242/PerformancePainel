@@ -517,6 +517,29 @@ def _pista_no_texto(o, grupo):
 # THPN-PHS100-INVR2.1 = o 1.1 da Pharma II). O nome antigo segue casando pela "Usina Fractall" da aba, como sempre.
 SITES_POR_CABINE = {"THPN-PHS100": {2: "Pharma II", 3: "Pharma III", 4: "Pharma IV"}}
 
+# Usina cujo Fracttal numera os inversores de outro jeito que o cadastro (Levi, 27/10/2026: "arrume o de-para de
+# barretos"). Na Barretos o Fracttal tem INVR1.1 a INVR1.40 numa fila só e o cadastro tem 1.1 a 1.20 (UG 1) e 2.1 a 2.20
+# (UG 2). Conferido no Fracttal no mesmo dia, ativo por ativo: INVR1.1–1.20 e DINV1.14 ficam no SKID 1 / QGBT 1,
+# INVR1.21–1.40 e DINV1.21 no SKID 2 / QGBT 2, e INVR2.x/DINV2.x não existem. Então o 1.(20+n) do Fracttal é o 2.n do
+# cadastro. Sem isto a OS 17428 (religamento do INVR1.21) caía num "Inversor 1.21" que não existe, com a potência média, e
+# o código derivado do inversor 2.n (BRS100-INVR2.n) não existia no Fracttal. {code-base: {nº no Fracttal: nº no cadastro}}.
+INV_RENUMERADO = {"BRS100": {f"1.{20 + n}": f"2.{n}" for n in range(1, 21)}}
+_RX_CB = re.compile(r"([A-Z]{3}\d{3})-D?INVR?\d")
+
+
+def inv_do_fracttal(code, num):
+    """O nº do inversor no cadastro a partir do nº no código do Fracttal (`code` = o código do ativo, pelo code-base)."""
+    m = _RX_CB.search(str(code or "").upper())
+    return (INV_RENUMERADO.get(m.group(1)) or {}).get(num, num) if m else num
+
+
+def inv_para_fracttal(cb, num):
+    """O inverso: o nº que o código do Fracttal usa para o inversor `num` do cadastro da usina de code-base `cb`."""
+    for f, c in (INV_RENUMERADO.get(str(cb or "").upper()) or {}).items():
+        if c == num:
+            return f
+    return num
+
 
 def _escopo_por_cabine(o, usinas):
     """(True, escopo ou None) quando o ativo é de um site de SITES_POR_CABINE; (False, None) quando não é."""
@@ -579,7 +602,9 @@ def escopo_os(o, usinas, idx):
 
     m = re.search(r"-D?INVR?(\d+(?:\.\d+)?)$", code)
     if m and ("INVR" in code or "DINV" in code):
-        num = m.group(1)
+        num = inv_do_fracttal(code, m.group(1))
+        if num != m.group(1):
+            o["flags"].append(f"inversor {m.group(1)} do Fracttal = {num} do cadastro (numeração própria da usina)")
         for u in grupo:
             U = usinas[u]
             if U.invs.get(num):

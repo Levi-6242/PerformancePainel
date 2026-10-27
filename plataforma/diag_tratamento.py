@@ -27,6 +27,8 @@ import re
 import unicodedata
 from datetime import date, datetime
 
+import disponibilidade as _disp   # a régua Fracttal → cadastro é dela (INV_RENUMERADO)
+
 # o cabeçalho do livro `nexus_chamados · fato_chamado` — CÓPIA do `nexus/dados/fato_chamado.py` (CAB_CHAMADO), o dono.
 # A leitura do banco é por NOME de coluna (`cobertura.Decisoes`): coluna nova lá não quebra aqui, só não chega.
 LIVRO_CHAMADO, ABA_CHAMADO = "nexus_chamados", "fato_chamado"
@@ -61,7 +63,7 @@ def ativo_do_codigo(code) -> tuple:
         return "outro", ""
     m = _RX_INV.search(c)
     if m and ("INVR" in c or "DINV" in c):
-        return "inversor", "Inversor " + m.group(1)
+        return "inversor", "Inversor " + _disp.inv_do_fracttal(c, m.group(1))   # a numeração própria (Barretos)
     m = _RX_CAB.search(c)
     if m:
         return "cabine", "Cabine " + str(int(m.group(2)))

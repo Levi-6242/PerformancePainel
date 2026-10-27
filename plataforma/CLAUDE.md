@@ -781,8 +781,10 @@ motor lê a API PV na hora):** 68 problemas do mês em 136 usinas; 61 iriam para
 ficariam na frente. Dos 61: 12 com OS aberta, 8 com chamado aberto do inversor, e 41 SÓ por OS já fechada no mês (37 delas
 de "Usina abaixo da meta no mês" pela OS da usina inteira) — 20 desses 41 somam menos de 12 h de sol fora. É o ponto a
 decidir com o Levi: a regra pedida não pesa a OS contra o tamanho do problema. Dos 247 chamados em aberto, 96 são de
-inversor/cabine/usina (os outros 151, tracker e afins, ficam em `outros`); 3 da Nobres não ligam porque o site no Fracttal
-diz "Nobres 1 - CE" e o cadastro "MT".
+inversor/cabine/usina (os outros 151, tracker e afins, ficam em `outros`); 3 da Nobres não ligam porque a Classificação 1
+do Fracttal diz "RenoGrid - Nobres 1 - CE" e o cadastro (e o próprio ativo RNGD-NBS100) "MT" — Levi, 27/10: "Nobres muda
+para MT"; a API do Fracttal não expõe as classificações (INVALID_ENDPOINT), a troca é na web dele. A Barretos (Fracttal
+1.21–1.40 = cadastro 2.1–2.20) foi resolvida no mesmo dia por `disponibilidade.INV_RENUMERADO`.
 
 **Como provar:** `tests/test_diagnostico_tratamento.py` (os casos reais de Barretos 1 em 27/10: OS 17016 aberta no 1.14,
 OS 15510 da cabine 1 fechada em 13/10, OS 16520 da usina de madrugada, chamado 17159 do 1.1 com a Sungrow há 127 dias,
@@ -1521,6 +1523,15 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   - Prova (22/10): as 12 OS válidas das Pharma de outubro (todas fora da conta antes) entram, cada uma na usina certa (10
     na usina inteira, 990 kWp; a THPN-PHS300-INVR1.1 e a THPN-PHS400-INVR1.6 no inversor, 165 kWp);
     `tests/test_disp_pharmas.py`.
+  - **Numeração própria do Fracttal (Barretos, 27/10/2026, Levi: "arrume o de-para de barretos"):** lá os inversores
+    são INVR1.1 a INVR1.40 numa fila só; no cadastro, 1.1–1.20 (UG 1) e 2.1–2.20 (UG 2). Conferido ativo por ativo no
+    Fracttal: 1.1–1.20 no SKID 1 / QGBT 1, 1.21–1.40 no SKID 2 / QGBT 2, INVR2.x inexistente. `disponibilidade.
+    INV_RENUMERADO` ({code-base: {nº Fracttal: nº cadastro}}) vale nos DOIS sentidos e em todo lugar que traduz um no
+    outro: o índice (`escopo_os`, com flag), os chamados do Diagnóstico (`diag_tratamento.ativo_do_codigo`), o código
+    derivado do ativo (`_frac_inv_code` e o Investigar ativo: o 2.5 vira BRS100-INVR1.25) e as OS de strings
+    (`_falhas_os_*`, que guardam o nº do cadastro). O código GRAVADO pelo Modo de-para continua vencendo. Antes, a OS
+    17428 (religamento do INVR1.21) caía num "Inversor 1.21" que não existe, com a potência média. Usina nova com o
+    mesmo defeito entra na tabela depois de conferida no Fracttal. Prova: `tests/test_barretos_renumerado.py`.
 - **`alinhar`** no lugar do `cenario_abertas` (que saiu do payload): as OS que pedem um olho no Fracttal, só pelo dado
   dele (aberta contando, evento depois do fim, `wo_final_date`, site agrupado sem a usina, Religamento com descrição de
   inspeção, religamento de mais de um dia, OS fora da conta — a de falta de comunicação inclusive). A tela

@@ -26215,7 +26215,8 @@ def api_fracttal_ativo_do_inversor():
     if not codigo:
         m = re.search(r"\d+\.\d+|\d+", inv)
         base = _frac_codebase_sem_varrer(usina)
-        codigo, origem = (f"{base}-INVR{m.group(0)}", "derivado") if (m and base) else (None, "")
+        codigo, origem = ((f"{base}-INVR{_disp_mod.inv_para_fracttal(base, m.group(0))}", "derivado") if (m and base)
+                          else (None, ""))
     return jsonify({"ok": True, "codigo": codigo or "", "origem": origem if codigo else "",
                     "usina_fracttal": _fractall_da_usina(usina, _frac_fractall_map() or {}) or ""})
 
@@ -26369,7 +26370,8 @@ def _frac_inv_code(usina, inv_disp):
         return gravado
     m = re.search(r"\d+\.\d+|\d+", str(inv_disp or ""))
     base = _frac_codebase(usina)
-    return f"{base}-INVR{m.group(0)}" if (m and base) else None
+    # a usina que o Fracttal numera de outro jeito (Barretos: o 2.n do cadastro é o INVR1.(20+n) de lá, 27/10/2026)
+    return f"{base}-INVR{_disp_mod.inv_para_fracttal(base, m.group(0))}" if (m and base) else None
 
 
 def _frac_ativo_exato(code, falhas=None):
@@ -27977,7 +27979,7 @@ def _falhas_os_abertas(forcar=False):
         mb = re.search(r"([A-Z]{3}\d{3})", o["code"])
         md = re.search(r"invers[oa]r(?:es)?\s*(\d+\.\d+)", o["descricao"], re.I)
         out.append({"folio": o["folio"], "code": o["code"], "cb": m.group(1) if m else (mb.group(1) if mb else None),
-                    "inv": m.group(2) if m else (md.group(1) if md else None),
+                    "inv": _disp_mod.inv_do_fracttal(o["code"], m.group(2)) if m else (md.group(1) if md else None),
                     "cit": _falhas_os_citadas(" | ".join(o["textos"])), "status": o["status"], "criada": o["criada"],
                     "descricao": o["descricao"], "tecnico": o["tecnico"]})
     out.sort(key=lambda o: o["folio"])
@@ -28034,7 +28036,7 @@ def _falhas_os_string(wos):
         code = str(t.get("code") or "").strip()
         m = re.search(r"[A-Z]{3}\d{3}-INVR(\d+(?:\.\d+)?)$", code)
         md = re.search(r"invers[oa]r(?:es)?\s*(\d+\.\d+)", str(t.get("description") or ""), re.I)
-        return m.group(1) if m else (md.group(1) if md else None)
+        return _disp_mod.inv_do_fracttal(code, m.group(1)) if m else (md.group(1) if md else None)
 
     out = []
     for fol, tarefas in (wos or {}).items():
@@ -29104,8 +29106,9 @@ def _falhas_os_reserva(alvo, desde):
     if not idx:
         return None
     por, code = {}, None
+    n_cad = _disp_mod.inv_do_fracttal(alvo["code"], alvo["n"])   # o índice guarda o nº do cadastro (Barretos 2.n)
     for o in idx:
-        if o.get("cb") != alvo["cb"] or str(o.get("inv") or "") != alvo["n"]:
+        if o.get("cb") != alvo["cb"] or str(o.get("inv") or "") != n_cad:
             continue
         if alvo["dois"] and (str(o.get("prefixo") or "").upper() or "THPN") != alvo["pref"]:
             continue                                         # código de dois clientes: só a OS do cliente desta usina
