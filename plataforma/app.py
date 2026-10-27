@@ -19649,6 +19649,13 @@ def api_diagnostico_tratamento():
         alvo = [u for u in usinas if _dtr.nrm(u.get("fracttal")) == _dtr.nrm(site)]
     chaves = {u.get("usina") for u in alvo} or {usina}
     sites = {s for s in [site] + [u.get("fracttal") for u in alvo] if s}
+    # e o site como o Fracttal o escreve nas OS que a Disponibilidade já ligou a esta usina (Nobres, 27/10/2026: a
+    # Classificação 1 do Fracttal diz "RenoGrid - Nobres 1 - CE" e o cadastro "- MT"; a Disponibilidade casa pelo miolo,
+    # sem a UF, mas o chamado casava pelo nome exato e os 3 da Nobres não ligavam. Levi: "não tem como editar, faça uma
+    # adaptação"). Só o site de OS com escopo NESTA usina: a excluída e a de outra usina não ensinam nada.
+    # Todos os meses do índice: a usina sem OS no mês ainda aprende o site pelas OS dos outros.
+    sites |= {o.get("g1") for m_ in meses.values() for o in ((m_ or {}).get("oss") or [])
+              if o.get("g1") and any(e.get("usina") in chaves for e in (o.get("escopo") or []))}
     inversores = [(i.get("inversor"), i.get("cabine")) for u in alvo for i in (u.get("inversores") or [])]
     itens = _dtr.itens_os(mdx or {}, chaves, mes, agora) if out["os_ok"] else []
     linhas, carregando, lido = _dtr_chamados_livro().linhas()

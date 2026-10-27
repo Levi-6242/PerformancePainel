@@ -279,3 +279,30 @@ def test_tela_os_aberta_do_fracttal_da_tela_tambem_conta(tmp_path):
     rotas["/api/inv/pr-mes"] = [200, {"inversores": {"Inversor 2.9": {"pr": 81.0, "gen_mwh": 12}}, "pr_meta": 80}]
     r = _pagina(rotas, _LER, tmp_path, search="?fonte=pv&nome=Barretos")
     assert "Inversor 2.9" in r["grupo"] and "Já tem OS 17777 aberta: acompanhar." in r["grupo"], r
+
+
+def test_chamado_pelo_site_que_o_fracttal_usa_nas_os_da_usina(monkeypatch):
+    """Nobres, 27/10/2026: a Classificação 1 do Fracttal diz "RenoGrid - Nobres 1 - CE", o cadastro "- MT". A
+    Disponibilidade já liga as OS de lá à usina (pelo miolo); o chamado aprende o site por elas. A OS de OUTRA usina com
+    esse site não ensina nada."""
+    ce, mt = "RenoGrid - Nobres 1 - CE", "RenoGrid - Nobres 1 - MT"
+    oss = [{"folio": 17508, "tipos": ["Religamento"], "origem": "queda", "code": "NBS100-INVR7", "g1": ce,
+            "ini": "2026-10-20T08:00:00", "fim": "2026-10-20T10:00:00", "aberta": False, "excl": None, "h_solar": 2.0,
+            "escopo": [{"usina": "Nobres", "nivel": "inversor", "rotulo": "Inversor 7", "kwp": 100}]},
+           {"folio": 17999, "tipos": ["Religamento"], "origem": "queda", "code": "ELF100", "g1": "X - Outra - SP",
+            "ini": "2026-10-20T08:00:00", "fim": None, "aberta": True, "excl": None, "h_solar": 2.0,
+            "escopo": [{"usina": "Elias Fausto", "nivel": "usina", "rotulo": "Usina inteira", "kwp": 100}]}]
+    mes = {"fonte": "Fracttal", "periodo": MES["periodo"], "oss": oss,
+           "usinas": [{"usina": "Nobres", "fracttal": mt, "inversores": [{"inversor": "Inversor 7", "cabine": None}]}]}
+    monkeypatch.setattr(app, "DASH_PASSWORD", "")
+    monkeypatch.setattr(app, "NEXUS_SSO_CHAVE", "")
+    monkeypatch.setattr(app, "_frac_disp_dados", lambda: {"meses": {"2026-10": mes}})
+    monkeypatch.setattr(app, "_frac_fractall_map", lambda: {"nobres": mt})
+    chs = [_ch(17777, "NBS100-INVR7", 20261001, fab="SolarEdge", site=ce),
+           _ch(17778, "NBS100-INVR7", 20261001, fab="SolarEdge", site="X - Outra - SP")]
+    linhas = [[c.get(k) for k in dt.CAB_CHAMADO] for c in chs]
+    monkeypatch.setattr(app, "_dtr_chamados_livro", lambda: _Livro(linhas))
+    j = app.app.test_client().get("/api/diagnostico/tratamento?usina=Nobres&mes=2026-10").get_json()
+    oss_inv = {x["os"] for x in j["inversores"]["Inversor 7"]}
+    assert 17777 in oss_inv, "o chamado do site CE liga à Nobres"
+    assert 17778 not in oss_inv, "o site de OS de outra usina não entra"

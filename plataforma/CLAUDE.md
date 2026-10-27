@@ -783,7 +783,9 @@ de "Usina abaixo da meta no mês" pela OS da usina inteira) — 20 desses 41 som
 decidir com o Levi: a regra pedida não pesa a OS contra o tamanho do problema. Dos 247 chamados em aberto, 96 são de
 inversor/cabine/usina (os outros 151, tracker e afins, ficam em `outros`); 3 da Nobres não ligam porque a Classificação 1
 do Fracttal diz "RenoGrid - Nobres 1 - CE" e o cadastro (e o próprio ativo RNGD-NBS100) "MT" — Levi, 27/10: "Nobres muda
-para MT"; a API do Fracttal não expõe as classificações (INVALID_ENDPOINT), a troca é na web dele. A Barretos (Fracttal
+para MT", e depois "não tem como editar, faça uma adaptação": a rota soma aos sites da usina o `g1` (o site como o
+Fracttal escreve) das OS que a Disponibilidade já ligou a ela, em qualquer mês do índice — a Disponibilidade casa pelo
+miolo, sem a UF. A OS de outra usina não ensina site. A Barretos (Fracttal
 1.21–1.40 = cadastro 2.1–2.20) foi resolvida no mesmo dia por `disponibilidade.INV_RENUMERADO`.
 
 **Como provar:** `tests/test_diagnostico_tratamento.py` (os casos reais de Barretos 1 em 27/10: OS 17016 aberta no 1.14,
