@@ -37,7 +37,7 @@ def test_o_tres_pontos_so_oferece_a_potencia_onde_o_relatorio_tem_historico():
     Athon e a Axis saíram dele em 13/10), este teste aponta o ··· que ficou para trás."""
     card_para_fonte = {"thopen-pv": "pv", "thopen-db": "pg", "renogrid": "solaredge", "2c": "2capi", "semp": "semp",
                        "alveslima": "alveslima", "greenyellow": "greenyellow", "salenergia": "salenergia",
-                       "athon": "sunop", "axis": "axis"}
+                       "apolo": "apolo", "athon": "sunop", "axis": "axis"}
     com_historico = {f["fonte"] for f in _pa.FONTES if f["familia"]}
     esperado = sorted(c for c, f in card_para_fonte.items() if f in com_historico)
     assert sorted(_lista_js(_ENT, "var POT_FONTES")) == esperado

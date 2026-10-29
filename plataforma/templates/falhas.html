@@ -374,7 +374,8 @@
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const FONTE = {pv: 'Thopen · API PV', pvsb: 'Thopen · String Box', pg: 'Thopen · Banco', sunop: 'Athon', axis: 'Axis',
-                 owen: '2C', solaredge: 'RenoGrid', greenyellow: 'GreenYellow', salenergia: 'Sal Energia'};
+                 owen: '2C', solaredge: 'RenoGrid', greenyellow: 'GreenYellow', salenergia: 'Sal Energia',
+                 apolo: 'Apolo'};
   const fmtKwh = v => v >= 10000 ? nf1.format(v / 1000).replace(/^(\d+)$/, '$1,0') + ' MWh' : nf.format(Math.round(v)) + ' kWh';
   const dm = s => s ? String(s).slice(8, 10) + '/' + String(s).slice(5, 7) : '';
   const fDH = s => s ? dm(s) + (String(s).length > 10 ? ' ' + String(s).slice(11, 16) : '') : '—';

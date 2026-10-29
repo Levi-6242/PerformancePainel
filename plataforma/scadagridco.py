@@ -6,7 +6,7 @@ Levi: "OS para tempo real e histórico das UFVs da Green Yellow", com as usinas 
 scadaGridco — como puxar os dados". Só GET, cabeçalho `X-API-Key`, JSON; sem token ou com token errado ela responde
 302 para o login.
 
-Duas famílias, uma por cliente:
+Duas famílias de leitura (MQTT e Modbus), uma fonte por cliente:
 - **GreenYellow** chega por gateway MQTT: `/api/mqtt/<usina>` (último pacote de cada inversor) e `/api/telemetria`
   (histórico, ~1 registro por minuto por inversor). Ponto de string no gateway antigo `string_current_NN`, no novo
   `string_N_current`.
@@ -14,6 +14,8 @@ Duas famílias, uma por cliente:
   linha por string). Em 06/10/2026 as cinco estavam com `read_error: TimeoutError` desde pelo menos 17/09 — o
   supervisório não lê os inversores, e a usina aparece sem comunicação, que é o que ela está para ele. O nome dos campos
   Modbus foi conferido na Boa Esperança do Sul, Modbus e lendo (`string_NN_i`, `active_power_w`, `daily_energy_kwh`).
+- **Apolo** (29/10/2026) chega pelo mesmo gateway MQTT da GreenYellow: a Rio do Peixe I e II, na lista abaixo com o
+  de-para (o supervisório manda um inversor a mais, cópia de outro); usina nova do cliente entra pela descoberta.
 
 Regras da Automação que este módulo segura: uma chamada por vez (o mesmo servidor opera as usinas, lendo relés e
 inversores em tempo real — `_LOCK`), busca incremental (`apos_ts`), `communication_fault` 192 = leitura boa, nulo não é
@@ -67,6 +69,31 @@ FONTES = {
             {"id": "sunpower", "usina": "Cascavel (Sunpower)", "inversores": None},
             {"id": "hortina", "usina": "Quixadá 1 (Hortina)", "inversores": None},
             {"id": "vitesse", "usina": "Quixadá 2 (Vitesse)", "inversores": None},
+        ],
+    },
+    # Apolo (29/10/2026, Levi: "As API que tem as mesmas UFVs da GreenYellow também soltou Rio do Peixe 1 e 2 que é da
+    # Apolo, traga para o tempo real"). Gateway MQTT como a GreenYellow; usina nova do cliente "Apolo" na Info Geral entra
+    # pela descoberta. A Rio do Peixe I e II (rio_do_peixe_1_2) manda 21 equipamentos inversor ("1" a "21", 28 entradas
+    # string_N_current cada), 3 relés e 1 NCU de trackers, sem estação; o cadastro tem 20 inversores (1.1 a 1.10 na UG 01,
+    # 2.1 a 2.10 na UG 02, 20/18/20 strings) e ela fica AQUI, com o de-para, porque a ordem do cadastro erra: o
+    # equipamento 15 é CÓPIA do 14 (em 28/10/2026, 315 dos 316 minutos com sol iguais em potência e em cada string; o 14
+    # contra o 16, 0), e pela ordem o 15 virava o 2.5, o 18 (18 strings) o 2.8 (20 esperadas, −2 falso) e o 21 ficava sem
+    # inversor. PROVISÓRIO, pelo PADRÃO DAS STRINGS (o nº de entradas com corrente às 13h de 28/10 bate 20/18/20 nas duas
+    # UGs com o 15 fora): o histórico do supervisório começa em 28/10 11:52 e o BD vai até 21/10, sem dia em comum para
+    # fechar pelo valor. Dentro de cada grupo de esperadas iguais vale a ordem dos números. O 15 fica de fora.
+    "apolo": {
+        "rotulo": "Apolo",
+        "via": "mqtt",
+        "usinas": [
+            {"id": "rio_do_peixe_1_2", "usina": "Rio do Peixe I e II",
+             "inversores": {**{str(i): f"Inversor 1.{i}" for i in range(1, 11)},
+                            **{str(e): f"Inversor 2.{n}" for n, e in enumerate((11, 12, 13, 14, 16, 17, 18, 19, 20, 21),
+                                                                               start=1)}},
+             "provisorio": "Rio do Peixe I e II: de-para pelo padrão das strings (20/18/20 por UG), sem dia em comum com "
+                           "o BD para fechar pelo valor; o equipamento 15 do supervisório é cópia do 14 e fica de fora",
+             # a NCU como UM tracker, chamado "NCU" (Levi, 29/10/2026: "traga a NCU como tracker também e nomeie como
+             # NCU"). Ela manda o ângulo (posat) e o alvo (posal) da central, não o de cada tracker do campo.
+             "trackers": {"1": "NCU"}},
         ],
     },
 }
@@ -245,7 +272,8 @@ def leitura_mqtt(eq) -> dict:
     return {"equip": str(eq.get("equipamento") or eq.get("indice")), "ts": _num(eq.get("ts")), "ok": ok,
             "pot_kw": _num(m.get("active_power")) if ok else None,
             "eday": eday if ok else None,
-            "temp": _num(m.get("temperature_current")) if ok else None,
+            # a Rio do Peixe (Apolo, 29/10/2026) escreve a temperatura do inversor como `temperature_internal`
+            "temp": _num(m.get("temperature_current", m.get("temperature_internal"))) if ok else None,
             "serial": m.get("serial_number"),
             "strings": strings_de(m) if ok else {}}
 
@@ -281,6 +309,63 @@ def ts_local(ts) -> str:
 
 def hoje() -> str:
     return datetime.now(TZ).strftime("%Y-%m-%d")
+
+
+# ── Trackers: a NCU (Apolo, 29/10/2026) ───────────────────────────────────────────────────────────────────────────
+# A Rio do Peixe manda 1 equipamento `tracker_ncu`: o ângulo atual (posat) e o alvo (posal) da NCU, e as falhas dela em
+# 0/1. As falhas vão para a tela como estão (`alarmes`): a régua dos trackers das outras fontes é pelo ÂNGULO (parado,
+# desvio, atraso) e não tem regra para bandeira de falha; nenhuma regra nova foi inventada para elas.
+ALARMES_NCU = ("flh_com", "flh_leve", "flh_zigbee", "out_of_range", "bot_emerg", "manu_on",
+               "bat_crit", "bat_min", "bat_ins_al", "bat_ins_seg")
+
+
+def trackers(cfg) -> dict:
+    """{equipamento tracker_ncu do supervisório: nome do tracker na tela} da usina ({} = sem tracker)."""
+    return dict((cfg or {}).get("trackers") or {})
+
+
+def curva_ncu(registros) -> dict:
+    """Registros de `/api/telemetria` (tipo tracker_ncu) de UMA NCU → {"atual": [(datetime local, °)], "alvo": [...],
+    "alarmes": {falha: 0/1} da última leitura boa, "ultimo_ts"}. Só leitura boa (192); nulo fica fora."""
+    atual, alvo, alarmes, ultimo = [], [], {}, None
+    for x in sorted(registros or [], key=lambda r: _num(r.get("ts")) or 0):
+        ts = _num(x.get("ts"))
+        if ts is not None:
+            ultimo = ts if ultimo is None else max(ultimo, ts)
+        if x.get("communication_fault") != COM_OK:
+            continue
+        try:
+            t = datetime.strptime(str(x.get("data_hora") or "")[:19], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        p = x.get("pontos") or {}
+        if _num(p.get("posat")) is not None:
+            atual.append((t, _num(p["posat"])))
+        if _num(p.get("posal")) is not None:
+            alvo.append((t, _num(p["posal"])))
+        al = {k: int(p[k]) for k in ALARMES_NCU if _num(p.get(k)) is not None}
+        if al:
+            alarmes = al
+    return {"atual": atual, "alvo": alvo, "alarmes": alarmes, "ultimo_ts": ultimo}
+
+
+def junta_ncu(antes, novo) -> dict:
+    """Curva da NCU guardada + o pedaço incremental (apos_ts); as falhas são as da leitura mais nova."""
+    if not antes:
+        return novo
+    ult = [t for t in (antes.get("ultimo_ts"), novo.get("ultimo_ts")) if t is not None]
+    return {"atual": list(antes.get("atual") or []) + list(novo.get("atual") or []),
+            "alvo": list(antes.get("alvo") or []) + list(novo.get("alvo") or []),
+            "alarmes": novo.get("alarmes") or antes.get("alarmes") or {},
+            "ultimo_ts": max(ult) if ult else None}
+
+
+def curva_tracker(fonte, pid, equip, dia, apos_ts=None, getter=None) -> dict:
+    """A curva de UMA NCU num dia (≤ 45 dias atrás), pelo nome do equipamento, como a do inversor."""
+    getter = getter or get
+    regs = _paginas("/api/telemetria", {"usina": scada_id(fonte, pid), "desde": dia, "ate": dia, "tipo": "tracker_ncu",
+                                        "equipamento": str(equip), "apos_ts": apos_ts}, getter)
+    return curva_ncu([r for r in regs if str(r.get("equipamento")) == str(equip)])
 
 
 # ── Curva do dia ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -371,7 +456,9 @@ class CurvasDoDia:
     TTL_HOJE = 300
     TTL_PASSADO = 6 * 3600
 
-    def __init__(self):
+    def __init__(self, ler=None, juntar=None):
+        # `ler`/`juntar`: a curva do inversor por padrão; a NCU (29/10/2026) passa curva_tracker/junta_ncu
+        self._ler, self._juntar = ler or curva_inversor, juntar or junta
         self._d = {}                                         # (fonte, pid, equip, dia) → {"ts", "curva"}
         self._lock = threading.Lock()
 
@@ -384,8 +471,8 @@ class CurvasDoDia:
         if ent and agora - ent["ts"] < (self.TTL_HOJE if e_hoje else self.TTL_PASSADO):
             return ent["curva"]
         apos = ent["curva"].get("ultimo_ts") if (ent and e_hoje) else None
-        novo = curva_inversor(fonte, pid, equip, dia, apos_ts=apos, getter=getter)
-        cur = junta(ent["curva"], novo) if apos is not None else novo
+        novo = self._ler(fonte, pid, equip, dia, apos_ts=apos, getter=getter)
+        cur = self._juntar(ent["curva"], novo) if apos is not None else novo
         with self._lock:
             self._d[k] = {"ts": agora, "curva": cur}
             for kk in [kk for kk, v in self._d.items() if kk[3] != hoje() and agora - v["ts"] > self.TTL_PASSADO]:

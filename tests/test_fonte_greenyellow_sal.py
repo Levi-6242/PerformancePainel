@@ -42,6 +42,30 @@ def _modbus_fora(n):
                        "stale": True, "updated_at": 0.0, "measurements": {}} for i in range(1, n + 1)]}
 
 
+# Rio do Peixe I e II (Apolo, 29/10/2026): 21 equipamentos no supervisório, 20 no cadastro (1.1-1.10 e 2.1-2.10, com
+# 20/18/20 strings por UG). O 15 é cópia do 14. As entradas vivas ficam espalhadas pelas 28 (no 1, a 2 a 4, 6 a 12...),
+# e a temperatura vem em `temperature_internal`.
+VIVAS_20 = [2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 16, 17, 18, 21, 22, 23, 25, 26, 27, 28]
+VIVAS_18 = [2, 3, 4, 7, 8, 9, 10, 11, 12, 16, 17, 18, 21, 22, 23, 26, 27, 28]
+RDP_18 = {4, 5, 6, 7, 14, 15, 16, 17, 18}                 # os equipamentos com 18 strings (o 15 = o 14)
+
+
+def _eq_rdp(n, mortas=()):
+    vivas = [k for k in (VIVAS_18 if n in RDP_18 else VIVAS_20) if k not in mortas]
+    m = {"active_power": 252.0, "daily_active_energy": 1100.0 + n, "temperature_internal": 40.0}
+    for i in range(1, 29):
+        m[f"string_{i}_current"] = 12.5 if i in vivas else 0.0
+    return {"equipamento": str(n), "indice": n, "tipo": "inverter", "communication_fault": 192,
+            "falha_comunicacao": False, "stale": False, "ts": TS, "measurements": m}
+
+
+def _rio_do_peixe(mexe=None):
+    eqs = [_eq_rdp(i, **((mexe or {}).get(i) or {})) for i in range(1, 22)]
+    eqs += [{"equipamento": str(i), "tipo": "relay", "communication_fault": 192, "measurements": {"active_power": 0}}
+            for i in (1, 2, 3)] + [{"equipamento": "1", "tipo": "tracker_ncu", "communication_fault": 192, "measurements": {}}]
+    return {"usina": "rio_do_peixe_1_2", "gateway": {"online": True}, "equipamentos": eqs}
+
+
 def _cadastro():
     irece = {f"Inversor 1.{i}": 14 for i in range(1, 11)}
     dem = {f"Inversor 1.{i}": 14 for i in range(1, 13)} | {f"Inversor 2.{i}": 14 for i in range(1, 9)}
@@ -50,6 +74,8 @@ def _cadastro():
     for u in ("Aquiraz 1 (Salvales)", "Aquiraz 2 (Carosa)", "Quixadá 1 (Hortina)", "Quixadá 2 (Vitesse)"):
         cad[app._nrm(u)] = dict(sal)
     cad[app._nrm("Cascavel (Sunpower)")] = {"Inversor 1.1": 5, "Inversor 1.2": 11, "Inversor 2.1": 9}
+    ug = {1: 20, 2: 20, 3: 20, 4: 18, 5: 18, 6: 18, 7: 18, 8: 20, 9: 20, 10: 20}
+    cad[app._nrm("Rio do Peixe I e II")] = {f"Inversor {g}.{i}": e for g in (1, 2) for i, e in ug.items()}
     return cad
 
 
@@ -62,6 +88,7 @@ def api(monkeypatch):
             "/api/mqtt/dermeval_lobao": _mqtt(12)}
     for u, n in (("salvales", 10), ("carosa", 10), ("sunpower", 11), ("hortina", 10), ("vitesse", 10)):
         resp[f"/api/inversores/{u}"] = _modbus_fora(n)
+    resp["/api/mqtt/rio_do_peixe_1_2"] = _rio_do_peixe()
 
     def get(rota, params=None, timeout=None):
         pedidos.append((rota, dict(params or {})))
@@ -79,7 +106,7 @@ def api(monkeypatch):
     monkeypatch.setattr(app, "_macro_sol_baixo", lambda r, agora=None: False)
     monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
     monkeypatch.setattr(app, "_sg_curvas", sg.CurvasDoDia())
-    for c in (app._gy_cache, app._sal_cache):
+    for c in (app._gy_cache, app._sal_cache, app._apo_cache):
         monkeypatch.setitem(c, "payload", None)
         monkeypatch.setitem(c, "ts", 0.0)
     app.app.config["TESTING"] = True
@@ -221,3 +248,144 @@ def test_csv_da_curva(api):
     linhas = r.get_data(as_text=True).strip().splitlines()
     assert r.status_code == 200 and linhas[0] == "inversor,string,hora,corrente_A"
     assert "Inversor 1.4,1,10:00,9.0" in linhas and len(linhas) == 1 + 10 * 2
+
+
+# ── Apolo: a Rio do Peixe I e II (29/10/2026, Levi: "As API que tem as mesmas UFVs da GreenYellow também soltou Rio do
+#    Peixe 1 e 2 que é da Apolo, traga para o tempo real") ────────────────────────────────────────────────────────────
+def test_apolo_tabela_da_rio_do_peixe_sem_a_copia_do_14(api):
+    """20 inversores na linha (o 15 é cópia do 14 e fica de fora), as esperadas do cadastro (384) e diferença 0: pela
+    ordem do cadastro o 18 (18 strings) virava o 2.8 (20 esperadas) e a linha acusava −2 que não existe."""
+    d = api.get("/api/apolo/data").get_json()
+    assert [r["usina"] for r in d["rows"]] == ["Rio do Peixe I e II"]
+    r = d["rows"][0]
+    assert r["plant_id"] == "rio_do_peixe_1_2" and r["qtd_inversores"] == 20 and not r["sem_dados"]
+    assert r["str_esp"] == 384 and r["strings_ativas"] == 384 and r["diferenca"] == 0
+    assert r["temp_media"] == pytest.approx(40.0) and r["pot_inv_med"] == pytest.approx(252.0)
+    assert [p for p, _q in api.pedidos] == ["/api/mqtt/rio_do_peixe_1_2"]          # 1 pedido, a usina inteira
+
+
+def test_apolo_drill_nomeia_pelo_de_para_e_acusa_a_string_morta(api, monkeypatch):
+    monkeypatch.setattr(sg, "get", lambda rota, params=None, timeout=None: _rio_do_peixe({16: {"mortas": (7,)}}))
+    invs = api.get("/api/apolo/plant/rio_do_peixe_1_2").get_json()["inversores"]
+    por_id = {i["id"]: i for i in invs}
+    assert len(invs) == 20 and "15" not in por_id and [i["nome"] for i in invs][10:12] == ["Inversor 2.1", "Inversor 2.2"]
+    assert por_id["14"]["nome"] == "Inversor 2.4" and por_id["21"]["nome"] == "Inversor 2.10"
+    i25 = por_id["16"]                                          # o 16 é o Inversor 2.5 (18 strings)
+    assert i25["nome"] == "Inversor 2.5" and i25["str_esp"] == 18 and i25["strings_ativas"] == 17 and i25["diferenca"] == -1
+    d = api.get("/api/apolo/data?force=1").get_json()["rows"][0]
+    assert d["diferenca"] == -1 and d["strings_ativas"] == 383
+
+
+def test_apolo_curva_da_usina_vai_nos_20_inversores(api):
+    d = api.get("/api/apolo/curva/rio_do_peixe_1_2?data=" + sg.hoje()).get_json()
+    assert len(d["inversores"]) == 20 and "15" not in {iv["id"] for iv in d["inversores"]}
+    tel = [p for r, p in api.pedidos if r == "/api/telemetria"]
+    assert len(tel) == 20 and "15" not in {p["equipamento"] for p in tel} and {p["usina"] for p in tel} == {"rio_do_peixe_1_2"}
+
+
+def test_apolo_no_card_no_rollup_e_na_aba_de_falhas(api, monkeypatch):
+    from datetime import datetime
+    assert ("Apolo", "Apolo", "apolo") in app._ENTRADA_GRUPOS and app._ENTRADA_VKEY["apolo"] == "apo"
+    api.get("/api/apolo/data")
+    fontes = {u["usina"]: u["fonte"] for u in app._portfolio_rollup()}
+    assert fontes.get("Rio do Peixe I e II") == "Apolo" and app._rollup_cob_fonte("Apolo", "x") == "apolo"
+    reg = []
+    monkeypatch.setattr(app, "_falhas_registra", lambda fonte, dia, pid, usina, curvas, **k: reg.append((fonte, pid)))
+    monkeypatch.setattr(app, "_falhas_sg_ult", {"final": None})
+    app._falhas_sg_varre(datetime(2026, 10, 29, 10, 0))
+    assert ("apolo", "rio_do_peixe_1_2") in reg
+
+
+def test_apolo_nas_listas_das_outras_telas():
+    import cobertura
+    import depara
+    import falhas_job
+    import falhas_publicar
+    import falhas_vinculos
+    import leitura_nexus
+    import potencia_ativa
+    assert cobertura.FONTES["apolo"] == "Apolo" and "apolo" in depara.FONTES_INVERSOR and "apolo" in app._DP_SG
+    assert falhas_job.FONTE_ROT["apolo"] == falhas_publicar.FONTE_ROT["apolo"] == "Apolo"
+    assert "apolo" in falhas_vinculos.FONTES and "apolo" in leitura_nexus.FONTES_API
+    assert potencia_ativa.fonte("apolo")["familia"] == "scadagridco"
+    assert "'apolo':'apolo'" in MON and "apolo:'/api/apolo/data'" in MON and "apolo:'/api/apolo/plant/'" in MON
+    assert "id:'apolo'" in MON and '"Apolo": "apolo"' in ENT
+    assert re.search(r"_CURVA_FONTES=\[[^\]]*'apolo'", MON) and re.search(r"_POT_FONTES=\[[^\]]*'apolo'", MON)
+
+
+# ── a NCU da Rio do Peixe como tracker (29/10/2026, Levi: "traga a NCU como tracker também e nomeie como NCU") ──────
+def _ncu_regs(dia, angulo, flh_com=1):
+    """Um ponto a cada 5 min das 06h às 18h: `angulo(minuto)` = posat, o alvo 0,5° ao lado."""
+    out = []
+    for m in range(6 * 60, 18 * 60, 5):
+        a = angulo(m)
+        out.append({"communication_fault": 192, "data_hora": f"{dia} {m // 60:02d}:{m % 60:02d}:00", "ts": float(m),
+                    "equipamento": "1", "pontos": {"posat": a, "posal": a + 0.5, "flh_com": flh_com, "flh_leve": 0,
+                                                   "out_of_range": 0, "bot_emerg": 0, "manu_on": 0}})
+    return out
+
+
+@pytest.fixture
+def ncu(monkeypatch):
+    """A API falsa da NCU: o dia que o teste escolhe; conta os pedidos."""
+    estado = {"regs": [], "pedidos": []}
+
+    def get(rota, params=None, timeout=None):
+        estado["pedidos"].append((rota, dict(params or {})))
+        assert rota == "/api/telemetria" and params["tipo"] == "tracker_ncu"
+        return {"registros": list(estado["regs"]), "proximo_apos_ts": None}
+    monkeypatch.setattr(sg, "get", get)
+    monkeypatch.setattr(app, "_sg_trk_curvas", sg.CurvasDoDia(ler=sg.curva_tracker, juntar=sg.junta_ncu))
+    monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
+    monkeypatch.setitem(app._apo_trk_cache, "payload", None)
+    monkeypatch.setitem(app._apo_trk_cache, "ts", 0.0)
+    app.app.config["TESTING"] = True
+    return estado
+
+
+def test_ncu_girando_e_um_tracker_normal_com_as_falhas_dela(ncu):
+    ncu["regs"] = _ncu_regs("2026-10-28", lambda m: -50.0 + 100.0 * (m - 360) / 720)
+    a = app._sg_trackers_analise("apolo", app._sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-28")
+    assert a["total"] == 1 and a["parados"] == 0 and not a["sem_comunicacao"]
+    t = a["trackers"][0]
+    assert t["id"] == "NCU" and t["status"] == "normal" and t["amplitude"] > 90
+    assert t["alarmes"] == ["flh_com"] and t["falhas_ncu"]["flh_com"] == 1      # a falha vai como está, sem régua nova
+    assert ncu["pedidos"][0][1]["equipamento"] == "1"
+
+
+def test_ncu_travada_o_dia_todo_e_parada(ncu):
+    """O ângulo fixo em 4,1° o dia inteiro (dia passado, curva cobrindo 12 h): a régua da amplitude diz parado."""
+    ncu["regs"] = _ncu_regs("2026-10-27", lambda m: 4.1, flh_com=0)
+    a = app._sg_trackers_analise("apolo", app._sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-27")
+    assert a["parados"] == 1 and a["trackers"][0]["status"] == "parado" and a["trackers"][0]["alarmes"] == []
+
+
+def test_ncu_sem_leitura_e_sem_comunicacao_e_nao_verde(ncu):
+    ncu["regs"] = []
+    a = app._sg_trackers_analise("apolo", app._sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-27")
+    assert a["total"] == 1 and a["sem_comunicacao"] and a["trackers"][0]["sem_comunicacao"]
+
+
+def test_ncu_na_aba_trackers_no_drill_no_grafico_e_na_entrada(ncu, monkeypatch):
+    hoje = sg.hoje()
+    ncu["regs"] = _ncu_regs(hoje, lambda m: 4.1)
+    with app.app.test_client() as cli:
+        d = cli.get("/api/apolo/trackers?force=1").get_json()
+        assert [r["usina"] for r in d["rows"]] == ["Rio do Peixe I e II"] and "por_pid" not in d
+        assert d["rows"][0]["total"] == 1 and d["summary"]["trackers"] == 1
+        dr = cli.get("/api/apolo/trackers/rio_do_peixe_1_2").get_json()
+        assert [t["id"] for t in dr["trackers"]] == ["NCU"]
+        ch = cli.get(f"/api/apolo/trackers/rio_do_peixe_1_2/chart?ini={hoje}&fim={hoje}").get_json()
+        assert [t["id"] for t in ch["trackers"]] == ["NCU"] and ch["alvo"] and ch["plant"] == "Rio do Peixe I e II"
+        assert cli.get("/api/apolo/trackers/nao_existe").status_code == 404
+    # a Entrada conta os parados do mesmo pacote (hoje o "parado" depende da hora: antes das 11h a frota "dorme")
+    par = app._sg_parados_rows("apolo")
+    esperado = [("Rio do Peixe I e II", "NCU")] if dr["trackers"][0]["status"] == "parado" else []
+    assert [(r["usina"], r["tracker"]) for r in par] == esperado
+    assert "apolo:'/api/apolo/trackers'" in MON                                 # a aba Trackers do Monitoramento
+
+
+def test_ncu_a_entrada_nao_conta_sem_o_pacote_de_hoje(ncu):
+    with pytest.raises(RuntimeError):
+        app._sg_parados_rows("apolo")
+    assert ncu["pedidos"] == []                                                 # SÓ cache: não vai ao supervisório

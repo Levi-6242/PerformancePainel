@@ -13,6 +13,7 @@ from __future__ import annotations
 from cobertura import FONTES as ROTULOS   # as mesmas fontes (e nomes) das Fontes do tempo real
 
 API_PV = ("pv", "semp", "alveslima", "2capi")
+SCADAGRIDCO = ("greenyellow", "salenergia", "apolo")   # o inversor liga pelo nº do equipamento
 SEVERIDADE = {"critico": 0, "atencao": 1, "info": 2}
 
 
@@ -76,14 +77,14 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
         alertas.append(("atencao", f"{n_sem:g}{de} inversor(es) sem esperadas: o nome que chega ({ex}) não casa com o "
                                    "cadastro; ligue cada um no de-para"))
     # ── de onde vem o nome de cada inversor ──
-    if fonte in API_PV + ("greenyellow", "salenergia") and str(pid) in ctx.get("revistas", ()):
+    if fonte in API_PV + SCADAGRIDCO and str(pid) in ctx.get("revistas", ()):
         nomes = "decidido na tela"
     elif fonte in API_PV and pid in ctx.get("inv_nomes", {}) and ctx["inv_nomes"][pid]:
         nomes = "de-para no código"
     elif fonte in API_PV and pid in ctx.get("oem", set()):
         nomes = "pela ordem do cadastro"
         alertas.append(("atencao", "nomes dos inversores pela ORDEM dos ids: pode trocar um inversor pelo outro"))
-    elif fonte in ("greenyellow", "salenergia") and ctx.get("sg_por_ordem", {}).get((fonte, pid)):
+    elif fonte in SCADAGRIDCO and ctx.get("sg_por_ordem", {}).get((fonte, pid)):
         nomes = "pela ordem do cadastro"
         alertas.append(("atencao", "nomes dos inversores pela ORDEM (provisório, sem leitura para fechar por valor)"))
     else:

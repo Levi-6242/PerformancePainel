@@ -116,3 +116,26 @@ def test_o_worker_descobre_grava_e_o_web_le(monkeypatch):
 
 
 _descobrir_real = sg.descobrir
+
+
+def test_apolo_usina_nova_do_cliente_entra_na_fonte_apolo(monkeypatch):
+    """29/10/2026: cliente "Apolo" na Info Geral → fonte `apolo`. A Rio do Peixe I e II já está na lista fixa (com o
+    de-para) e não é descoberta de novo; outra usina da Apolo que aparecer no supervisório entra pela descoberta; a de
+    outro cliente segue fora."""
+    info = dict(INFO, ibipeba={"usina": "Ibipeba", "cliente": "Apolo"},
+                riodopeixeieii={"usina": "Rio do Peixe I e II", "cliente": "Apolo"})
+    monkeypatch.setattr(app, "INFO_GERAL", info)
+    monkeypatch.setattr(app, "ESPERADO_INV_DISP", DISP)
+
+    def getter(rota, params=None):
+        if rota == "/api/usinas":
+            return {"ibipeba": {"inv_total": 2}, "rio_do_peixe_1_2": {"inv_total": 21}, "santo_inacio_xii": {"inv_total": 0}}
+        return {"usinas": [
+            {"usina": "ibipeba", "nome": "Ibipeba", "equipamentos": [{"equipamento": "1", "tipo": "inverter"}]},
+            {"usina": "rio_do_peixe_1_2", "nome": "Rio do Peixe I e II",
+             "equipamentos": [{"equipamento": str(i), "tipo": "inverter"} for i in range(1, 22)]},
+            {"usina": "santo_inacio_xii", "nome": "Santo Inacio XII", "equipamentos": []}]}
+    out = app._sg_classifica(sg.descobrir(getter))
+    assert list(out) == ["apolo"] and [c["id"] for c in out["apolo"]] == ["ibipeba"]
+    assert out["apolo"][0]["usina"] == "Ibipeba" and out["apolo"][0]["via"] == "mqtt"
+    assert [c["id"] for c in sg.usinas("apolo")][0] == "rio_do_peixe_1_2"

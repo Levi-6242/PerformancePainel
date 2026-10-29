@@ -43,7 +43,7 @@ DECISOES = ("vincular", "desvincular")
 ORIGENS = ("tela", "forcado")
 # As fontes do pacote da aba (falhas_job): as das strings e as dos trackers — a mesma lista do rótulo do workbook
 # (falhas_publicar.FONTE_ROT), conferida no teste. Fonte fora dela é linha que nenhuma ocorrência da tela tem.
-FONTES = ("pv", "pvsb", "pg", "sunop", "axis", "owen", "solaredge", "greenyellow", "salenergia")
+FONTES = ("pv", "pvsb", "pg", "sunop", "axis", "owen", "solaredge", "greenyellow", "salenergia", "apolo")
 TEXTO_MAX = 120
 
 _BRT = timezone(timedelta(hours=-3))

@@ -914,7 +914,7 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   (`_dp_cadastro_usinas`, campo `ligada_a`, sem contar a própria usina e sem as cópias dos apelidos, como "Sete Lagoa");
   "Mostrar também as já ligadas" as traz. A sugestão pelo nome vem pré-escolhida só quando não há o que conferir. E o
   **nome de cada inversor**
-  onde o código liga pelo id (conta oem@: semp, alveslima, 2capi; scadaGridco: greenyellow, salenergia), com a origem de
+  onde o código liga pelo id (conta oem@: semp, alveslima, 2capi; scadaGridco: greenyellow, salenergia, apolo), com a origem de
   cada nome (tela, código, ordem do cadastro), "Confirmar como está" e a **sugestão pelo kWh do BD** (conta oem@: o Eday de
   cada id nos 3 últimos dias fechados × as colunas da aba da usina no BD_Performance, um para um, com o erro e a confiança;
   custa até 3 consultas da cota histórica da API PV; coluna vazia no BD não fecha nada e a tela diz). O inversor sem
@@ -1622,7 +1622,7 @@ a tarde de 25/09): o parcial não zerava string nenhuma (0 inativas falsas em 1.
 1 e 8 na Colíder 2, contra 0 e 0 com o quarto fechado. A última leitura da RenoGrid fica ~15 min atrás, e é de propósito.
 Na tela, `curvaSVG(..., unit)` recebe 'W' na RenoGrid e 'A' nas outras.
 
-## GreenYellow e Sal Energia pelo scadaGridco (06/10/2026)
+## GreenYellow, Sal Energia e Apolo pelo scadaGridco (06/10/2026; Apolo 29/10/2026)
 
 Levi: "OS para tempo real e histórico das UFVs da Green Yellow", "separe green yellow e sal energia", tempo real "igual
 às outras fontes", histórico "só até 45 dias" (é o que a API guarda). A fonte é o supervisório da Automação Grid Co.
@@ -1633,7 +1633,7 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
 
 - **Duas fontes, dois cards na Entrada** (`greenyellow`, `salenergia`; cliente da Info Geral "Greenyellow" e "Sal
   Energia"). Tabela, drill, Curva das strings (hoje e até 45 dias), CSV, rollup do macro e a aba de Falhas. Sem ETM nem
-  trackers (as usinas não mandam), sem sino e sem Ocorrências (como a RenoGrid).
+  trackers (as usinas não mandam), sem sino e sem Ocorrências (como a RenoGrid). A Apolo (abaixo) é a 3ª, com a NCU.
 - **GreenYellow = gateway MQTT**: tabela/drill por `/api/mqtt/<usina>` (1 pedido, 0,1 s); curva por `/api/telemetria`
   **um inversor por pedido** (`indice=N`: 2,5 MB e 0,5 s; a usina inteira de uma vez são 19 MB e 22 s), 1 ponto por
   minuto. A de hoje vem aos pedaços (`apos_ts`, `CurvasDoDia`), a de dia passado fica 6 h. O histórico é pedido pelo
@@ -1667,7 +1667,42 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
 - **Aba de Falhas**: `_falhas_sg_varre` (dentro do `_falhas_loop`, de 07h a 18:30 e uma depois) registra a régua nova
   sobre a curva de hoje de cada inversor; usina sem leitura não é perguntada.
 - Inversor lendo e sem string ativa (noite) é "desligado" no drill, sem diferença — como na RenoGrid e na Athon.
-- Testes: `tests/test_scadagridco.py`, `tests/test_fonte_greenyellow_sal.py`.
+- **Apolo = 3ª fonte (`apolo`, card "Apolo", 29/10/2026)**. Levi: "As API que tem as mesmas UFVs da GreenYellow também
+  soltou Rio do Peixe 1 e 2 que é da Apolo, traga para o tempo real". O mesmo gateway MQTT da GreenYellow; igual a ela em
+  tudo (card, tabela, drill, Curva das strings, CSV, rollup, aba de Falhas, relatório Potência ativa, De-para de
+  equipamentos, Fontes do tempo real, ponte do Nexus). Cliente "Apolo" na Info Geral → `apolo` (`_SG_FONTE_DO_CLIENTE`):
+  usina nova da Apolo que aparecer no supervisório (Ibipeba, Gravatá II e Iramaia II estão no cadastro e ainda não no
+  supervisório) entra pela descoberta. Fonte nova nas Fontes do tempo real nasce **não governada** (sem a foto de
+  migração): a Rio do Peixe entra direto; para controlar pela tela, tirar a "foto de hoje" da fonte.
+- **Rio do Peixe I e II (`rio_do_peixe_1_2`)**: 21 equipamentos `inverter` ("1" a "21", 28 entradas `string_N_current`,
+  `active_power` em kW, `daily_active_energy`, temperatura em `temperature_internal`), 3 `relay` (proteção/disjuntor) e
+  1 `tracker_ncu`. **Sem estação** (sem POA/GHI). O cadastro (aba Equipamentos, sem "Usina Supervisório", liga pelo nome
+  de exibição) tem **20** inversores: 1.1–1.10 (UG 01) e 2.1–2.10 (UG 02), com 20/20/20/18/18/18/18/20/20/20 strings
+  (384). O **15 é cópia do 14** (28/10: 315 de 316 minutos com sol iguais em potência e em cada string; 14 × 16, 0). Por
+  isso ela fica na **lista fixa** do `scadagridco.FONTES["apolo"]` com o de-para (1–10 = 1.1–1.10, 11–14 = 2.1–2.4, 16–21
+  = 2.5–2.10, o 15 de fora): pela ordem do cadastro o 15 virava o 2.5, o 18 (18 strings) o 2.8 (20 esperadas, −2 falso) e
+  o 21 ficava sem inversor. **PROVISÓRIO pelo padrão das strings** (nº de entradas com corrente às 13h de 28/10): o
+  histórico do supervisório começa em 28/10 11:52 e o BD vai até 21/10, sem dia em comum para fechar pelo valor — fechar
+  quando houver. O aviso vai no diagnóstico e no editor do De-para (`provisorio` na usina); o decidido na tela vence. As
+  entradas vivas ficam espalhadas pelas 28 (no inversor 1: 2–4, 6–12, 16–18, 21–23, 25–28): as mortas aparecem no drill
+  como sem corrente até alguém trancá-las; a conta da linha fecha (ativas × esperadas). O gateway fica **fora de madrugada**
+  (29/10 01:10: `online` false, todos `stale` desde 21:48): a linha sai "sem comunicação" à noite.
+- **A NCU como tracker** (29/10/2026, Levi: "traga a NCU como tracker também e nomeie como NCU"): `trackers: {"1": "NCU"}`
+  na usina; a aba Trackers da Apolo (`/api/apolo/trackers`, o drill `/<pid>` e o gráfico `/<pid>/chart`, montada pelo
+  worker, `_apo_trk_cache`) mostra UM tracker "NCU" com o ângulo (`posat`) e o alvo (`posal`) da telemetria
+  (`tipo=tracker_ncu`, 1 ponto por minuto, `_sg_trk_curvas`). Régua = a da 2C (`_trk_analise_curvas`, o corpo antigo do
+  `_owen_trackers_analise`): parado pela amplitude do dia, depois a freeze-based e o alvo pela mediana capada em ±55°.
+  Com um tracker só, a mediana da usina é ele mesmo: **desvio e atraso relativos nunca acendem**; vale o parado e a
+  disparidade contra o alvo. As **falhas da NCU** (flh_com, flh_leve, flh_zigbee, out_of_range, bot_emerg, manu_on,
+  bat_*) vão no tracker como estão (`alarmes` = as em 1, `falhas_ncu` = todas; no título do chip): a régua é pelo ângulo
+  e não tem regra para bandeira — nenhuma foi inventada. Em 28/10 o `flh_com` ficou em 1 o dia todo, com a NCU girando
+  (amplitude 66°). NCU sem leitura no dia = sem comunicação (não verde). A Entrada conta os parados SÓ do pacote do worker
+  (`_sg_parados_rows`), e só onde há o token. Fora da subaba Parados/Ocorrências (`_TRK_SUB_FONTES`, como SEMP e 2C-API)
+  e do registro de ocorrências (`trk_eventos`, `FONTES_TRK`). **Relés e ETM não entram.**
+- O **Modo de-para do Tempo real** (`_DP_FONTES`, `depara_tabela.js`) não cobre nenhuma fonte do scadaGridco (lê o
+  `inv_resumo` das linhas da API PV); o de-para dos inversores delas é o da Base · De-para de equipamentos
+  (`/admin/de-para`, `_DP_SG`), onde a Apolo está.
+- Testes: `tests/test_scadagridco.py`, `tests/test_fonte_greenyellow_sal.py`, `tests/test_scadagridco_descoberta.py`.
 
 ## Visão Geração no drill-down do Monitoramento
 
@@ -2890,7 +2925,7 @@ ao servidor. Nenhuma régua, filtro ou limiar novo: tudo reaproveita a régua qu
   - `POST` `{tipo, fonte, plant_id, equipamento, dia_inicio, os, decisao: vincular|desvincular}` → confere tudo (400 com
     o motivo), acrescenta (relê, grava, confere; e a trava contra apagar o histórico, em "Fontes do tempo real") →
     `{ok, vinculos}`; não gravou → 500 com o motivo. **Fonte = as do pacote da aba** (`pv, pvsb, pg, sunop, axis, owen,
-    solaredge, greenyellow, salenergia`, o `FONTE_ROT` do workbook), não as da `cobertura.FONTES`, onde a 2C é `2capi`:
+    solaredge, greenyellow, salenergia, apolo`, o `FONTE_ROT` do workbook), não as da `cobertura.FONTES`, onde a 2C é `2capi`:
     a 2C dos trackers (owen) e a String Box (pvsb) seriam recusadas. Em `GRAVACOES_GESTOR`: o gestor leva 403.
 - **Tirar da conta em lote**: o `POST /api/painel/falhas/desconsiderar` aceita `chaves: [...]` (até 60, cada uma
   conferida como a `chave`, numa gravação só, tudo ou nada) e `resumos: {chave: resumo}` (sem ele, o `resumo` vale para

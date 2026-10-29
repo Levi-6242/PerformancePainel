@@ -54,6 +54,7 @@ FONTES = {
     "2capi": "2C",
     "greenyellow": "GreenYellow",
     "salenergia": "Sal Energia",
+    "apolo": "Apolo",
 }
 
 _BRT = timezone(timedelta(hours=-3))

@@ -171,7 +171,7 @@ def servidor(monkeypatch):
         monkeypatch.setitem(cache, "ts", agora)
 
     for c in (app._cache, app._semp_cache, app._alveslima_cache, app._2capi_cache, app._se_cache, app._gy_cache,
-              app._sal_cache,
+              app._sal_cache, app._apo_cache,
               app._si("gridco")["cache"], app._si("axis")["cache"]):
         fresco(c)
     monkeypatch.setattr(app, "_pg_get_snapshot", lambda force=False: ([_linha("MAB100"), _linha("MRO100")], {}))
@@ -182,7 +182,7 @@ def servidor(monkeypatch):
 
 ROTAS = ["/api/data", "/api/pg/data", "/api/sunop/data", "/api/axis/data", "/api/solaredge/data",
          "/api/owen/strings/data", "/api/semp/data", "/api/alveslima/data", "/api/2capi/data",
-         "/api/greenyellow/data", "/api/salenergia/data"]
+         "/api/greenyellow/data", "/api/salenergia/data", "/api/apolo/data"]
 
 
 def test_toda_rota_de_strings_da_tabela_esta_coberta():

@@ -15,7 +15,7 @@ De onde vem a potência de cada fonte (a tabela `FONTES`):
   histórica da conta por usina e dia (a Tupi Paulista, grande demais para uma consulta, custa uma por inversor);
 - Banco da Thopen: o `active_power` do `public.raw_inverter`, a mesma coluna da correlação tracker × inversor do drill
   (`_pg_series_inversores`), para qualquer dia;
-- GreenYellow (scadaGridco, MQTT): a potência que a telemetria de cada inversor já traz junto com as strings, a mesma
+- GreenYellow e Apolo (scadaGridco, MQTT): a potência que a telemetria de cada inversor já traz junto com as strings, a mesma
   curva da aba Curva (`_sg_curvas`), até 45 dias atrás;
 - RenoGrid (SolarEdge): a POTÊNCIA CC, a soma das strings de cada inversor, de 15 em 15 min, pela mesma curva das strings
   do drill (`_se_strings_curva`). A SolarEdge não entrega a potência ativa (CA) do inversor; a grandeza vai escrita na
@@ -84,6 +84,9 @@ FONTES = (
     {"fonte": "salenergia", "rotulo": "Sal Energia · scadaGridco", "familia": None,
      "motivo": "A Sal Energia chega ao scadaGridco por Modbus, e o histórico dele para essas usinas é por string "
                "(corrente), sem a potência do inversor."},
+    {"fonte": "apolo", "rotulo": "Apolo · scadaGridco", "familia": "scadagridco",
+     "origem": "scadaGridco (gateway MQTT, o mesmo da GreenYellow): a potência ativa de cada inversor na telemetria de "
+               "minuto a minuto, a mesma curva da aba Curva do Tempo real; o histórico dela começa em 28/10/2026"},
 )
 _POR_FONTE = {f["fonte"]: f for f in FONTES}
 GRANDEZA_PADRAO = "Potência ativa"

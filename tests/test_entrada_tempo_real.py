@@ -27,6 +27,7 @@ def entrada(monkeypatch):
     monkeypatch.setattr(app, "_etm_prob_cache", {"ts": 0.0, "data": {"itens": [], "mes": "09/2026"}})
     monkeypatch.setattr(app, "_trk_geo_annotate", lambda rows: rows)
     monkeypatch.setattr(app, "_ENTRADA_TRK_PRAZO_S", 1)          # o teste nao espera 30 s
+    monkeypatch.setattr(app._sg, "configurado", lambda: False)   # a NCU da Apolo (scadaGridco) fora destes testes
     chamadas = {}
 
     def _fonte(nome, rows=(), demora=0.0):
@@ -68,7 +69,7 @@ def test_fonte_lenta_nao_segura_a_tela(entrada, monkeypatch):
     d = app._entrada_tempo_real_build()
     gasto = time.time() - t0
     assert gasto < 5, f"o build esperou a fonte lenta ({gasto:.1f}s) em vez de publicar sem ela"
-    assert len(d["grupos"]) == 10      # os 10 cards existem sempre (GreenYellow e Sal Energia desde 06/10/2026; a 2C e' UM card; a Alves Lima voltou em 19/10/2026)
+    assert len(d["grupos"]) == 11      # os 11 cards existem sempre (GreenYellow e Sal Energia desde 06/10/2026; a 2C e' UM card; a Alves Lima voltou em 19/10/2026; a Apolo entrou em 29/10/2026)
     lento = _grupo(d, "Thopen", "Thopen")
     assert lento["trk_fonte_ok"] is False and lento["trk_parados"] == 0   # a tela escreve "fonte nao respondeu"
     assert d["fontes_pendentes"] == ["Thopen"]                            # e o cache sabe que deve tentar de novo em 5 min

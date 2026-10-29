@@ -130,3 +130,50 @@ def test_token_recusado_e_302(monkeypatch):
     monkeypatch.setattr(sg._SESSAO, "get", lambda *a, **k: R())
     with pytest.raises(sg.SemAcesso):
         sg.get("/api/usinas")
+
+
+def test_rio_do_peixe_o_15_e_copia_do_14_e_fica_de_fora():
+    """Apolo (29/10/2026): 21 equipamentos no supervisório e 20 inversores no cadastro. O 15 repete o 14 minuto a minuto
+    (315 de 316 com sol em 28/10/2026); pelo padrão das strings (20/18/20 por UG) o 11 a 14 são o 2.1 a 2.4 e o 16 a 21
+    o 2.5 a 2.10. O que não está no de-para não vira inversor da usina."""
+    cfg = sg.usina_cfg("apolo", "rio_do_peixe_1_2")
+    assert sg.via("apolo", "rio_do_peixe_1_2") == "mqtt" and cfg["usina"] == "Rio do Peixe I e II"
+    assert [sg.nome_inversor(cfg, str(e)) for e in (1, 10, 11, 14, 15, 16, 21)] == \
+        ["Inversor 1.1", "Inversor 1.10", "Inversor 2.1", "Inversor 2.4", None, "Inversor 2.5", "Inversor 2.10"]
+    assert len(set(cfg["inversores"].values())) == 20 and cfg.get("provisorio")
+
+
+def test_temperatura_interna_do_gateway_da_apolo():
+    eq = _eq_mqtt(3)
+    del eq["measurements"]["temperature_current"]
+    eq["measurements"]["temperature_internal"] = 41.5
+    assert sg.leitura_mqtt(eq)["temp"] == 41.5
+    assert sg.leitura_mqtt(_eq_mqtt(3))["temp"] == 48.5                 # a da GreenYellow segue valendo
+
+
+def test_curva_da_ncu_angulo_alvo_e_falhas():
+    """A NCU da Rio do Peixe (29/10/2026, Levi: "traga a NCU como tracker também e nomeie como NCU"): posat = ângulo,
+    posal = alvo, as falhas em 0/1 da última leitura boa. Leitura ruim fica fora (lacuna não é zero)."""
+    regs = [{"communication_fault": 192, "data_hora": "2026-10-28 12:07:30", "ts": 2.0, "equipamento": "1",
+             "pontos": {"posat": 12.05, "posal": 12.17, "flh_com": 1, "flh_leve": 0, "out_of_range": 0}},
+            {"communication_fault": 28, "data_hora": "2026-10-28 12:08:30", "ts": 3.0, "equipamento": "1",
+             "pontos": {"posat": 0.0, "posal": 0.0, "flh_com": 0}},
+            {"communication_fault": 192, "data_hora": "2026-10-28 12:06:30", "ts": 1.0, "equipamento": "1",
+             "pontos": {"posat": 11.8, "posal": None, "flh_com": 0}}]
+    c = sg.curva_ncu(regs)
+    assert [round(v, 2) for _t, v in c["atual"]] == [11.8, 12.05] and [v for _t, v in c["alvo"]] == [12.17]
+    assert c["atual"][0][0].strftime("%H:%M") == "12:06" and c["ultimo_ts"] == 3.0
+    assert c["alarmes"] == {"flh_com": 1, "flh_leve": 0, "out_of_range": 0}        # a da 12:07 (a 12:08 é ruim)
+    assert sg.trackers(sg.usina_cfg("apolo", "rio_do_peixe_1_2")) == {"1": "NCU"}
+    assert sg.trackers(sg.usina_cfg("greenyellow", "irece_2")) == {}
+
+
+def test_curva_da_ncu_pede_o_tipo_tracker_ncu_pelo_nome():
+    pedidos = []
+
+    def getter(rota, p):
+        pedidos.append((rota, dict(p)))
+        return {"registros": [], "proximo_apos_ts": None}
+    sg.curva_tracker("apolo", "rio_do_peixe_1_2", "1", "2026-10-28", getter=getter)
+    assert pedidos == [("/api/telemetria", {"usina": "rio_do_peixe_1_2", "desde": "2026-10-28", "ate": "2026-10-28",
+                                            "tipo": "tracker_ncu", "equipamento": "1", "limit": sg.LIMITE})]

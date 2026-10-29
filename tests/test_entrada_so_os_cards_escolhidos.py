@@ -18,7 +18,8 @@ import app
 
 CARDS = [("Thopen", "API PV"), ("Thopen", "Thopen"), ("Athon", "Athon"), ("Axis", "Axis"),
          ("Renogrid", "RenoGrid"), ("2C", "2C"), ("SEMP", "SEMP"), ("Alves Lima", "Alves Lima"),
-         ("Greenyellow", "GreenYellow"), ("Sal Energia", "Sal Energia")]   # scadaGridco, 06/10/2026
+         ("Greenyellow", "GreenYellow"), ("Sal Energia", "Sal Energia"),   # scadaGridco, 06/10/2026
+         ("Apolo", "Apolo")]                                               # scadaGridco, 29/10/2026 (Rio do Peixe)
 
 
 @pytest.fixture

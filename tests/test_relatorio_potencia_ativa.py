@@ -97,7 +97,9 @@ def test_monta_dia_sem_ponto_nenhum_e_sem_dado_com_o_motivo_da_fonte():
 def test_cada_fonte_do_tempo_real_tem_familia_ou_o_motivo_de_nao_ter():
     # Athon e Axis saíram (Levi, 13/10/2026: "Não, por hora pode tirar Axis e Athon")
     assert {f["fonte"] for f in pa.FONTES} == {"pv", "pg", "solaredge", "2capi", "semp", "alveslima", "greenyellow",
-                                                "salenergia"}
+                                                "salenergia", "apolo"}
+    # a Apolo (Rio do Peixe, 29/10/2026) vem pelo gateway MQTT da GreenYellow: a telemetria traz a potência
+    assert pa.fonte("apolo")["familia"] == pa.fonte("greenyellow")["familia"] == "scadagridco"
     # o RenoGrid é potência CC (a soma das strings), escrita como tal; as outras, potência ativa
     assert pa.grandeza(pa.fonte("solaredge")) == "Potência CC" and "CC" in pa.fonte("solaredge")["rotulo"]
     assert {pa.grandeza(f) for f in pa.FONTES if f["fonte"] != "solaredge"} == {"Potência ativa"}
