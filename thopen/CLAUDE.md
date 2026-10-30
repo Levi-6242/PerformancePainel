@@ -114,7 +114,7 @@ se eu liberar". Como o push já chega ao cliente, toda tela ou aba nova sobe com
 vê a aba (o `libera` do template) e a rota responde 403 "ainda não está liberada" (`_portao`). Liberar = o Levi pede,
 a chave vira `True` e sobe. Mudança dentro de uma tela que o cliente já vê não tem chave sozinha: precisa dos dois
 caminhos (`_liberado(chave)` escolhe) até a liberação, e o velho sai quando ela vem. Login desligado (as cópias de
-prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
+prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria` e `protecao_no_comentario`. Prova:
 `tests/test_thopen_liberacao.py`.
 
 - **A disponibilidade da Thopen pelas normalizações do COS (29/10/2026; liberada ao cliente em 30/10/2026):** a régua
@@ -124,7 +124,11 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   de normalizações"): uma conta só, para todas as contas. O comentário da OS do COS leva as proteções que atuaram
   ("Desligamento Usina Trip 27ABC/86 de ... a ...; OS 17001"; "Falha de comunicação com a geração parada, Usina de ...;
   OS ..."; "sem OS" quando a normalização não tem), com a volta de cada usina quando o Levi a corrigiu numa só, e não
-  vai buscar o trip no Fracttal. A Metodologia, a nota dos Registros e as mensagens da tabela de comentários dizem a
+  vai buscar o trip no Fracttal. **A proteção sempre, em campo próprio** (30/10/2026, Levi: "tem que ter a proteção que
+  ativou no comentário, caso não tenha tem que ter Proteção: Sem proteção ativa"): "Desligamento Usina de ... a ...;
+  Proteção: 27ABC/86; OS 17001" e "...; Proteção: Sem proteção ativa; OS ..." (`_frase_cos`, `protecao_sempre`); sobe
+  para a conta Performance pela chave `protecao_no_comentario`, e o cliente segue com a frase do Trip até a liberação.
+  A parada que segue aberta na Ronda COS sai "desde DD/MM às HH:MMh, em aberto". A Metodologia, a nota dos Registros e as mensagens da tabela de comentários dizem a
   fonte ao cliente (30/10/2026): as paradas registradas pelo COS na Ronda COS e, nas usinas fora dela, os comentários
   da equipe; "OS do Fracttal" ficou só nas strings, que seguem vindo das OS de recomposição. Prova:
   `tests/test_thopen_disp_cos.py` e `test_metodologia_disponibilidade_pelas_paradas_do_cos_sem_geracao`.

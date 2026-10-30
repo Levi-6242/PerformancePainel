@@ -1057,6 +1057,9 @@ def _e_grid():
 # Performance) vê assim que o servidor anda; a conta de cliente só quando o Levi liberar (trocar para True e subir).
 LIBERADO_AO_CLIENTE = {
     "zeladoria": False,   # a aba Zeladoria (26/10/2026); 27/10: "zeladoria pode tirar da visualização do cliente"
+    # a proteção sempre no comentário do COS, "Proteção: Sem proteção ativa" quando não houve (30/10/2026); até liberar,
+    # o cliente segue com a frase do Trip
+    "protecao_no_comentario": False,
 }
 
 
@@ -1776,7 +1779,8 @@ def api_operacao():
     dados = _op_dados()
     bd = _disp_bd(usina, ano, mes) if _pelo_bd(usina, ano, mes) else None
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
-    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd)
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd,
+                              protecao_sempre=_liberado("protecao_no_comentario"))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None

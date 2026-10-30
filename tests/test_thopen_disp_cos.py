@@ -27,6 +27,28 @@ def test_comentario_do_cos_com_as_protecoes():
     assert om._frase_os(_os(), DIA, 1000) == "Desligamento Usina Trip 27ABC/86 de 10/10 às 09:00h a 10/10 às 15:00h; OS 17001"
 
 
+def test_a_protecao_sempre_no_comentario_e_sem_protecao_ativa_quando_nao_houve():
+    # Levi, 30/10/2026: "tem que ter a proteção que ativou no comentário, caso não tenha tem que ter Proteção: Sem
+    # proteção ativa"
+    assert om._frase_os(_os(), DIA, 1000, protecao_sempre=True) == (
+        "Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Proteção: 27ABC/86; OS 17001")
+    assert om._frase_os(_os(protecoes=None), DIA, 1000, protecao_sempre=True) == (
+        "Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Proteção: Sem proteção ativa; OS 17001")
+    f = om._frase_os(_os(tipo="falha de comunicação com a geração parada", protecoes="", os=None, aberta="sim",
+                         fim=None), DIA, 1000, protecao_sempre=True)
+    assert f == "Falha de comunicação com a geração parada, Usina desde 10/10 às 09:00h, em aberto; Proteção: Sem proteção ativa; sem OS"
+
+
+def test_a_protecao_no_comentario_sobe_primeiro_para_a_conta_performance(monkeypatch):
+    # 27/10/2026: "o usuário thopen que é o do cliente só vê se eu liberar"
+    assert dth.LIBERADO_AO_CLIENTE["protecao_no_comentario"] is False
+    monkeypatch.setattr(dth, "_e_grid", lambda: True)
+    assert dth._liberado("protecao_no_comentario")
+    monkeypatch.setattr(dth, "_e_grid", lambda: False)
+    assert not dth._liberado("protecao_no_comentario")
+    assert next(iter(om.os_por_dia(_dados(), "Alfa", 2026, 10, protecao_sempre=True).values()))[0].endswith("Proteção: 27ABC/86; OS 17001")
+
+
 def test_comentario_da_comunicacao_com_a_geracao_parada_e_sem_os():
     f = om._frase_os(_os(tipo="falha de comunicação com a geração parada", protecoes=None, os=None), DIA, 1000)
     assert f == "Falha de comunicação com a geração parada, Usina de 10/10 às 09:00h a 10/10 às 15:00h; sem OS"
