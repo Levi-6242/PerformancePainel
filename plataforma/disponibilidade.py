@@ -1298,7 +1298,9 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     # Fracttal na aba (30/10/2026: Aruanã, Sapopema e Segredo, com desligamentos registrados pelo COS, e a Coração 2, ficavam
     # fora; Levi: "Passam para o COS")
     for u in sorted(monitoradas):
-        if u in usinas and (usinas[u].pot or 0) > 0:
+        # a linha agregada (PARQUE_EXCLUI) fica fora: a "AP. do Taboado" tem na aba o site do Fracttal da 1 e da 2 e o de-para
+        # a liga à normalização delas; no parque ela duplicaria o kWp das duas (30/10/2026, logo depois da regra entrar)
+        if u in usinas and u not in PARQUE_EXCLUI and (usinas[u].pot or 0) > 0:
             parque.setdefault(u, usinas[u])
     res_usinas = []
     for u, U in sorted(parque.items()):

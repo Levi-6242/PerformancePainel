@@ -295,3 +295,14 @@ def test_falha_de_comunicacao_que_o_levi_disse_ser_desligamento():
     r = roda([norm("r1", os="15632", tipo_falha="FALHA_COMUNICACAO", geracao_parou="", protecoes="")])
     o = a_os(r, 15632)
     assert o["excl"] is None and o["tipos"] == ["desligamento de usina"] and o["kwh"] == pytest.approx(6000, rel=1e-3)
+
+
+
+def test_a_linha_agregada_nao_entra_pela_normalizacao(monkeypatch):
+    # 30/10/2026: a "AP. do Taboado" (PARQUE_EXCLUI) tem o site da 1 e da 2 e o de-para a liga à normalização delas
+    monkeypatch.setattr(dm, "PARQUE_EXCLUI", {"Eta"})
+    eq = EQUIP + [{"cliente": "Thopen", "usina": "Eta", "usina_fracttal": "Thopen - Eta - PR", "equipamento": "UFV",
+                   "pot_kwp": 800.0, "n_inv": 2, "full_om": "Não"}]
+    r = dm.calcular({}, eq, PER_INI, PER_FIM, agora=AGORA, usinas_por_id={55: ["Eta"]},
+                    normalizacoes=[norm("r1", usina_id="55", usina_codigo="THPN-ETA100")])
+    assert "Eta" not in {u["usina"] for u in r["usinas"]}
