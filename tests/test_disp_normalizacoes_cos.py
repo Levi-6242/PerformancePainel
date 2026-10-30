@@ -196,3 +196,18 @@ def test_excecoes_do_levi_na_brodowski(monkeypatch):
 def test_a_excecao_da_brodowski_esta_no_codigo():
     assert dm.COS_EXCECOES["os:12693"][0] == "fora"
     assert dm.COS_EXCECOES["060f2693-003b-4e94-aa36-a26cb4044b61"][:2] == ("cabine", 1)
+
+
+def test_a_os_16498_na_normalizacao_so_vale_a_ap2(monkeypatch):
+    # a regra de 26/10/2026 (ESCOPO_COS) vale também na normalização da mesma OS (30/10/2026: a barra da AP1 não caiu)
+    monkeypatch.setattr(dm, "ESCOPO_COS", {17001: (["Beta 2"], "só a Beta 2")})
+    r = roda([norm("r1", usina_id="33", usina_codigo="THPN-BET100")])
+    assert usina(r, "Beta 1")["disp"] == 100 and usina(r, "Beta 2")["h_perdidas"] == pytest.approx(6.0)
+
+
+def test_as_os_em_conferencia_pela_geracao_ficam_fora_e_no_alinhar():
+    # 30/10/2026: a conferência com as barras do Diário; a Pharma IV (OS 14838) é uma delas
+    assert dm.COS_EXCECOES["os:14838"][0] == "fora" and dm.EM_CONFERENCIA in dm.COS_EXCECOES["os:14838"][2]
+    assert "os:16498" not in dm.COS_EXCECOES
+    r = roda([norm("r1", os="14838")])
+    assert a_os(r, 14838)["excl"].startswith("fora pela decisão do Levi") and usina(r, "Alfa")["disp"] == 100

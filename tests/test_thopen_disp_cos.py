@@ -70,7 +70,8 @@ def test_a_os_do_cos_nao_vai_buscar_o_trip_no_fracttal():
 def test_o_cliente_ve_a_de_antes_e_a_grid_a_nova(monkeypatch):
     d = _dados()
     monkeypatch.setattr(fonte_operacao, "dados", lambda *a, **k: d)
-    assert dth.LIBERADO_AO_CLIENTE["disponibilidade_cos"] is False
+    assert dth.LIBERADO_AO_CLIENTE["disponibilidade_cos"] is True            # liberada em 30/10/2026
+    monkeypatch.setitem(dth.LIBERADO_AO_CLIENTE, "disponibilidade_cos", False)
     monkeypatch.setattr(dth, "_e_grid", lambda: False)
     alfa = lambda x: [r["h_perdidas"] for r in x["disponibilidade_dia"] if r["usina"] == "Alfa"]   # noqa: E731
     assert alfa(dth._op_dados()) == [0.0]

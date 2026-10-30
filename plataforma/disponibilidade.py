@@ -953,9 +953,45 @@ COS_TIPOS_USINA = ("DESLIGAMENTO_USINA", "FALHA_CONCESSIONARIA")
 # Exceções do Levi, pelo registro da Ronda COS ou "os:N" (29/10/2026, a Brodowski saía 0% em outubro): "Tira a OS12693, A
 # GERAÇÃO NÃO PAROU. FOI SÓ DA CABINE 1, TEM UM SEM OS QUE BATE". A 12693 (falha de comunicação de 02/09 a 28/10) sai; a
 # normalização sem OS de 02/07 a 28/10 vale só a cabine 1. Ficam à vista no "alinhar"; o certo é o COS corrigir lá
+# 30/10/2026 (Levi: "se o COS marcou como desligamento então tudo ok, você pode checar com o gráfico de barras do
+# dashboard thopen para bater e me retornar o que não faz sentido, mas o que fizer manda para frente!"): cada OS do COS de
+# outubro contra a geração do dia (a esperada pela irradiação dos dias limpos da usina; a parada pesada pela energia do
+# horário). Estas, com 20% ou mais da energia de um dia na conta do COS e menos de 30% disso na barra, ficam FORA até o
+# Levi conferir; as que batem em parte seguem contando. A conta não lê geração (15/10/2026): isto é a decisão dele sobre a
+# conferência daquele dia, escrita aqui, e não um juiz automático
+EM_CONFERENCIA = "em conferência (30/10/2026): a geração do dia não mostra a parada — "
 COS_EXCECOES = {
     "os:12693": ("fora", None, "Brodowski: a geração não parou (Levi, 29/10/2026)"),
     "060f2693-003b-4e94-aa36-a26cb4044b61": ("cabine", 1, "Brodowski: só a cabine 1 parou (Levi, 29/10/2026)"),
+    "os:14838": ("fora", None, EM_CONFERENCIA + "Pharma IV"),
+    "os:14863": ("fora", None, EM_CONFERENCIA + "Cipó Guaçu"),
+    "os:14913": ("fora", None, EM_CONFERENCIA + "Mandaguaçu"),
+    "os:15216": ("fora", None, EM_CONFERENCIA + "Mandaguaçu"),
+    "os:15316": ("fora", None, EM_CONFERENCIA + "Fazenda Limão"),
+    "os:15318": ("fora", None, EM_CONFERENCIA + "Senador"),
+    "os:15322": ("fora", None, EM_CONFERENCIA + "Matão 1"),
+    "os:15335": ("fora", None, EM_CONFERENCIA + "Ipixuna 1, Ipixuna 2"),
+    "os:15364": ("fora", None, EM_CONFERENCIA + "Indaiatuba"),
+    "os:15367": ("fora", None, EM_CONFERENCIA + "Fernandópolis"),
+    "os:15376": ("fora", None, EM_CONFERENCIA + "Matão 1"),
+    "os:15483": ("fora", None, EM_CONFERENCIA + "Canarana 1"),
+    "os:15485": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
+    "os:15802": ("fora", None, EM_CONFERENCIA + "Vargem Grande 1"),
+    "os:15866": ("fora", None, EM_CONFERENCIA + "Junco"),
+    "os:15923": ("fora", None, EM_CONFERENCIA + "Coração 1"),
+    "os:16007": ("fora", None, EM_CONFERENCIA + "Sorocaba"),
+    "os:16021": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
+    "os:16063": ("fora", None, EM_CONFERENCIA + "Mandaguaçu"),
+    "os:16086": ("fora", None, EM_CONFERENCIA + "Junco"),
+    "os:16101": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
+    "os:16174": ("fora", None, EM_CONFERENCIA + "Ipixuna 1"),
+    "os:16186": ("fora", None, EM_CONFERENCIA + "Sarandi"),
+    "os:16219": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
+    "os:16321": ("fora", None, EM_CONFERENCIA + "Matão 2"),
+    "os:16374": ("fora", None, EM_CONFERENCIA + "Canarana 1"),
+    "os:17447": ("fora", None, EM_CONFERENCIA + "Boa Esperança do Sul 2"),
+    "os:17863": ("fora", None, EM_CONFERENCIA + "Matão 2"),
+    "os:17865": ("fora", None, EM_CONFERENCIA + "Nova Londrina"),
 }
 
 
@@ -1180,6 +1216,12 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         if o["excl"]:
             continue
         esc = escopo_normalizacao(o, us, usinas, idx)
+        if esc and o["folio"] in ESCOPO_COS:            # a regra de 26/10/2026 vale na normalização da mesma OS
+            esc = [e for e in esc if not escopo_cos_exclui(o["folio"], e[0])]
+            o["flags"].append("escopo pelo COS: só %s — %s" % (", ".join(ESCOPO_COS[o["folio"]][0]),
+                                                              ESCOPO_COS[o["folio"]][1]))
+            if not esc:
+                o["excl"] = "fora pelo escopo do COS de 26/10/2026"
         if not esc:
             if ja is None:
                 por_folio[o["folio"]]["excl"] = o["excl"]

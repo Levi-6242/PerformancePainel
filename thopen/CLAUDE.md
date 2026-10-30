@@ -114,7 +114,7 @@ se eu liberar". Como o push já chega ao cliente, toda tela ou aba nova sobe com
 vê a aba (o `libera` do template) e a rota responde 403 "ainda não está liberada" (`_portao`). Liberar = o Levi pede,
 a chave vira `True` e sobe. Mudança dentro de uma tela que o cliente já vê não tem chave sozinha: precisa dos dois
 caminhos (`_liberado(chave)` escolhe) até a liberação, e o velho sai quando ela vem. Login desligado (as cópias de
-prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria` e `disponibilidade_cos`. Prova:
+prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Liberada: `disponibilidade_cos` (30/10/2026). Prova:
 `tests/test_thopen_liberacao.py`.
 
 - **`disponibilidade_cos` (29/10/2026):** a disponibilidade e os comentários da Thopen pelas normalizações do COS (a
@@ -123,8 +123,10 @@ prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria` e `disponibilidade
   `disponibilidade_os_dia_fracttal`; o `_op_dados` dá ao cliente a de antes (`operacao_mes.disp_de_antes` troca usina ×
   mês) e ao papel grid a nova. O comentário da OS do COS leva as proteções que atuaram ("Desligamento Usina Trip
   27ABC/86 de ... a ...; OS 17001"; "Falha de comunicação com a geração parada, Usina de ...; OS ..."; "sem OS" quando
-  a normalização não tem) e não vai buscar o trip no Fracttal. Liberar: a chave vira `True`; depois, a plataforma para
-  de calcular a de antes. Prova: `tests/test_thopen_disp_cos.py`.
+  a normalização não tem) e não vai buscar o trip no Fracttal. **Liberada em 30/10/2026**, depois da conferência com as
+  barras do Diário (Levi: "o que fizer manda para frente"; a conferência em `plataforma/CLAUDE.md`). Voltar o cliente à
+  de antes = a chave em `False` (a plataforma ainda publica as abas `_fracttal`; quando não precisar mais, para de
+  calcular a de antes). Prova: `tests/test_thopen_disp_cos.py`.
 
 ## Dados
 

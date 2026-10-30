@@ -1056,9 +1056,10 @@ def _e_grid():
 # Performance) vê assim que o servidor anda; a conta de cliente só quando o Levi liberar (trocar para True e subir).
 LIBERADO_AO_CLIENTE = {
     "zeladoria": False,   # a aba Zeladoria (26/10/2026); 27/10: "zeladoria pode tirar da visualização do cliente"
-    # a disponibilidade e os comentários da Thopen pelas normalizações do COS (29/10/2026): o cliente segue com a de
-    # antes, só do Fracttal (as abas `_fracttal` da plataforma), até a liberação (`_op_dados`)
-    "disponibilidade_cos": False,
+    # a disponibilidade e os comentários da Thopen pelas normalizações do COS (29/10/2026): liberada em 30/10/2026 (Levi,
+    # depois da conferência com as barras do Diário: "o que fizer manda para frente"). False = o cliente volta à de
+    # antes, só do Fracttal (as abas `_fracttal`, que a plataforma ainda publica), pelo `_op_dados`
+    "disponibilidade_cos": True,
 }
 
 

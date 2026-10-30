@@ -1499,7 +1499,16 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   até o Levi liberar (`thopen/CLAUDE.md`, "Liberação ao cliente"). Sem o livro, com a leitura pela metade ou sem o
   de-para, a Thopen segue pelo Fracttal e o índice diz por quê (`cos`). Ensaio de 29/10/2026 (outubro até o dia 28, 555
   normalizações da Thopen, 444 contando): Thopen ponderada 88,85% (Fracttal) → 94,16% (COS); Brodowski 95,49% → 46,75%
-  (a cabine 1 o mês todo), Colorado 2 78,43% → 61,60%. Prova: `tests/test_disp_normalizacoes_cos.py`.
+  (a cabine 1 o mês todo), Colorado 2 78,43% → 61,60%.
+  **Conferência com as barras do Diário (30/10/2026**, Levi: "se o COS marcou como desligamento então tudo ok, você pode
+  checar com o gráfico de barras do dashboard thopen para bater e me retornar o que não faz sentido, mas o que fizer manda
+  para frente!"): cada OS do COS de outubro contra a geração do dia (a esperada = a geração por irradiação dos dias sem
+  perda da usina × a irradiação do dia; a parada pesada pela energia do horário, seno de 06 a 18 h). Das 432: 314
+  pequenas (menos de 20% da energia de um dia), 68 batem, 16 em parte (seguem contando), 3 sem geração e 31 em que a
+  barra não caiu. Destas, 29 OS ficam fora até o Levi conferir (`COS_EXCECOES`, "em conferência", à vista no
+  "alinhar") e a 16498 segue a regra de 26/10 (`ESCOPO_COS`, só a AP2, que agora vale também na normalização). A conta
+  não lê geração: a lista é a decisão dele sobre aquela conferência, não um juiz automático. Thopen de outubro: 95,39%.
+  Prova: `tests/test_disp_normalizacoes_cos.py`.
 - **Falta de comunicação NÃO é parada** (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
   disponibilidade"). A OS cuja descrição (ou o ativo) diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`; no
   Fracttal ela vem como "Verificação de comunicação do ...", tipo Religamento ou Corretiva Emergencial) fica fora da
