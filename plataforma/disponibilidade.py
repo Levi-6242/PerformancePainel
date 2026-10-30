@@ -344,6 +344,9 @@ CORRECOES_FIM = {
 # parou. {folio: ([usinas que contam], nota)}; vale na conta, na cascata, no relatório e no drill da usina.
 ESCOPO_COS = {
     16498: (["Aparecida do Taboado 2"], "o relé da AP2 ficou sem alimentação; a AP1 gerou normal (retorno do COS)"),
+    # 30/10/2026, o retorno do COS: "Boa Esperança do Sul 2 — A usina desligou: 0 kW das 05h às 10h"; a normalização é do
+    # cadastro "Boa Esperança do Sul 1 e 2", sem a cabine, e pegava a BES1 junto. Sai quando o COS acertar o escopo lá
+    17447: (["Boa Esperança do Sul 2"], "só a BES2 desligou (retorno do COS, 30/10/2026)"),
 }
 
 
@@ -953,43 +956,11 @@ COS_TIPOS_USINA = ("DESLIGAMENTO_USINA", "FALHA_CONCESSIONARIA")
 # Exceções do Levi, pelo registro da Ronda COS ou "os:N" (29/10/2026, a Brodowski saía 0% em outubro): "Tira a OS12693, A
 # GERAÇÃO NÃO PAROU. FOI SÓ DA CABINE 1, TEM UM SEM OS QUE BATE". A 12693 (falha de comunicação de 02/09 a 28/10) sai; a
 # normalização sem OS de 02/07 a 28/10 vale só a cabine 1. Ficam à vista no "alinhar"; o certo é o COS corrigir lá
-# 30/10/2026 (Levi: "se o COS marcou como desligamento então tudo ok, você pode checar com o gráfico de barras do
-# dashboard thopen para bater e me retornar o que não faz sentido, mas o que fizer manda para frente!"): cada OS do COS de
-# outubro contra a geração do dia; as 31 em que a barra não caiu foram ao Levi, e ele respondeu uma a uma na planilha
-# (30/10/2026, "RESPONDI TUDO"): "Não desligou" = fora; "VOLTOU hh:mm" = a volta certa; "DESLIGOU DE ... AS ..." = o
-# trecho certo; "OK" = conta como o COS marcou (essas não estão aqui). A conta não lê geração (15/10/2026): isto é a
-# decisão dele, escrita aqui, à vista no "alinhar"; o certo é o COS corrigir na Ronda COS (o arquivo que foi para eles)
-CONFERENCIA = "conferência do Levi com as barras do Diário (30/10/2026)"
-_d = lambda dia, h, m=0: datetime(2026, 10, dia, h, m)          # noqa: E731
+# Exceções do Levi, pelo registro da Ronda COS ou "os:N" ("fora", "cabine", "volta", "periodo" ou "desligamento"), à vista
+# no "alinhar". A planilha da conferência com as barras do Diário (30/10/2026) gerou 24; no mesmo dia o COS corrigiu os
+# registros na Ronda COS, conferidos pelo SCADA e pelos técnicos, e onde discordou do Levi ele decidiu: "Vale o COS". As
+# exceções da planilha saíram (a fonte é a Ronda COS); fica o que o COS não tratou
 COS_EXCECOES = {
-    "os:12693": ("fora", None, "Brodowski: a geração não parou (Levi, 29/10/2026)"),
-    "060f2693-003b-4e94-aa36-a26cb4044b61": ("cabine", 1, "Brodowski: só a cabine 1 parou (Levi, 29/10/2026)"),
-    # "Não desligou"
-    "os:14838": ("fora", None, f"Pharma IV não desligou — {CONFERENCIA}"),
-    "os:14913": ("fora", None, f"Mandaguaçu não desligou — {CONFERENCIA}"),
-    "os:15316": ("fora", None, f"Fazenda Limão não desligou — {CONFERENCIA}"),
-    "os:15367": ("fora", None, f"Fernandópolis não desligou — {CONFERENCIA}"),
-    "os:15866": ("fora", None, f"Junco não desligou — {CONFERENCIA}"),
-    "os:15923": ("fora", None, f"Coração 1 não desligou — {CONFERENCIA}"),
-    "os:17447": ("fora", None, f"Boa Esperança do Sul 2 não desligou — {CONFERENCIA}"),
-    "os:17863": ("fora", None, f"Matão 2 não desligou — {CONFERENCIA}"),
-    "os:17865": ("fora", None, f"Nova Londrina não desligou — {CONFERENCIA}"),
-    # a volta certa ({usina da aba Equipamentos ou "*": a hora}); a Ipixuna 1 e a 2 voltaram em horas diferentes
-    "os:14863": ("volta", {"*": datetime(2026, 9, 29, 12, 5)}, f"Cipó Guaçu voltou 12:05 de 29/09 — {CONFERENCIA}"),
-    "os:15216": ("volta", {"*": _d(2, 12, 45)}, f"Mandaguaçu voltou 12:45 — {CONFERENCIA}"),
-    "os:15318": ("volta", {"*": _d(3, 9, 30)}, f"Senador voltou 09:30 — {CONFERENCIA}"),
-    "os:15335": ("volta", {"Ipixuna 1": _d(4, 9, 40), "Ipixuna 2": _d(4, 11)},
-                 f"Ipixuna 1 voltou 09:40 e Ipixuna 2 11:00 — {CONFERENCIA}"),
-    "os:15485": ("volta", {"*": _d(6, 8, 30)}, f"Santo Anastácio voltou 08:30 de 06/10 — {CONFERENCIA}"),
-    "os:15802": ("volta", {"*": _d(8, 10, 35)}, f"Vargem Grande 1 voltou 10:35 — {CONFERENCIA}"),
-    "os:16021": ("volta", {"*": _d(10, 8, 45)}, f"Santo Anastácio voltou 08:45 — {CONFERENCIA}"),
-    "os:16063": ("volta", {"*": _d(11, 11)}, f"Mandaguaçu voltou 11:00 — {CONFERENCIA}"),
-    "os:16101": ("volta", {"*": _d(12, 9)}, f"Santo Anastácio voltou 09:00 de 12/10 — {CONFERENCIA}"),
-    "os:16174": ("volta", {"*": _d(13, 13, 45)}, f"Ipixuna 1 (inversor 1.4) voltou 13:45 de 13/10 — {CONFERENCIA}"),
-    # o trecho certo
-    "os:15483": ("periodo", (_d(6, 10, 55), _d(6, 11, 10)),
-                 f"Canarana 1: não desligou; caiu de 10:55 a 11:10 de 06/10 — {CONFERENCIA}"),
-    "os:16086": ("periodo", (_d(11, 13, 25), _d(11, 14, 55)), f"Junco desligou de 13:25 a 14:55 — {CONFERENCIA}"),
     # a falha de comunicação que foi desligamento (Levi, 30/10/2026, a OS 15632 de São Bento 5, sem a resposta "a geração
     # parou?": "essa de são bento considera desligamento"): conta como desligamento da usina
     "os:15632": ("desligamento", None, "São Bento 5: falha de comunicação que foi desligamento (Levi, 30/10/2026)"),
@@ -1236,7 +1207,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
             eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": o})
     # a Thopen pelas normalizações do COS (29/10/2026): uma OS do COS por nº; duas normalizações da mesma OS são dois
     # eventos dela (a usina caiu duas vezes na mesma OS)
-    por_folio = {}
+    por_folio, monitoradas = {}, set()
     for r in (normalizacoes or []) if cos is not None else []:
         o = consolidar_normalizacao(r)
         if o is None:
@@ -1249,6 +1220,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         if us and not any(x in cos for x in us):
             continue                                   # usina de outro cliente: a régua dela é a do Fracttal
         us = [x for x in us if x in cos]
+        monitoradas.update(us)
         if not us and norm(r.get("cliente")) != COS_CLIENTE:
             continue
         if o["fim"] < per_ini or o["ini"] >= per_fim:
@@ -1322,6 +1294,12 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     # disponibilidade não é responsabilidade nossa e as OSs do Fracttal não contam a história
     # toda. Vale para o parque, para o resumo por cliente e para o diário.
     parque = _parque(usinas)
+    # a usina da Thopen que a Ronda COS monitora (tem normalização) entra na conta mesmo com "Full O&M: Não" ou sem o nome do
+    # Fracttal na aba (30/10/2026: Aruanã, Sapopema e Segredo, com desligamentos registrados pelo COS, e a Coração 2, ficavam
+    # fora; Levi: "Passam para o COS")
+    for u in sorted(monitoradas):
+        if u in usinas and (usinas[u].pot or 0) > 0:
+            parque.setdefault(u, usinas[u])
     res_usinas = []
     for u, U in sorted(parque.items()):
         ph = sum(h_eq[u].values())

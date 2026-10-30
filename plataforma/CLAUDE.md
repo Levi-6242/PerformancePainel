@@ -1512,13 +1512,19 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   para frente!"): cada OS do COS de outubro contra a geração do dia (a esperada = a geração por irradiação dos dias sem
   perda da usina × a irradiação do dia; a parada pesada pela energia do horário, seno de 06 a 18 h). Das 432: 314
   pequenas (menos de 20% da energia de um dia), 68 batem, 16 em parte (seguem contando), 3 sem geração e 31 em que a
-  barra não caiu, que foram a ele. As respostas dele (30/10/2026, na planilha) estão em `COS_EXCECOES`, à vista no
-  "alinhar": "Não desligou" = fora (9 OS); "VOLTOU hh:mm" = a volta certa (10; a Ipixuna 1 e a 2 da OS 15335 voltaram
-  em horas diferentes: a volta é por usina, `fim_por_usina` na OS e na `disponibilidade_os_dia`); "DESLIGOU DE ... AS"
-  = o trecho certo (Canarana 1, 15483; Junco, 16086); "OK" = conta como o COS marcou (8, fora da lista). Depois,
-  a OS 15632 (São Bento 5, falha de comunicação sem resposta): "considera desligamento" (`desligamento`). A 16498 segue a
-  regra de 26/10 (`ESCOPO_COS`, só a AP2, que vale também na normalização). A conta não lê geração: as exceções são a
-  decisão dele sobre aquela conferência, não um juiz automático; o certo é o COS corrigir na Ronda COS.
+  barra não caiu, que foram a ele; ele respondeu na planilha, e as respostas viraram exceções (`COS_EXCECOES`: "fora",
+  "volta" por usina com `fim_por_usina`, "periodo"). No mesmo dia o COS corrigiu os registros na Ronda COS (SCADA, PV
+  Operation e relato dos técnicos) e, onde discordou da planilha (Boa Esperança do Sul 2, Canarana 1, Fazenda Limão,
+  Ipixuna 2, o inversor 1.4 da Ipixuna 1, Matão 2 e Nova Londrina em 29/10), o Levi decidiu "Vale o COS": **as exceções
+  da planilha saíram, e a fonte é a Ronda COS corrigida**. Ficam a OS 15632 (São Bento 5, falha de comunicação sem
+  resposta: "considera desligamento", `desligamento`) e o `ESCOPO_COS` da 16498 (só a AP2) e da 17447 (só a BES2: o
+  registro é do cadastro "Boa Esperança do Sul 1 e 2", sem a cabine; sai quando o COS acertar lá). Os mecanismos das
+  exceções ficam no código para a próxima conferência. A conta não lê geração: exceção é decisão escrita do Levi, nunca
+  um juiz automático; o certo é o COS corrigir na Ronda COS.
+  **A usina da Thopen que a Ronda COS monitora entra na conta** mesmo com "Full O&M: Não" ou sem a Usina Fractall na aba
+  (30/10/2026: Aruanã, Sapopema e Segredo, com desligamentos registrados pelo COS, e a Coração 2 ficavam fora do parque;
+  Levi: "Passam para o COS"): a que tem normalização ligada pelo de-para e potência no catálogo. Thopen de outubro (01 a
+  29): 95,22%, 91 usinas.
   Prova: `tests/test_disp_normalizacoes_cos.py`.
 - **Falta de comunicação NÃO é parada** (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
   disponibilidade"). A OS cuja descrição (ou o ativo) diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`; no

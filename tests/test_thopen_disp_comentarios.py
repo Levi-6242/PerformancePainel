@@ -79,7 +79,9 @@ def test_a_resposta_do_card_usa_os_comentarios_do_bd():
 
 
 def test_a_lista_das_usinas_pelo_bd():
-    assert {"Nova Iguaçu", "Segredo", "Aruanã", "AP. do Taboado", "Cambé"} <= dc.USINAS
+    assert {"Nova Iguaçu", "AP. do Taboado", "Cambé"} <= dc.USINAS
+    # Aruanã, Sapopema e Segredo passaram para o COS (30/10/2026)
+    assert not {"Aruanã", "Sapopema", "Segredo"} & dc.USINAS
 
 
 def test_inversor_conta_os_citados_sobre_os_da_usina_e_a_cabine_vence():

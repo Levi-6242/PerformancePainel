@@ -23,8 +23,9 @@ from datetime import date, datetime, timedelta
 # as usinas do Dashboard Thopen (o nome da aba do BD_Thopen) que seguem os comentários; a lista do Levi trazia os
 # nomes de lá: "Aparecida do Taboado" = AP. do Taboado, "Pacaembu - Sítio Areia Branca 1.1 e 1.2" = Areia Branca,
 # "Nova Iguaçu 2.1 e 2.2" = Nova Iguaçu, "Segredo 1.1 a 1.5" = Segredo. As Sol Maior GD I a V não estão no dashboard
-USINAS = frozenset({"Rondonópolis", "Aruanã", "AP. do Taboado", "Areia Branca", "Monte Aprazível", "Nova Iguaçu",
-                    "Sapopema", "Segredo", "Cambé"})
+# Aruanã, Sapopema e Segredo saíram no mesmo dia (Levi: "Passam para o COS"): o COS registrou os desligamentos delas, e
+# elas seguem a régua do COS na plataforma
+USINAS = frozenset({"Rondonópolis", "AP. do Taboado", "Areia Branca", "Monte Aprazível", "Nova Iguaçu", "Cambé"})
 SOL_INI_H, SOL_FIM_H = 6, 18
 
 _PERIODO = re.compile(

@@ -203,9 +203,10 @@ def test_excecoes_do_levi_na_brodowski(monkeypatch):
     assert "só a cabine 1" in r["alinhar"][0]["motivo"]
 
 
-def test_a_excecao_da_brodowski_esta_no_codigo():
-    assert dm.COS_EXCECOES["os:12693"][0] == "fora"
-    assert dm.COS_EXCECOES["060f2693-003b-4e94-aa36-a26cb4044b61"][:2] == ("cabine", 1)
+def test_vale_o_cos_as_excecoes_da_planilha_sairam():
+    # 30/10/2026: o COS corrigiu os registros na Ronda COS e, onde discordou da planilha, o Levi decidiu "Vale o COS"
+    assert set(dm.COS_EXCECOES) == {"os:15632"}
+    assert dm.ESCOPO_COS[17447][0] == ["Boa Esperança do Sul 2"]
 
 
 def test_a_os_16498_na_normalizacao_so_vale_a_ap2(monkeypatch):
@@ -215,17 +216,25 @@ def test_a_os_16498_na_normalizacao_so_vale_a_ap2(monkeypatch):
     assert usina(r, "Beta 1")["disp"] == 100 and usina(r, "Beta 2")["h_perdidas"] == pytest.approx(6.0)
 
 
-def test_as_respostas_do_levi_na_conferencia_com_as_barras():
-    # 30/10/2026, a planilha respondida: "Não desligou" = fora; "VOLTOU" = a volta; "DESLIGOU DE ... AS" = o trecho;
-    # "OK" = conta como o COS marcou (não está nas exceções)
-    ex = dm.COS_EXCECOES
-    assert ex["os:14838"][0] == "fora" and ex["os:17447"][0] == "fora"
-    assert ex["os:16063"] == ("volta", {"*": datetime(2026, 10, 11, 11, 0)}, ex["os:16063"][2])
-    assert ex["os:15335"][1] == {"Ipixuna 1": datetime(2026, 10, 4, 9, 40), "Ipixuna 2": datetime(2026, 10, 4, 11, 0)}
-    assert ex["os:16086"][1] == (datetime(2026, 10, 11, 13, 25), datetime(2026, 10, 11, 14, 55))
-    assert not {"os:16374", "os:15364", "os:15322", "os:15376", "os:16321", "os:16219", "os:16186", "os:16007"} & set(ex)
+def test_excecao_fora_tira_a_os_e_vai_ao_alinhar(monkeypatch):
+    monkeypatch.setattr(dm, "COS_EXCECOES", {"os:14838": ("fora", None, "não desligou")})
     r = roda([norm("r1", os="14838")])
     assert a_os(r, 14838)["excl"].startswith("fora pela decisão do Levi") and usina(r, "Alfa")["disp"] == 100
+
+
+def test_usina_da_thopen_monitorada_pelo_cos_entra_mesmo_sem_full_om():
+    # 30/10/2026: Aruanã, Sapopema e Segredo ("Full O&M: Não" na aba) têm desligamento registrado pelo COS e "passam
+    # para o COS"; a usina da Thopen sem normalização nenhuma e sem O&M completo segue fora
+    eq = EQUIP + [
+        {"cliente": "Thopen", "usina": "Eta", "usina_fracttal": "Thopen - Eta - PR", "equipamento": "UFV",
+         "pot_kwp": 800.0, "n_inv": 2, "full_om": "Não"},
+        {"cliente": "Thopen", "usina": "Teta", "usina_fracttal": "", "equipamento": "UFV", "pot_kwp": 500.0,
+         "n_inv": 2, "full_om": "Não"}]
+    r = dm.calcular({}, eq, PER_INI, PER_FIM, agora=AGORA, usinas_por_id={55: ["Eta"], 66: ["Teta"]},
+                    normalizacoes=[norm("r1", usina_id="55", usina_codigo="THPN-ETA100")])
+    nomes = {u["usina"] for u in r["usinas"]}
+    assert "Eta" in nomes and "Teta" not in nomes
+    assert usina(r, "Eta")["h_perdidas"] == pytest.approx(6.0)
 
 
 def test_volta_e_trecho_corrigidos_pelo_levi(monkeypatch):
