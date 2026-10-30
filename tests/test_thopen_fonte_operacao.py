@@ -234,5 +234,6 @@ def test_parcela_da_os_no_dia_sem_o_numero_e_ligada_pelo_nome_do_fracttal():
                  "os": "15692",
                  "tipo": "Religamento Remoto", "escopo": "Usina inteira", "kwp": 6898, "inicio": "2026-10-07T12:55:00",
                  "fim": "2026-10-07T12:57:00", "aberta": "não", "trechos": "12:55-12:57", "h_perdidas": 0.033,
-                 "usina_ids": [1]}
+                 # a fonte e as proteções (29/10/2026): vazias na linha de antes delas
+                 "fonte": None, "protecoes": None, "usina_ids": [1]}
     assert "disponibilidade_os" not in d and "queda" not in str(d)          # a origem não entra

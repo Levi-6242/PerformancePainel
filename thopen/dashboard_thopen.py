@@ -1056,11 +1056,21 @@ def _e_grid():
 # Performance) vê assim que o servidor anda; a conta de cliente só quando o Levi liberar (trocar para True e subir).
 LIBERADO_AO_CLIENTE = {
     "zeladoria": False,   # a aba Zeladoria (26/10/2026); 27/10: "zeladoria pode tirar da visualização do cliente"
+    # a disponibilidade e os comentários da Thopen pelas normalizações do COS (29/10/2026): o cliente segue com a de
+    # antes, só do Fracttal (as abas `_fracttal` da plataforma), até a liberação (`_op_dados`)
+    "disponibilidade_cos": False,
 }
 
 
 def _liberado(chave):
     return _e_grid() or bool(LIBERADO_AO_CLIENTE.get(chave))
+
+
+def _op_dados():
+    """A operação do mês como esta conta a vê: a disponibilidade pelas normalizações do COS só para quem a tem liberada
+    (o papel grid, desde 29/10/2026); o cliente, com a de antes (operacao_mes.disp_de_antes)."""
+    d = fonte_operacao.dados()
+    return d if not d or _liberado("disponibilidade_cos") else operacao_mes.disp_de_antes(d)
 
 
 _POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina=
@@ -1421,7 +1431,7 @@ def _disp_dias(usina, ano, mes):
     (carregando, desligado, usina fora do Gerencial): a Visão Geral fica sem o expurgo, nunca com um 0."""
     if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
         return None
-    dados = fonte_operacao.dados()
+    dados = _op_dados()
     return (operacao_mes.disp_por_dia(dados, usina, ano, mes) or None) if dados else None
 
 
@@ -1684,7 +1694,7 @@ def reload_bd():
     except ValueError:
         ano = mes = 0
     if usina and 1 <= mes <= 12 and trip_os.ligado() and (ano, mes) >= operacao_mes.DESDE             and os.environ.get("THOPEN_OPERACAO", "1").strip() != "0":
-        oss = operacao_mes.os_desligamento_do_mes(fonte_operacao.dados(), usina, ano, mes)
+        oss = operacao_mes.os_desligamento_do_mes(_op_dados(), usina, ano, mes)
         trip_os.buscar(oss, forcar=True, limite_s=trip_os.LIMITE_ATUALIZAR)
         trip_os.em_segundo_plano(oss)
     return jsonify({"ok": True, "planilha_em": _planilha_em(),
@@ -1712,7 +1722,7 @@ def api_operacao():
         r = operacao_mes.resposta(None, usina, ano, mes, hoje)
         r["motivo"] = "desligado"
         return jsonify(r)
-    dados = fonte_operacao.dados()
+    dados = _op_dados()
     trips, buscando = _trips_da_tela(dados, usina, ano, mes)
     r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips)
     r["trip_pendente"] = bool(buscando and r["disponivel"])

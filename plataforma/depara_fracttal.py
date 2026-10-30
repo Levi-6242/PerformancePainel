@@ -171,6 +171,39 @@ def _nome_chave(s) -> str:
     return re.sub(r"\s+", " ", t).strip().upper()
 
 
+def usinas_por_id(usinas, de_para, linhas_equip) -> dict:
+    """{usina_id do Registro mestre: [nomes da aba Equipamentos]} pelo de-para do Nexus (qualquer sistema): a chave
+    externa casa com o nome da usina na aba OU com o site do Fracttal dela (`usina_fracttal`), e o nome do próprio
+    Registro também casa. Para a disponibilidade da Thopen pelas normalizações do COS (29/10/2026, Levi: "usando o
+    de-para como referência"): o Nexus liga a normalização ao usina_id; a régua precisa das usinas da aba. O site do
+    Fracttal resolve o que o nome não resolve: o cadastro "Ipixuna 1 e 2" (um usina_id) é a Ipixuna 1 e a Ipixuna 2 da
+    aba, e "Marajoara 1" é a "Marajoara I" (na 1ª gravação, 44 normalizações da Thopen ficavam sem usina pelo nome)."""
+    validos, chaves = {}, {}
+    for x in usinas or ():
+        d = _como_dict(x, CAB_USINAS)
+        uid = _int(d.get("usina_id"))
+        if uid is None or _txt(d.get("excluido")).lower() == "sim":
+            continue
+        validos[uid] = True
+        chaves.setdefault(uid, set()).add(_nome_chave(d.get("nome")))
+    for x in de_para or ():
+        d = _como_dict(x, CAB_DE_PARA)
+        uid = _int(d.get("usina_id"))
+        if uid in validos and _txt(d.get("chave_externa")):
+            chaves[uid].add(_nome_chave(d.get("chave_externa")))
+    da_aba = {}
+    for e in linhas_equip or ():
+        n = _txt(e.get("usina"))
+        if n:
+            da_aba.setdefault(n, set()).update(k for k in (_nome_chave(n), _nome_chave(e.get("usina_fracttal"))) if k)
+    out = {}
+    for uid, ks in chaves.items():
+        ns = sorted(n for n, kn in da_aba.items() if kn & ks)
+        if ns:
+            out[uid] = ns
+    return out
+
+
 def kwp_por_nome(usinas, de_para, nomes) -> dict:
     """{nome: kWp do Registro mestre} para os `nomes` (as usinas da aba Equipamentos do BD_Performance) que casam com UMA
     usina do Registro pelo de-para do Nexus (qualquer sistema) ou pelo nome do próprio Registro. A reserva da potência da

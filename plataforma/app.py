@@ -27350,6 +27350,53 @@ def _disp_pot_reserva(equip):
     return _dpf.kwp_por_nome(reg, dp or (), {str(e.get("usina") or "").strip() for e in equip if e.get("usina")})
 
 
+# A Thopen pelas normalizações do COS (29/10/2026, Levi: "calcule a disponibilidade por lá usando o de-para como
+# referência"; decisões dele: só a Thopen, conta só o que está nas normalizações): o fato que o Nexus grava de hora em
+# hora (nexus/cos/normalizacoes_banco.py). A conta nova vai para o índice (`meses`: o Gerencial, a Performance do Nexus e
+# o Dashboard Thopen da conta grid); a de antes, só do Fracttal, fica em `meses_fracttal` para o cliente do Dashboard
+# Thopen até o Levi liberar ("o usuário thopen que é o do cliente só vê se eu liberar", 27/10/2026)
+DISP_COS_LIVRO = "nexus_cos_normalizacoes"
+DISP_COS_CAB = ("registro", "os", "os_relacionadas", "cliente", "usina_codigo", "usina_id", "usina_ligada_por",
+                "equipamentos_codigos", "equipamentos_qtd", "tipo_falha", "severidade", "estado", "normalizada",
+                "hora_real", "fim_corrigido", "declarada_por", "inicio", "normalizado_em", "data_id_inicio",
+                "data_id_volta", "fora_min", "geracao_parou", "protecoes", "fora_do_escopo_oem", "mudou_em")
+DISP_COS_CAB_ATU = ("atualizado_em", "linhas_qtd", "desde", "ligadas_qtd")
+_DISP_COS = {}
+
+
+def _disp_cos_leitor(aba, cab):
+    """O leitor do livro das normalizações (10 min de cópia; a última leitura boa em disco)."""
+    caminho = _p_cache(f"disp_cos_{aba}.json")
+    if caminho not in _DISP_COS:
+        _DISP_COS[caminho] = _cob.Decisoes(_bd_api.API_BASE, lambda: "", caminho, ttl=600, livro=DISP_COS_LIVRO,
+                                           aba=aba, cab=cab, nome_livro=DISP_COS_LIVRO)
+    return _DISP_COS[caminho]
+
+
+def _disp_normalizacoes(equip):
+    """(linhas do fato como dicts, {usina_id: [nomes da aba Equipamentos]}, erro). Sem o livro, com a leitura pela metade
+    (a contagem da `atualizacao` não bate) ou sem o de-para: (None, {}, o motivo), e a Thopen segue pelo Fracttal."""
+    try:
+        atu = _disp_cos_leitor("atualizacao", DISP_COS_CAB_ATU).linhas()
+        fato = _disp_cos_leitor("fato_normalizacao", DISP_COS_CAB).linhas()
+    except Exception as e:                                   # noqa: BLE001
+        return None, {}, f"leitura das normalizações: {type(e).__name__}: {e}"
+    if not atu or fato is None:
+        return None, {}, "o livro das normalizações do COS ainda não está no banco"
+    try:
+        esperado = int(float(atu[-1][1]))
+    except (TypeError, ValueError, IndexError):
+        esperado = -1
+    if len(fato) != esperado:
+        return None, {}, f"leitura das normalizações pela metade ({len(fato)} de {esperado} linhas)"
+    reg, _c1, _l1 = _dpf_livro("usinas").linhas()
+    dp, _c2, _l2 = _dpf_livro("de_para").linhas()
+    por_id = _dpf.usinas_por_id(reg or (), dp or (), equip)
+    if not por_id:
+        return None, {}, "sem o Registro mestre ou o de-para do Nexus: a Thopen segue pelo Fracttal"
+    return [dict(zip(DISP_COS_CAB, x)) for x in fato], por_id, ""
+
+
 def _frac_com_vereditos(wos):
     """{folio: 'parada' | 'comunicacao'} das OS de comunicação da varredura, pela subtarefa "Diagnóstico"
     (disponibilidade.veredito_subtarefas; Levi, 26/10/2026: "veja as últimas OSs criadas sobre comunicação que foi
@@ -27432,11 +27479,25 @@ def _frac_disp_recalcular():
         _log_arquivo("fracttal.log", f"[disp] vereditos das OS de comunicação: {type(e).__name__}: {e}")
         vereditos = {}
     dados = {"ts": time.time(), "meses": {}, "varredura": resumo, "comunicacao": vereditos}
+    # a Thopen pelas normalizações do COS (29/10/2026); sem elas, a conta de antes, e o índice diz por quê
+    cos, cos_por_id, cos_erro = _disp_normalizacoes(equip)
+    dados["cos"] = {"ok": cos is not None, "linhas": len(cos or []), "erro": cos_erro}
+    if cos is not None:
+        dados["meses_fracttal"] = {}
+    else:
+        _log_arquivo("fracttal.log", f"[disp] Thopen pelo Fracttal: {cos_erro}")
     falhas = []
     for rot, ini, fim in meses:
         try:
             if rot >= DISP_SO_FRACTTAL_DESDE:
-                dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, pot_reserva=reserva, vereditos=vereditos)
+                antes = _disp_mod.calcular(wos, equip, ini, fim, pot_reserva=reserva, vereditos=vereditos)
+                if cos is None:
+                    dados["meses"][rot] = antes
+                else:
+                    dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, pot_reserva=reserva,
+                                                             vereditos=vereditos, normalizacoes=cos,
+                                                             usinas_por_id=cos_por_id)
+                    dados["meses_fracttal"][rot] = antes
             else:
                 dados["meses"][rot] = _disp_mod.calcular_pelo_bd(_disp_dias_bd_thopen(ini, fim, equip), equip, ini, fim)
         except Exception as e:
@@ -28793,6 +28854,10 @@ def _falhas_recalcular():
             disp = (_falhas_ler(_falhas_arquivo(mes)) or {}).get("disponibilidade")
         if disp is not None:
             pacote["disponibilidade"] = disp
+        # a de antes, só do Fracttal e só a Thopen, para o cliente do Dashboard Thopen até a liberação (29/10/2026)
+        disp_fr = _falhas_disp_mes(mes, "meses_fracttal", so_thopen=True)
+        if disp_fr is not None:
+            pacote["disponibilidade_fracttal"] = disp_fr
         if mes == hoje.strftime("%Y-%m"):                  # a auditoria de travas é de agora: vai no mês corrente
             try:
                 idx = _falhas_os_abertas()
@@ -28813,15 +28878,22 @@ def _falhas_recalcular():
         print(f"[falhas] workbook não subiu (tenta de novo em 1 h): {e}")
 
 
-def _falhas_disp_mes(mes):
+def _falhas_disp_mes(mes, chave="meses", so_thopen=False):
     """A disponibilidade de cada usina por dia no mês, do índice da aba Disponibilidade do Gerencial (frac_disp_index.json:
     de outubro/2026 em diante, OS de religamento e corretiva emergencial, 06–18 h, ponderada pela potência afetada — Levi,
     09/10/2026: "da mesma forma que calculamos pelo gerencial"; setembro para trás, a "Disponibilidade Usina (%)" do
     BD_Thopen, só a Thopen e sem OS — 15/10/2026). Só o essencial para o workbook: o catálogo de usinas, o período
     fechado (até D-1) e os dias com perda. None quando o índice não tem o mês."""
-    m = ((_frac_disp_dados() or {}).get("meses") or {}).get(mes)
+    m = ((_frac_disp_dados() or {}).get(chave) or {}).get(mes)
     if not m or not m.get("usinas") or not m.get("periodo"):
         return None
+    # a de antes (`meses_fracttal`, 29/10/2026) vai só com as usinas da Thopen: é a do cliente até a liberação
+    thopen = ({u.get("usina") for u in m["usinas"] if _disp_mod.norm(u.get("cliente")).startswith(_disp_mod.COS_CLIENTE)}
+              if so_thopen else None)
+    if thopen is not None:
+        m = dict(m, usinas=[u for u in m["usinas"] if u.get("usina") in thopen],
+                 diario={u: d for u, d in (m.get("diario") or {}).items() if u in thopen},
+                 oss=[o for o in m.get("oss") or [] if set(o.get("usinas") or []) & thopen])
     # as OS que formaram a disponibilidade (12/10/2026, Levi: "Quero também que apareça todas as OSs listadas que
     # formaram aquele valor (...) a OS, que tipo de religamento foi, quanto tempo demorou, qual foi o total de perda de
     # energia"): as da conta (sem as excluídas), sem a descrição nem quem criou (o banco tem leitura aberta)
@@ -28832,7 +28904,9 @@ def _falhas_disp_mes(mes):
             "h_solar": o.get("h_solar"), "kwh": o.get("kwh"),
             # a perda da OS em cada usina ({usina: kWh}, 13/10/2026): é por ela que a aba `disponibilidade_os` reparte a
             # OS de duas usinas. None = índice de antes do campo, e a aba volta a repartir pela potência
-            "kwh_usina": o.get("kwh_usina")}
+            "kwh_usina": o.get("kwh_usina"),
+            # a OS do COS (29/10/2026): as proteções que atuaram vão para o comentário do Dashboard Thopen
+            "fonte": o.get("fonte") or "fracttal", "protecoes": o.get("protecoes") or []}
            for o in m.get("oss") or [] if not o.get("excl")]
     return {"periodo": [str(m["periodo"]["ini"])[:10], str(m["periodo"]["fim"])[:10]],
             "usinas": [{"usina": u.get("usina"), "fracttal": u.get("fracttal"), "cliente": u.get("cliente"),
@@ -28863,10 +28937,14 @@ def _falhas_disp_fora_da_volta(montados):
         if mes in montados or not os.path.exists(arq):
             continue                                       # remontado agora, ou mês sem pacote (antes do FALHAS_INI)
         disp = _falhas_disp_mes(mes)
+        disp_fr = _falhas_disp_mes(mes, "meses_fracttal", so_thopen=True)
         pac = _falhas_ler(arq)
-        if disp is None or not pac or pac.get("disponibilidade") == disp:
+        if disp is None or not pac or (pac.get("disponibilidade") == disp
+                                       and pac.get("disponibilidade_fracttal") == disp_fr):
             continue
         pac["disponibilidade"] = disp
+        if disp_fr is not None:
+            pac["disponibilidade_fracttal"] = disp_fr
         _falhas_gravar(arq, pac)
         regravados.append(mes)
         print(f"[falhas] {mes}: disponibilidade do Gerencial atualizada no pacote (mês não remontado nesta volta)")

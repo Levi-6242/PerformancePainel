@@ -27,6 +27,7 @@ na análise que virou `Disponibilidade Fracttal x BD - agosto 2026.xlsx`:
 - Janela solar 06–18h, dia a dia, em horas e minutos; sobreposições não passam de 100% da
   usina (hierarquia usina > cabine > inversor). Perda = kWp afetado × horas (potência nominal).
 """
+import hashlib
 import re
 import unicodedata
 from collections import defaultdict
@@ -835,7 +836,8 @@ def _disp_por_inversor(eventos, usinas, per_fim, tot_h):
 # ══ cálculo principal ════════════════════════════════════════════════════════
 # Exclusão que não é erro de OS: cancelada e site de terceiros. As outras (sem data de evento, concluída sem fim, site
 # ou ativo que o cadastro não reconhece) vão para a lista `alinhar`.
-_EXCL_QUE_NAO_E_ERRO = ("OS cancelada", "site 'Grid Co.'")
+# "COS: " = o que a normalização diz e não é parada (EXCL_COS_NAO_CONTA, abaixo; 29/10/2026)
+_EXCL_QUE_NAO_E_ERRO = ("OS cancelada", "site 'Grid Co.'", "COS: ")
 
 
 def _para_alinhar(oss, os_escopo, per_ini, per_fim):
@@ -923,10 +925,183 @@ def calcular_pelo_bd(dias_por_usina, linhas_equip, per_ini, per_fim):
             "lacunas": lacunas}
 
 
-def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, vereditos=None):
+# ══ a Thopen pelas normalizações do COS (29/10/2026) ═════════════════════════
+# Levi, 29/10/2026: "Quero uma adaptação para a disponibilidade da Thopen [...] calcule a disponibilidade por lá [Nexus >
+# COS > Normalizações] usando o de-para como referência [...] A ideia é separar o que é desligamento, o que for falha
+# de comunicação tem a coluna Geração Parou, se sim então deve contar na disponibilidade e entrar nos comentários. Nos
+# comentários tem que vir as proteções atuadas". Decisões dele no mesmo dia: só a Thopen; conta SÓ o que está nas
+# normalizações (a parada em andamento entra quando o COS a normalizar). O fato vem do Nexus (`nexus_cos_normalizacoes ·
+# fato_normalizacao`): início = a falha, fim = a volta que o COS registrou, e não o fechamento da OS no Fracttal, que
+# vem horas ou dias depois. A usina é a do de-para (o usina_id que o Nexus ligou pelo código do Fracttal → o nome da
+# aba Equipamentos, `usina_por_id`); o escopo, pelos códigos dos equipamentos (vazio = a usina inteira).
+COS_CLIENTE = "THOPEN"
+# a OS do Fracttal que só toca usina da Thopen sai da conta quando a Thopen é pelas normalizações (fica a do COS)
+EXCL_COS = "Thopen pela normalização do COS"
+# o que a normalização diz e não é parada nem erro (não vai para "alinhar"): começa por "COS: "
+EXCL_COS_NAO_CONTA = "COS: "
+COS_ROTULO = {"FALHA_COMUNICACAO": "falha de comunicação", "DESLIGAMENTO_USINA": "desligamento de usina",
+              "DESLIGAMENTO_CABINE": "desligamento de cabine", "DESLIGAMENTO_SKID": "desligamento de SKID",
+              "DESLIGAMENTO_QGBT": "desligamento de QGBT", "DESLIGAMENTO_INVERSOR": "desligamento de inversor",
+              "ATUACAO_PROTECAO": "atuação de proteção", "INVERSOR_OFFLINE": "inversor offline",
+              "FALHA_CONCESSIONARIA": "falha da concessionária"}
+# Além de todo DESLIGAMENTO_* e da comunicação com a geração parada, contam (Levi, 29/10/2026, com os números de outubro
+# na mão: 11, 10 e 1 normalizações da Thopen) a atuação de proteção, o inversor offline e a falha da concessionária. Os
+# outros tipos (falha de string, manutenção programada, ventilador, tracker) não são parada
+COS_TIPOS_PARADA = ("ATUACAO_PROTECAO", "INVERSOR_OFFLINE", "FALHA_CONCESSIONARIA")
+# a usina inteira pelo tipo, qualquer que seja o equipamento citado: o desligamento da usina e a queda da rede
+COS_TIPOS_USINA = ("DESLIGAMENTO_USINA", "FALHA_CONCESSIONARIA")
+# Exceções do Levi, pelo registro da Ronda COS ou "os:N" (29/10/2026, a Brodowski saía 0% em outubro): "Tira a OS12693, A
+# GERAÇÃO NÃO PAROU. FOI SÓ DA CABINE 1, TEM UM SEM OS QUE BATE". A 12693 (falha de comunicação de 02/09 a 28/10) sai; a
+# normalização sem OS de 02/07 a 28/10 vale só a cabine 1. Ficam à vista no "alinhar"; o certo é o COS corrigir lá
+COS_EXCECOES = {
+    "os:12693": ("fora", None, "Brodowski: a geração não parou (Levi, 29/10/2026)"),
+    "060f2693-003b-4e94-aa36-a26cb4044b61": ("cabine", 1, "Brodowski: só a cabine 1 parou (Levi, 29/10/2026)"),
+}
+
+
+def _um(v):
+    """O 1/0 do banco (que pode vir como texto, "1.0" ou booleano) é sim?"""
+    return str(v).strip().lower() in ("1", "1.0", "true", "sim")
+
+
+def rotulo_cos(tipo):
+    t = _txt(tipo).upper()
+    return COS_ROTULO.get(t) or t.replace("_", " ").lower() or "sem tipo"
+
+
+def veredito_normalizacao(r):
+    """(conta?, motivo de fora). Desligamento conta; falha de comunicação só com a geração parada (a resposta do
+    operador ao normalizar); desfeita e sem hora real ficam fora (o guia da API, seção 8); outro tipo não é parada."""
+    tipo = _txt(r.get("tipo_falha")).upper()
+    if not _um(r.get("normalizada")):
+        return False, EXCL_COS_NAO_CONTA + "normalização desfeita"
+    if not _um(r.get("hora_real")):
+        return False, EXCL_COS_NAO_CONTA + "sem hora real da volta"
+    if "COMUNIC" in tipo:
+        if _um(r.get("geracao_parou")):
+            return True, ""
+        if _txt(r.get("geracao_parou")) in ("", "None", "nan"):
+            # sem a resposta do operador não se sabe: fora da conta e no "alinhar", para o COS responder (na 1ª gravação,
+            # 29/10/2026, 38 das 87 falhas de comunicação da Thopen vieram sem ela)
+            return False, "COS sem resposta: falha de comunicação sem a resposta \"a geração parou?\""
+        return False, EXCL_COS_NAO_CONTA + "falha de comunicação sem a geração parada"
+    if "DESLIG" in tipo or tipo in COS_TIPOS_PARADA:
+        return True, ""
+    return False, EXCL_COS_NAO_CONTA + f"{rotulo_cos(tipo)} não é parada"
+
+
+def excecao_cos(r):
+    """(o que, valor, nota) da exceção do Levi para esta normalização, ou None."""
+    return COS_EXCECOES.get(_txt(r.get("registro"))) or COS_EXCECOES.get("os:" + _txt(r.get("os")))
+
+
+def _folio_cos(r):
+    """O nº da OS (inteiro, como o do Fracttal); sem OS, um negativo estável pelo registro (a saída o mostra vazio)."""
+    os_ = _txt(r.get("os"))
+    if os_.isdigit():
+        return int(os_)
+    return -(int(hashlib.sha1(_txt(r.get("registro")).encode("utf-8")).hexdigest()[:8], 16) or 1)
+
+
+def consolidar_normalizacao(r):
+    """→ dict no formato da OS consolidada (o `calcular` e as saídas não distinguem), com `fonte` "cos", as
+    `protecoes` e os `codigos` dos equipamentos; ou None sem registro ou sem início."""
+    if not _txt(r.get("registro")):
+        return None
+    ini, fim = dt_frac(r.get("inicio")), dt_frac(r.get("normalizado_em"))
+    if ini is None:
+        return None
+    tipo = _txt(r.get("tipo_falha")).upper()
+    codigos = [c for c in (_txt(x).upper() for x in _txt(r.get("equipamentos_codigos")).split(";")) if c]
+    rot = rotulo_cos(tipo)
+    if "COMUNIC" in tipo and _um(r.get("geracao_parou")):
+        rot += " com a geração parada"
+    o = {"folio": _folio_cos(r), "tipos": [rot], "origem": "equipamento" if "INVERSOR" in tipo else "queda",
+         "flags": ["pela normalização do COS"], "excl": None, "code": codigos[0] if codigos else _txt(r.get("usina_codigo")),
+         "item": "", "g1": _txt(r.get("usina_codigo")), "desc": "", "criado_por": "", "responsavel": "",
+         "aberta": False, "aberta_sem_fim": False, "ini": ini, "fim": fim or ini, "criada": None, "alinhar": [],
+         "fonte": "cos", "tipo_cos": tipo, "registro": _txt(r.get("registro")), "codigos": codigos,
+         "protecoes": [p for p in (_txt(x) for x in _txt(r.get("protecoes")).split(";")) if p]}
+    if fim is not None and fim < ini:
+        o["fim"] = ini
+        o["alinhar"].append("volta antes da falha na normalização: conta 0 h")
+    elif fim is not None and (fim - ini).total_seconds() > 24 * 3600:
+        # conta como o COS registrou, mas pede o olho: na 1ª gravação (29/10/2026) uma falha de comunicação da Brodowski
+        # ia de 02/07 a 28/10 com a geração parada, e o mês inteiro saía 0%
+        h = (fim - ini).total_seconds() / 3600
+        o["alinhar"].append(f"normalização de {int(h // 24)} dias" if h >= 48 else f"normalização de {round(h)} h")
+        o["alinhar"][-1] += ": conferir a falha e a volta na Ronda COS"
+    conta, motivo = veredito_normalizacao(r)
+    if not conta:
+        o["excl"] = motivo
+    exc = excecao_cos(r)
+    if exc and exc[0] == "fora":
+        o["excl"] = f"fora pela decisão do Levi: {exc[2]}"         # sem o "COS: ": fica à vista no "alinhar"
+    elif exc and exc[0] == "cabine":
+        o["cabine_levi"] = (exc[1], exc[2])
+    return o
+
+
+def escopo_normalizacao(o, us, usinas, idx):
+    """[(usina, nivel, chave, kwp)] da normalização nas usinas `us` (as da aba Equipamentos do usina_id dela, pelo
+    de-para: uma, ou as duas de um cadastro de site como "Ipixuna 1 e 2"). Desligamento de usina e normalização sem
+    código = as usinas inteiras; com código, a MESMA leitura do `escopo_os` (o código é do ativo do Fracttal, e o site é
+    o da usina): cabine, inversor, o site por cabine das Pharma, a cabine N do site agrupado. Código que não é de
+    geração (o relé, o datalogger) não diz o escopo: vale o tipo, com a potência média, e vai para o "alinhar". None =
+    exclusão (o motivo em o['excl'])."""
+    us = [u for u in us or () if u in usinas]
+    if not us:
+        o["excl"] = f"COS sem de-para: a usina do código '{o['g1']}' não está na aba Equipamentos pelo Nexus"
+        return None
+    com_pot = [u for u in us if usinas[u].pot and usinas[u].pot > 0]
+    if not com_pot:
+        o["excl"] = f"usina '{us[0]}' sem potência no BD"
+        return None
+    inteiras = [(u, "usina", "ufv", usinas[u].pot) for u in com_pot]
+    tipo = o.get("tipo_cos") or ""
+    if o.get("cabine_levi"):
+        n, nota = o["cabine_levi"]
+        U = usinas[com_pot[0]]
+        kwp = U.ugs.get(n) or U.pot_ug_media() or U.pot
+        o["flags"].append(f"escopo pela decisão do Levi: {nota}")
+        o["alinhar"].append(f"escopo pela decisão do Levi: {nota}")
+        return [(com_pot[0], "cabine", f"cab{n}", min(kwp, U.pot))]
+    # o desligamento da usina é a usina inteira, qualquer que seja o equipamento citado (na 1ª gravação, 29/10/2026, o
+    # relé que atuou vinha como equipamento: "BWK100-RELE1")
+    if not o["codigos"] or tipo in COS_TIPOS_USINA:
+        return inteiras
+    out = []
+    for code in o["codigos"]:
+        x = dict(o, code=code, g1=usinas[us[0]].fracttal, item="", desc="", excl=None, flags=[], alinhar=[])
+        esc = escopo_os(x, usinas, idx)
+        esc = [e for e in esc or () if e[0] in us]
+        if esc:
+            out += esc
+            o["flags"] += x["flags"]
+            o["alinhar"] += x["alinhar"]
+        else:
+            o["flags"].append(f"equipamento '{code}' sem escopo de geração: vale o tipo")
+    if not out:
+        U = usinas[com_pot[0]]
+        if "INVERSOR" in tipo and U.pot_inv_media():
+            out = [(com_pot[0], "inversor", "inv?", min(U.pot_inv_media(), U.pot))]
+        elif any(k in tipo for k in ("CABINE", "SKID", "QGBT")) and U.pot_ug_media():
+            out = [(com_pot[0], "cabine", "cab?", min(U.pot_ug_media(), U.pot))]
+        else:
+            out = inteiras
+        o["flags"].append(f"escopo pelo tipo ({rotulo_cos(tipo)}): os códigos não dizem o equipamento de geração")
+        o["alinhar"].append("normalização sem o equipamento de geração: contei pelo tipo, com a potência média")
+    return list(dict.fromkeys(out))
+
+
+def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, vereditos=None, normalizacoes=None,
+             usinas_por_id=None):
     """wos = {folio: [tasks...]} (varredura crua do Fracttal); linhas_equip = aba Equipamentos.
     per_ini/per_fim = janela do mês (fim EXCLUSIVO, já cortado em D-1 pelo chamador). vereditos = {folio: 'parada' |
-    'comunicacao'} das subtarefas das OS de comunicação (o worker lê; 26/10/2026).
+    'comunicacao'} das subtarefas das OS de comunicação (o worker lê; 26/10/2026). `normalizacoes` (29/10/2026): as
+    linhas do `fato_normalizacao` do Nexus; com elas, a Thopen é pelas normalizações do COS e a OS do Fracttal da Thopen
+    sai da conta; `usinas_por_id` = {usina_id do Registro mestre: [nomes da aba Equipamentos]} (o de-para). None = como
+    antes.
     → payload completo: usinas, clientes, diário, OSs, `alinhar`, lacunas. Só o Fracttal: a geração não entra."""
     agora = agora or datetime.now()
     usinas, lacunas = montar_catalogo(linhas_equip, pot_reserva)
@@ -935,6 +1110,8 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     tot_h = 12.0 * n_dias
 
     oss, eventos, os_escopo = [], [], {}
+    cos = ({u for u, U in usinas.items() if norm(U.cliente).startswith(COS_CLIENTE)}
+           if normalizacoes is not None else None)
     for folio, tasks in wos.items():
         o = consolidar_os(folio, tasks, agora, vereditos)
         if o is None:
@@ -960,12 +1137,61 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
                                                               ESCOPO_COS[o["folio"]][1]))
             if not esc:
                 continue
+        if cos is not None and any(e[0] in cos for e in esc):
+            esc = [e for e in esc if e[0] not in cos]
+            if not esc:                                # só Thopen: a conta é a do COS, e a OS sai da lista
+                oss.pop()
+                continue
+            o["flags"].append(f"{EXCL_COS}: a parte da Thopen desta OS não conta")
         os_escopo[o["folio"]] = esc
         a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
         if b <= a:
             continue
         for (u, nivel, chave, kwp) in esc:
             eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": o})
+    # a Thopen pelas normalizações do COS (29/10/2026): uma OS do COS por nº; duas normalizações da mesma OS são dois
+    # eventos dela (a usina caiu duas vezes na mesma OS)
+    por_folio = {}
+    for r in (normalizacoes or []) if cos is not None else []:
+        o = consolidar_normalizacao(r)
+        if o is None:
+            continue
+        try:
+            uid = int(float(str(r.get("usina_id")).strip()))
+        except (TypeError, ValueError):
+            uid = None
+        us = (usinas_por_id or {}).get(uid) or []
+        if us and not any(x in cos for x in us):
+            continue                                   # usina de outro cliente: a régua dela é a do Fracttal
+        us = [x for x in us if x in cos]
+        if not us and norm(r.get("cliente")) != COS_CLIENTE:
+            continue
+        if o["fim"] < per_ini or o["ini"] >= per_fim:
+            continue
+        ja = por_folio.get(o["folio"])
+        if ja is None:
+            por_folio[o["folio"]] = o
+            oss.append(o)
+        else:                                          # a mesma OS: junta as datas, as proteções e os eventos
+            ja["ini"], ja["fim"] = min(ja["ini"], o["ini"]), max(ja["fim"], o["fim"])
+            ja["protecoes"] = list(dict.fromkeys(ja["protecoes"] + o["protecoes"]))
+            if ja["excl"] and not o["excl"]:
+                ja["excl"], ja["tipos"], ja["origem"] = None, o["tipos"], o["origem"]
+        if o["excl"]:
+            continue
+        esc = escopo_normalizacao(o, us, usinas, idx)
+        if not esc:
+            if ja is None:
+                por_folio[o["folio"]]["excl"] = o["excl"]
+            continue
+        os_escopo[o["folio"]] = list(dict.fromkeys(os_escopo.get(o["folio"], []) + esc))
+        a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
+        if b <= a:
+            continue
+        dono = por_folio[o["folio"]]
+        dono.setdefault("_trechos", set()).add((a, b))      # as horas da OS do COS são as dos eventos, não do vão
+        for (u2, nivel, chave, kwp) in esc:
+            eventos.append({"usina": u2, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": dono})
 
     det_os_usina, det_os_dia = defaultdict(float), {}
     h_eq, kwh, det_os = _varrer(eventos, usinas, per_fim, det_os_usina, det_os_dia)
@@ -986,6 +1212,10 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     os_h = {}
     for o in oss:
         if o["excl"]:
+            continue
+        if o.get("_trechos"):                       # a OS do COS com duas normalizações: a soma das duas
+            os_h[o["folio"]] = round(sum(sum(horas_solares_por_dia(a, b, per_fim).values())
+                                         for a, b in sorted(o["_trechos"])), 2)
             continue
         a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
         os_h[o["folio"]] = round(sum(horas_solares_por_dia(a, b, per_fim).values()), 2) if b > a else 0.0
@@ -1058,6 +1288,8 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         "oss": [{**{k: o.get(k) for k in ("folio", "tipos", "origem", "code", "item", "g1",
                                           "desc", "flags", "excl", "aberta", "criado_por",
                                           "responsavel", "dias_aberta")},
+                 # a OS do COS (29/10/2026) diz de onde veio e as proteções; a do Fracttal fica como era
+                 **({"fonte": o["fonte"], "protecoes": o.get("protecoes") or []} if o.get("fonte") else {}),
                  "ini": o["ini"].isoformat() if o.get("ini") else None,
                  "criada": o["criada"].isoformat() if o.get("criada") else None,
                  # a aberta sem data final conta até o fim do período, mas não TERMINOU: sem fim na saída

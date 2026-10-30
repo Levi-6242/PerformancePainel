@@ -604,7 +604,10 @@ def test_colunas_novas_entram_so_no_fim_das_abas():
     # e a parcela de cada OS em cada dia (14/10/2026, o comentário do Dashboard Thopen), por último
     assert pub.CABECALHOS["atualizacao"][len(ANTES["atualizacao"]):] == ["cobertura", "strings_os", "trackers_dia",
                                                                           "disponibilidade_dia", "disponibilidade_os",
-                                                                          "disponibilidade_os_dia"]
+                                                                          "disponibilidade_os_dia",
+                                                                          # a de antes da Thopen (29/10/2026)
+                                                                          "disponibilidade_dia_fracttal",
+                                                                          "disponibilidade_os_dia_fracttal"]
     assert pub.CABECALHOS["cobertura"] == ["mes", "fonte", "cliente", "usina", "plant_id", "dias_strings",
                                            "dias_trackers", "dias_comunicou"]
     assert pub.CABECALHOS["strings_os"] == ["mes", "data_evento", "cliente", "usina", "plant_id", "inversor", "os",
@@ -706,8 +709,9 @@ def test_as_abas_novas_vao_no_xlsx_antes_da_atualizacao():
     import io
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(pub.xlsx_bytes(pub.tabelas([_pac()]))))
-    assert wb.sheetnames[-7:] == ["cobertura", "strings_os", "trackers_dia", "disponibilidade_dia", "disponibilidade_os",
-                                  "disponibilidade_os_dia", "atualizacao"]
+    assert wb.sheetnames[-9:] == ["cobertura", "strings_os", "trackers_dia", "disponibilidade_dia", "disponibilidade_os",
+                                  "disponibilidade_os_dia", "disponibilidade_dia_fracttal",
+                                  "disponibilidade_os_dia_fracttal", "atualizacao"]
     assert [c.value for c in wb["cobertura"][2]] == ["2026-10", "Thopen · API PV", "Thopen", "Brodowski", "297378",
                                                      8, 8, 8]
     assert [c.value for c in wb["strings_os"][3]] == ["2026-10", "2026-10-06", "Thopen", "Guaratinguetá V", "18750000",

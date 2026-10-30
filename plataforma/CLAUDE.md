@@ -1476,6 +1476,30 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   Teste: `tests/test_disp_cascata_relatorio_sem_geracao.py`.
 - **Antes** (`calcular_pelo_bd` + `_disp_dias_bd_thopen`): só as usinas da Thopen, pela "Disponibilidade Usina (%)" do
   BD_Thopen (o leitor do 5080), sem OS e sem queda × equipamento; de-paras em `_DISP_BD_ABAS` (os do Gerencial).
+- **A Thopen pelas normalizações do COS (29/10/2026)**, Levi: "calcule a disponibilidade por lá [Nexus > COS >
+  Normalizações] usando o de-para como referência [...] o que for falha de comunicação tem a coluna Geração Parou, se sim
+  então deve contar na disponibilidade e entrar nos comentários. Nos comentários tem que vir as proteções atuadas";
+  decisões dele: **só a Thopen** e **só o que está nas normalizações** (a parada em andamento entra quando o COS a
+  normaliza). O Nexus grava o fato (`nexus_cos_normalizacoes · fato_normalizacao`, de hora em hora); o worker o lê
+  (`_disp_normalizacoes`, conferido com a contagem da `atualizacao`) e o `disponibilidade.calcular(..., normalizacoes,
+  usinas_por_id)` põe as usinas da Thopen (cliente da aba Equipamentos) pela normalização: **início = a falha, fim = a
+  volta registrada pelo COS**, não o fechamento da OS no Fracttal; a OS do Fracttal só da Thopen sai da lista. Conta:
+  todo `DESLIGAMENTO_*` (usina, cabine, SKID, QGBT, inversor), a `FALHA_COMUNICACAO` com `geracao_parou` = 1 e, pela
+  decisão do mesmo dia, a atuação de proteção, o inversor offline e a falha da concessionária (`COS_TIPOS_PARADA`; a
+  concessionária é a usina inteira); a de comunicação sem resposta vai ao "alinhar" ("COS sem resposta"); desfeita, sem
+  hora real e os outros tipos (falha de string, manutenção programada, ventilador, tracker) ficam fora, "COS: ...".
+  Exceções do Levi pelo registro ou pela OS (`COS_EXCECOES`, à vista no "alinhar"): na Brodowski a OS 12693 sai ("a
+  geração não parou") e a normalização sem OS de 02/07 a 28/10 vale só a cabine 1. A usina: o usina_id do Nexus → as usinas da aba pelo de-para (`depara_fracttal.usinas_por_id`: a chave
+  externa casa com o nome da usina OU com o site do Fracttal dela; o cadastro "Ipixuna 1 e 2" é as duas da aba). O
+  escopo: desligamento de usina = a usina inteira (o relé citado não muda); com código, a MESMA leitura do `escopo_os`;
+  código que não é de geração vale pelo tipo, com a potência média, e vai ao "alinhar"; normalização de mais de 24 h
+  também vai ("conferir a falha e a volta na Ronda COS"). As proteções vão na OS (`protecoes`) e na aba
+  `disponibilidade_os_dia` (`fonte` cos). A conta de antes (só do Fracttal) fica em `meses_fracttal` e nas abas
+  `disponibilidade_dia_fracttal` e `disponibilidade_os_dia_fracttal`, só da Thopen, para o cliente do Dashboard Thopen
+  até o Levi liberar (`thopen/CLAUDE.md`, "Liberação ao cliente"). Sem o livro, com a leitura pela metade ou sem o
+  de-para, a Thopen segue pelo Fracttal e o índice diz por quê (`cos`). Ensaio de 29/10/2026 (outubro até o dia 28, 555
+  normalizações da Thopen, 444 contando): Thopen ponderada 88,85% (Fracttal) → 94,16% (COS); Brodowski 95,49% → 46,75%
+  (a cabine 1 o mês todo), Colorado 2 78,43% → 61,60%. Prova: `tests/test_disp_normalizacoes_cos.py`.
 - **Falta de comunicação NÃO é parada** (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
   disponibilidade"). A OS cuja descrição (ou o ativo) diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`; no
   Fracttal ela vem como "Verificação de comunicação do ...", tipo Religamento ou Corretiva Emergencial) fica fora da

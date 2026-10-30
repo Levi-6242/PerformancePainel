@@ -1,0 +1,198 @@
+# -*- coding: utf-8 -*-
+"""A disponibilidade da Thopen pelas normalizações do COS (Levi, 29/10/2026: "calcule a disponibilidade por lá usando o
+de-para como referência [...] o que for falha de comunicação tem a coluna Geração Parou, se sim então deve contar na
+disponibilidade e entrar nos comentários. Nos comentários tem que vir as proteções atuadas"; decisões dele: só a
+Thopen, conta só o que está nas normalizações). As linhas são as do `fato_normalizacao` que o Nexus grava; dados
+fictícios. O que estes testes seguram: desligamento conta da falha até a volta do COS; comunicação só com a geração
+parada; desfeita, sem hora real e outro tipo ficam fora (e fora do "alinhar"); a OS do Fracttal da Thopen sai da conta
+e a de outro cliente segue; o escopo pelo código do equipamento; a usina pelo de-para; as proteções vão na OS."""
+from datetime import datetime
+
+import pytest
+
+import disponibilidade as dm
+
+PER_INI, PER_FIM, AGORA = datetime(2026, 10, 1), datetime(2026, 11, 1), datetime(2026, 11, 5, 12, 0)
+TOT_H = 12.0 * 31
+EQUIP = [
+    {"cliente": "Thopen", "usina": "Alfa", "usina_fracttal": "Thopen - Alfa - SP", "equipamento": "UFV",
+     "pot_kwp": 1000.0, "n_inv": 2, "full_om": "Sim"},
+    {"cliente": "Thopen", "usina": "Alfa", "usina_fracttal": "Thopen - Alfa - SP", "equipamento": "UG 01",
+     "pot_kwp": 600.0},
+    {"cliente": "Thopen", "usina": "Alfa", "usina_fracttal": "Thopen - Alfa - SP", "equipamento": "UG 02",
+     "pot_kwp": 400.0},
+    {"cliente": "Thopen", "usina": "Alfa", "usina_fracttal": "Thopen - Alfa - SP", "equipamento": "Inversor 1.1",
+     "parente": "UG 01", "pot_kwp": 300.0},
+    # um cadastro de site no Registro ("Beta 1 e 2", um usina_id) e duas usinas na aba, como a Ipixuna 1 e 2
+    {"cliente": "Thopen", "usina": "Beta 1", "usina_fracttal": "Thopen - Beta 1 e 2 - RN", "equipamento": "UFV",
+     "pot_kwp": 500.0, "n_inv": 2, "full_om": "Sim"},
+    {"cliente": "Thopen", "usina": "Beta 2", "usina_fracttal": "Thopen - Beta 1 e 2 - RN", "equipamento": "UFV",
+     "pot_kwp": 500.0, "n_inv": 2, "full_om": "Sim"},
+    {"cliente": "OutraCo", "usina": "Gama", "usina_fracttal": "OutraCo - Gama - RN", "equipamento": "UFV",
+     "pot_kwp": 500.0, "n_inv": 2, "full_om": "Sim"},
+]
+POR_ID = {11: ["Alfa"], 22: ["Gama"], 33: ["Beta 1", "Beta 2"]}
+
+
+def norm(registro, **kw):
+    r = {"registro": registro, "os": "17001", "cliente": "THOPEN", "usina_codigo": "THPN-ALF100", "usina_id": "11",
+         "usina_ligada_por": "código cheio", "equipamentos_codigos": "", "tipo_falha": "DESLIGAMENTO_USINA",
+         "normalizada": "1", "hora_real": "1", "inicio": "2026-10-10T09:00:00-03:00",
+         "normalizado_em": "2026-10-10T15:00:00-03:00", "geracao_parou": "", "protecoes": "27ABC;86"}
+    r.update(kw)
+    return r
+
+
+def task(**kw):
+    base = {"tasks_log_task_type_main": "Religamento", "id_status_work_order": 3, "event_date": None,
+            "date_maintenance": None, "final_date": None, "wo_final_date": None, "creation_date": None,
+            "code": "THPN-ALF100", "items_log_description": "Thopen - Alfa - SP  Endereço",
+            "groups_1_description": "Thopen - Alfa - SP", "description": "Religamento da Usina"}
+    base.update(kw)
+    return base
+
+
+def roda(normalizacoes, wos=None):
+    return dm.calcular(wos or {}, EQUIP, PER_INI, PER_FIM, agora=AGORA, normalizacoes=normalizacoes,
+                       usinas_por_id=POR_ID)
+
+
+def usina(r, nome):
+    return next(u for u in r["usinas"] if u["usina"] == nome)
+
+
+def a_os(r, folio):
+    return next(o for o in r["oss"] if o["folio"] == folio)
+
+
+def test_desligamento_conta_da_falha_ate_a_volta_do_cos_com_as_protecoes():
+    r = roda([norm("r1")])
+    o = a_os(r, 17001)
+    assert o["fonte"] == "cos" and o["excl"] is None and o["protecoes"] == ["27ABC", "86"]
+    assert o["h_solar"] == pytest.approx(6.0) and o["kwh"] == pytest.approx(6000, rel=1e-3)
+    assert usina(r, "Alfa")["disp"] == pytest.approx(100 * (1 - 6.0 / TOT_H), abs=0.01)
+    assert r["diario"]["Alfa"]["2026-10-10"]["os"][0]["trechos"] == "09:00-15:00"
+
+
+@pytest.mark.parametrize("geracao,conta,alinhar", [("1", True, False), ("0", False, False), ("", False, True)])
+def test_comunicacao_so_com_a_geracao_parada(geracao, conta, alinhar):
+    r = roda([norm("r1", tipo_falha="FALHA_COMUNICACAO", geracao_parou=geracao, protecoes="")])
+    o = a_os(r, 17001)
+    assert (o["excl"] is None) == conta
+    assert (usina(r, "Alfa")["disp"] < 100) == conta
+    # sem a resposta do operador: fora da conta e no "alinhar", para o COS responder
+    assert bool(r["alinhar"]) == alinhar
+    if conta:
+        assert o["tipos"] == ["falha de comunicação com a geração parada"]
+
+
+def test_desligamento_de_usina_e_a_usina_inteira_mesmo_com_o_rele_citado():
+    r = roda([norm("r1", equipamentos_codigos="ALF100-RELE1")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(1000 * 6, rel=1e-3)
+
+
+def test_cabine_sem_o_codigo_da_cabine_vai_pela_media_e_para_o_alinhar():
+    r = roda([norm("r1", tipo_falha="DESLIGAMENTO_CABINE", equipamentos_codigos="ALF100-RELE1")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(500 * 6, rel=1e-3)          # a média das cabines (600 e 400)
+    assert "potência média" in r["alinhar"][0]["motivo"]
+
+
+@pytest.mark.parametrize("campo,valor", [("normalizada", "0"), ("hora_real", "0"), ("tipo_falha", "TRACKER_PARADO")])
+def test_desfeita_sem_hora_real_e_outro_tipo_ficam_fora_e_fora_do_alinhar(campo, valor):
+    r = roda([norm("r1", **{campo: valor})])
+    assert a_os(r, 17001)["excl"].startswith("COS: ") and usina(r, "Alfa")["disp"] == 100
+    assert not r["alinhar"]
+
+
+def test_a_os_do_fracttal_da_thopen_sai_e_a_de_outro_cliente_segue():
+    wos = {"500": [task(event_date="2026-10-12T12:00:00+00:00", final_date="2026-10-12T18:00:00+00:00")],
+           "600": [task(code="OUTR-GAM100", items_log_description="OutraCo - Gama - RN  End",
+                        groups_1_description="OutraCo - Gama - RN", event_date="2026-10-12T12:00:00+00:00",
+                        final_date="2026-10-12T15:00:00+00:00")]}
+    r = roda([], wos)
+    assert 500 not in {o["folio"] for o in r["oss"]} and usina(r, "Alfa")["disp"] == 100
+    assert a_os(r, 600)["kwh"] > 0 and usina(r, "Gama")["disp"] < 100
+    # sem as normalizações (None), a régua de antes: a OS do Fracttal da Thopen conta
+    antes = dm.calcular(wos, EQUIP, PER_INI, PER_FIM, agora=AGORA)
+    assert usina(antes, "Alfa")["disp"] < 100
+
+
+def test_escopo_pelo_codigo_do_equipamento():
+    r = roda([norm("r1", tipo_falha="DESLIGAMENTO_CABINE", equipamentos_codigos="THPN-ALF100-CABN2")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(400 * 6, rel=1e-3)          # a cabine 2 (400 kWp), 6 h
+    r = roda([norm("r1", tipo_falha="DESLIGAMENTO_INVERSOR", equipamentos_codigos="THPN-ALF100-INVR1.1")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(300 * 6, rel=1e-3)
+
+
+def test_usina_sem_de_para_vai_para_o_alinhar_e_de_outro_cliente_fica_fora():
+    r = roda([norm("r1", usina_id="")])
+    assert a_os(r, 17001)["excl"].startswith("COS sem de-para") and r["alinhar"][0]["folio"] == 17001
+    r = roda([norm("r1", usina_id="22", cliente="OUTRACO")])
+    assert 17001 not in {o["folio"] for o in r["oss"]} and usina(r, "Gama")["disp"] == 100
+
+
+def test_duas_normalizacoes_da_mesma_os_sao_dois_eventos_dela():
+    r = roda([norm("r1"), norm("r2", inicio="2026-10-11T09:00:00-03:00", normalizado_em="2026-10-11T10:00:00-03:00",
+                               protecoes="59C")])
+    assert len([o for o in r["oss"] if o["folio"] == 17001]) == 1
+    o = a_os(r, 17001)
+    assert o["h_solar"] == pytest.approx(7.0) and o["protecoes"] == ["27ABC", "86", "59C"]
+
+
+def test_normalizacao_sem_os_tem_numero_negativo_estavel():
+    r = roda([norm("r-sem-os", os="")])
+    o = next(x for x in r["oss"] if x["fonte"] == "cos")
+    assert o["folio"] < 0 and o["folio"] == dm._folio_cos({"registro": "r-sem-os", "os": ""})
+
+
+def test_fora_do_mes_nao_entra():
+    r = roda([norm("r1", inicio="2026-09-10T09:00:00-03:00", normalizado_em="2026-09-10T15:00:00-03:00")])
+    assert not [o for o in r["oss"] if o.get("fonte") == "cos"]
+
+
+def test_cadastro_de_site_desliga_as_duas_e_a_cabine_n_e_a_usina_n():
+    r = roda([norm("r1", usina_id="33", usina_codigo="THPN-BET100")])
+    assert usina(r, "Beta 1")["h_perdidas"] == usina(r, "Beta 2")["h_perdidas"] == pytest.approx(6.0)
+    r = roda([norm("r1", usina_id="33", usina_codigo="THPN-BET100", tipo_falha="DESLIGAMENTO_CABINE",
+                   equipamentos_codigos="THPN-BET100-CABN2")])
+    assert usina(r, "Beta 1")["disp"] == 100 and usina(r, "Beta 2")["h_perdidas"] == pytest.approx(6.0)
+
+
+def test_normalizacao_longa_conta_e_vai_para_o_alinhar():
+    r = roda([norm("r1", inicio="2026-10-01T06:00:00-03:00", normalizado_em="2026-10-04T18:00:00-03:00")])
+    assert a_os(r, 17001)["excl"] is None and usina(r, "Alfa")["h_perdidas"] == pytest.approx(48.0)
+    assert "normalização de 3 dias" in r["alinhar"][0]["motivo"]
+
+
+def test_de_para_pelo_site_do_fracttal_e_pelo_nome():
+    from depara_fracttal import usinas_por_id
+    reg = [{"usina_id": 33, "nome": "Beta 1 e 2", "excluido": ""}, {"usina_id": 11, "nome": "Alfa 1", "excluido": ""}]
+    dp = [{"usina_id": 33, "sistema": "Fracttal", "chave_externa": "Thopen - Beta 1 e 2 - RN"},
+          {"usina_id": 11, "sistema": "BD_Performance", "chave_externa": "Alfa"}]
+    assert usinas_por_id(reg, dp, EQUIP) == {33: ["Beta 1", "Beta 2"], 11: ["Alfa"]}
+
+
+@pytest.mark.parametrize("tipo,codigos,kwh", [("ATUACAO_PROTECAO", "", 6000), ("FALHA_CONCESSIONARIA", "ALF100-RELE1", 6000),
+                                              ("INVERSOR_OFFLINE", "THPN-ALF100-INVR1.1", 1800)])
+def test_atuacao_de_protecao_inversor_offline_e_concessionaria_contam(tipo, codigos, kwh):
+    # Levi, 29/10/2026: os três tipos também contam (a concessionária é a usina inteira)
+    r = roda([norm("r1", tipo_falha=tipo, equipamentos_codigos=codigos)])
+    assert a_os(r, 17001)["excl"] is None and a_os(r, 17001)["kwh"] == pytest.approx(kwh, rel=1e-3)
+
+
+def test_excecoes_do_levi_na_brodowski(monkeypatch):
+    monkeypatch.setattr(dm, "COS_EXCECOES", {"os:12693": ("fora", None, "a geração não parou"),
+                                             "r-cab": ("cabine", 1, "só a cabine 1 parou")})
+    r = roda([norm("r1", os="12693", tipo_falha="FALHA_COMUNICACAO", geracao_parou="1")])
+    o = a_os(r, 12693)
+    assert o["excl"].startswith("fora pela decisão do Levi") and usina(r, "Alfa")["disp"] == 100
+    assert r["alinhar"][0]["folio"] == 12693
+    r = roda([norm("r-cab", os="", tipo_falha="FALHA_COMUNICACAO", geracao_parou="1", equipamentos_codigos="ALF100-RELE1")])
+    o = next(x for x in r["oss"] if x.get("fonte") == "cos")
+    assert o["kwh"] == pytest.approx(600 * 6, rel=1e-3)                        # a cabine 1 (600 kWp), 6 h
+    assert "só a cabine 1" in r["alinhar"][0]["motivo"]
+
+
+def test_a_excecao_da_brodowski_esta_no_codigo():
+    assert dm.COS_EXCECOES["os:12693"][0] == "fora"
+    assert dm.COS_EXCECOES["060f2693-003b-4e94-aa36-a26cb4044b61"][:2] == ("cabine", 1)
