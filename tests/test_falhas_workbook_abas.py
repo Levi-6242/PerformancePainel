@@ -24,9 +24,7 @@ import falhas_publicar as pub
 # as OS da disponibilidade entraram em 12/10/2026 (a janela de Disponibilidade da Visão do responsável do Nexus), e a
 # parcela de cada OS em cada dia em 14/10/2026 (o comentário do Dashboard Thopen)
 ABAS = ["strings_inversor_dia", "strings_episodios", "trackers_episodios", "cobertura", "strings_os", "trackers_dia",
-        "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia",
-        # a de antes, só do Fracttal e só a Thopen, para o cliente do Dashboard Thopen até a liberação (29/10/2026)
-        "disponibilidade_dia_fracttal", "disponibilidade_os_dia_fracttal", "atualizacao"]
+        "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia", "atualizacao"]
 NOVAS = ("cobertura", "strings_os", "trackers_dia", "disponibilidade_dia")
 
 

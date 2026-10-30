@@ -27,7 +27,7 @@ COOLDOWN = 60                                                 # s sem tentar de 
 CACHE = os.environ.get("THOPEN_OPERACAO_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cache_operacao.json.gz")
 SISTEMA_5080 = "BD_Thopen · Dados Gerais Usinas"
-VERSAO_CACHE = 10       # 29/10/2026: a Thopen pelas normalizações do COS (fonte e proteções; as abas de antes)
+VERSAO_CACHE = 11       # 30/10/2026: só as normalizações do COS para a Thopen (as abas de antes saíram)
 # (workbook, aba) → (chave em `dados`, campos que ficam)
 ABAS = {
     ("falhas_performance", "strings_episodios"): ("strings_episodios",
@@ -64,20 +64,12 @@ ABAS = {
                                                         "inicio", "fim", "aberta", "trechos", "h_perdidas", "fonte",
                                                         "protecoes")),
     # A Thopen pelas normalizações do COS (29/10/2026, Levi: "calcule a disponibilidade por lá [...] Nos comentários tem
-    # que vir as proteções atuadas"): as duas abas de cima levam a conta nova (`fonte` cos, com as proteções); estas, a
-    # de antes, só do Fracttal e só da Thopen, para o cliente até o Levi liberar (dashboard_thopen._op_dados)
-    ("falhas_performance", "disponibilidade_dia_fracttal"): ("disponibilidade_dia_fracttal",
-                                                             ("mes", "dia", "usina", "usina_fracttal", "pot_kwp", "disp",
-                                                              "h_perdidas")),
-    ("falhas_performance", "disponibilidade_os_dia_fracttal"): ("disponibilidade_os_dia_fracttal",
-                                                                ("mes", "dia", "usina", "usina_fracttal", "os", "tipo",
-                                                                 "escopo", "kwp", "inicio", "fim", "aberta", "trechos",
-                                                                 "h_perdidas", "fonte", "protecoes")),
+    # que vir as proteções atuadas"; 30/10: "garanta que a única fonte seja a de normalizações"): a aba de cima leva a
+    # OS do COS (`fonte` cos, com as proteções); as abas da conta de antes, para o cliente, saíram com a liberação
     ("falhas_performance", "atualizacao"): ("atualizacao",
                                             ("mes", "periodo_fim", "atualizado_em", "strings_episodios",
                                              "trackers_episodios", "cobertura", "strings_os", "trackers_dia",
-                                             "disponibilidade_dia", "disponibilidade_os_dia",
-                                             "disponibilidade_dia_fracttal", "disponibilidade_os_dia_fracttal")),
+                                             "disponibilidade_dia", "disponibilidade_os_dia")),
     # rondas: o livro do App, regravado de hora em hora (Levi, 09/10: "tem que ser dinâmico"). Substituiu o
     # campo_nexus · rondas (parado em 02/10) e a carga única das rondas sem OS (06/10) — ver rondas_cliente
     ("rondas_app_campo", "OS de ronda"): ("rondas_com_os", rondas_cliente.CAMPOS_APP),

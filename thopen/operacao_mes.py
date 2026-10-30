@@ -363,30 +363,6 @@ def _usina_inteira(o):
     return not esc or esc == ["Usina inteira"]
 
 
-def disp_de_antes(dados):
-    """Os `dados` com a disponibilidade de antes (só do Fracttal) no lugar da nova nas usinas da Thopen: a do cliente
-    até o Levi liberar a conta pelas normalizações do COS (29/10/2026; "o usuário thopen que é o do cliente só vê se eu
-    liberar"). As abas `_fracttal` só existem enquanto a plataforma calcula as duas; usina × mês que não está nelas fica
-    com a de sempre (a régua dela não mudou). Sem as abas, os `dados` como vieram."""
-    fr_dia = (dados or {}).get("disponibilidade_dia_fracttal") or []
-    if not fr_dia:
-        return dados
-    chave = (id(dados), len(fr_dia))
-    if _ANTES.get("chave") == chave:
-        return _ANTES["dados"]
-    trocadas = {(str(r.get("mes")), str(r.get("usina"))) for r in fr_dia}
-    fora = lambda r: (str(r.get("mes")), str(r.get("usina"))) not in trocadas      # noqa: E731
-    out = dict(dados,
-               disponibilidade_dia=[r for r in dados.get("disponibilidade_dia") or [] if fora(r)] + list(fr_dia),
-               disponibilidade_os_dia=[r for r in dados.get("disponibilidade_os_dia") or [] if fora(r)]
-               + list(dados.get("disponibilidade_os_dia_fracttal") or []))
-    _ANTES.update(chave=chave, dados=out)
-    return out
-
-
-_ANTES = {}
-
-
 def _frase_cos(o, alvo, quando):
     """A OS do COS (29/10/2026): o que a Ronda COS registrou, com as proteções que atuaram (Levi: "Nos comentários tem
     que vir as proteções atuadas"; a frase do Trip é a de 23/10/2026). Ex.: "Desligamento Usina Trip 27ABC/86 de 10/10
@@ -603,9 +579,7 @@ def contar(dados, nome, ano, mes):
 
 # Abas conferidas contra a contagem da `atualizacao` (a coluna da contagem tem o nome da aba).
 ABAS_CONFERIDAS = ("strings_episodios", "trackers_episodios", "cobertura", "strings_os", "trackers_dia",
-                   "disponibilidade_dia", "disponibilidade_os_dia",
-                   # as de antes, para o cliente até a liberação da conta pelo COS (29/10/2026)
-                   "disponibilidade_dia_fracttal", "disponibilidade_os_dia_fracttal")
+                   "disponibilidade_dia", "disponibilidade_os_dia")
 
 
 def conferir(dados):

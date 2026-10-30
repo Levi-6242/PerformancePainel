@@ -1056,10 +1056,6 @@ def _e_grid():
 # Performance) vê assim que o servidor anda; a conta de cliente só quando o Levi liberar (trocar para True e subir).
 LIBERADO_AO_CLIENTE = {
     "zeladoria": False,   # a aba Zeladoria (26/10/2026); 27/10: "zeladoria pode tirar da visualização do cliente"
-    # a disponibilidade e os comentários da Thopen pelas normalizações do COS (29/10/2026): liberada em 30/10/2026 (Levi,
-    # depois da conferência com as barras do Diário: "o que fizer manda para frente"). False = o cliente volta à de
-    # antes, só do Fracttal (as abas `_fracttal`, que a plataforma ainda publica), pelo `_op_dados`
-    "disponibilidade_cos": True,
 }
 
 
@@ -1068,10 +1064,9 @@ def _liberado(chave):
 
 
 def _op_dados():
-    """A operação do mês como esta conta a vê: a disponibilidade pelas normalizações do COS só para quem a tem liberada
-    (o papel grid, desde 29/10/2026); o cliente, com a de antes (operacao_mes.disp_de_antes)."""
-    d = fonte_operacao.dados()
-    return d if not d or _liberado("disponibilidade_cos") else operacao_mes.disp_de_antes(d)
+    """A operação do mês (a disponibilidade da Thopen pelas normalizações do COS desde 29/10/2026, a mesma para todas as
+    contas desde a liberação de 30/10/2026: a conta de antes, só do Fracttal, saiu)."""
+    return fonte_operacao.dados()
 
 
 _POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina=

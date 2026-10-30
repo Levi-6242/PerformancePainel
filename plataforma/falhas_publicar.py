@@ -88,16 +88,12 @@ CABECALHOS = {
     # que a geração desmentia também não tinha). O 5080 escreve o comentário do dia só com estas linhas
     "disponibilidade_os_dia": ["mes", "dia", "usina", "usina_fracttal", "os", "tipo", "origem", "escopo", "kwp",
                                "inicio", "fim", "aberta", "trechos", "h_perdidas", "fonte", "protecoes"],
-    # A Thopen pelas normalizações do COS (29/10/2026): as duas abas acima levam a conta nova (`fonte` = cos na OS da
-    # Ronda COS, com as `protecoes` que atuaram, separadas por "; "); estas duas, a de antes (só do Fracttal) e só da
-    # Thopen, para o cliente do Dashboard Thopen até o Levi liberar. Mesmas colunas
-    "disponibilidade_dia_fracttal": ["mes", "dia", "cliente", "usina", "usina_fracttal", "pot_kwp", "disp", "h_perdidas"],
-    "disponibilidade_os_dia_fracttal": ["mes", "dia", "usina", "usina_fracttal", "os", "tipo", "origem", "escopo", "kwp",
-                                        "inicio", "fim", "aberta", "trechos", "h_perdidas", "fonte", "protecoes"],
+    # A Thopen pelas normalizações do COS (29/10/2026): as duas abas acima levam a conta delas (`fonte` = cos na OS da
+    # Ronda COS, com as `protecoes` que atuaram, separadas por "; "). As abas da conta de antes, só para o cliente, foram
+    # publicadas de 29 a 30/10/2026 e saíram com a liberação (ficam no banco, aposentadas)
     "atualizacao": ["mes", "periodo_inicio", "periodo_fim", "atualizado_em", "strings_inversor_dia", "strings_episodios",
                     "trackers_episodios", "regua_strings", "regua_trackers", "cobertura", "strings_os", "trackers_dia",
-                    "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia",
-                    "disponibilidade_dia_fracttal", "disponibilidade_os_dia_fracttal"],
+                    "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia"],
 }
 
 
@@ -190,12 +186,6 @@ def tabelas(pacotes):
         dod = _disp_os_dia_linhas(p.get("disponibilidade"))
         for r in dod:
             out["disponibilidade_os_dia"].append([_v(x) for x in (mes,) + r])
-        dsp_fr = _disp_linhas(p.get("disponibilidade_fracttal"))
-        for r in dsp_fr:
-            out["disponibilidade_dia_fracttal"].append([_v(x) for x in (mes,) + r])
-        dod_fr = _disp_os_dia_linhas(p.get("disponibilidade_fracttal"))
-        for r in dod_fr:
-            out["disponibilidade_os_dia_fracttal"].append([_v(x) for x in (mes,) + r])
         per = p.get("periodo") or [None, None]
         reg = p.get("regua") or {}
         # a contagem de cada aba é o que o 5080 confere na leitura: o sync troca linhas no lugar e, lida no meio dele,
@@ -212,10 +202,7 @@ def tabelas(pacotes):
             len(dos) if (p.get("disponibilidade") or {}).get("oss") is not None else None,
             # índice de antes de 14/10/2026 (sem a parcela de cada OS no dia) conta VAZIO, não 0: o 5080 sabe que não
             # foi publicada, e não que nenhuma OS tirou nada
-            len(dod) if _tem_os_do_dia(p.get("disponibilidade")) else None,
-            # a de antes, para o cliente (29/10/2026): VAZIO quando o índice não a tem (a Thopen já está pelo Fracttal)
-            _n("disponibilidade_fracttal", dsp_fr),
-            len(dod_fr) if _tem_os_do_dia(p.get("disponibilidade_fracttal")) else None)])
+            len(dod) if _tem_os_do_dia(p.get("disponibilidade")) else None)])
     return out
 
 
@@ -308,7 +295,8 @@ def _disp_os_dia_linhas(d):
                 num = None if isinstance(fol, (int, float)) and fol < 0 else _pid(fol)
                 out.append((str(dia)[:10], u, fr.get(u), num, "; ".join(o.get("tipos") or []) or None,
                             o.get("origem"), "; ".join(e.get("rotulo") for e in esc if e.get("rotulo")) or None,
-                            round(kwp, 1) or None, o.get("ini"), o.get("fim"), bool(o.get("aberta")),
+                            round(kwp, 1) or None, o.get("ini"), (o.get("fim_por_usina") or {}).get(u) or o.get("fim"),
+                            bool(o.get("aberta")),
                             x.get("trechos"), x.get("h"), o.get("fonte") or "fracttal",
                             "; ".join(o.get("protecoes") or []) or None))
     out.sort(key=lambda r: (r[0], str(r[1]), str(r[11] or "")))

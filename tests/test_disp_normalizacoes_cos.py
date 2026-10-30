@@ -205,9 +205,47 @@ def test_a_os_16498_na_normalizacao_so_vale_a_ap2(monkeypatch):
     assert usina(r, "Beta 1")["disp"] == 100 and usina(r, "Beta 2")["h_perdidas"] == pytest.approx(6.0)
 
 
-def test_as_os_em_conferencia_pela_geracao_ficam_fora_e_no_alinhar():
-    # 30/10/2026: a conferência com as barras do Diário; a Pharma IV (OS 14838) é uma delas
-    assert dm.COS_EXCECOES["os:14838"][0] == "fora" and dm.EM_CONFERENCIA in dm.COS_EXCECOES["os:14838"][2]
-    assert "os:16498" not in dm.COS_EXCECOES
+def test_as_respostas_do_levi_na_conferencia_com_as_barras():
+    # 30/10/2026, a planilha respondida: "Não desligou" = fora; "VOLTOU" = a volta; "DESLIGOU DE ... AS" = o trecho;
+    # "OK" = conta como o COS marcou (não está nas exceções)
+    ex = dm.COS_EXCECOES
+    assert ex["os:14838"][0] == "fora" and ex["os:17447"][0] == "fora"
+    assert ex["os:16063"] == ("volta", {"*": datetime(2026, 10, 11, 11, 0)}, ex["os:16063"][2])
+    assert ex["os:15335"][1] == {"Ipixuna 1": datetime(2026, 10, 4, 9, 40), "Ipixuna 2": datetime(2026, 10, 4, 11, 0)}
+    assert ex["os:16086"][1] == (datetime(2026, 10, 11, 13, 25), datetime(2026, 10, 11, 14, 55))
+    assert not {"os:16374", "os:15364", "os:15322", "os:15376", "os:16321", "os:16219", "os:16186", "os:16007"} & set(ex)
     r = roda([norm("r1", os="14838")])
     assert a_os(r, 14838)["excl"].startswith("fora pela decisão do Levi") and usina(r, "Alfa")["disp"] == 100
+
+
+def test_volta_e_trecho_corrigidos_pelo_levi(monkeypatch):
+    monkeypatch.setattr(dm, "COS_EXCECOES", {
+        "os:17001": ("volta", {"*": datetime(2026, 10, 10, 11, 0)}, "voltou 11:00"),
+        "os:17002": ("periodo", (datetime(2026, 10, 12, 10, 0), datetime(2026, 10, 12, 10, 30)), "caiu 10:00 a 10:30"),
+        "os:17003": ("volta", {"Beta 1": datetime(2026, 10, 14, 9, 0), "Beta 2": datetime(2026, 10, 14, 11, 0)}, "duas")})
+    r = roda([norm("r1"),
+              norm("r2", os="17002", inicio="2026-10-12T00:00:00-03:00", normalizado_em="2026-10-12T18:00:00-03:00"),
+              norm("r3", os="17003", usina_id="33", usina_codigo="THPN-BET100", inicio="2026-10-14T06:00:00-03:00",
+                   normalizado_em="2026-10-14T18:00:00-03:00")])
+    assert a_os(r, 17001)["h_solar"] == pytest.approx(2.0)                       # 09:00 a 11:00
+    assert a_os(r, 17002)["h_solar"] == pytest.approx(0.5)                       # 10:00 a 10:30
+    assert usina(r, "Beta 1")["h_perdidas"] == pytest.approx(3.0) and usina(r, "Beta 2")["h_perdidas"] == pytest.approx(5.0)
+    assert a_os(r, 17003)["fim_por_usina"] == {"Beta 1": "2026-10-14T09:00:00", "Beta 2": "2026-10-14T11:00:00"}
+    assert any("hora pela decisão do Levi" in a["motivo"] for a in r["alinhar"])
+
+
+def test_sem_as_normalizacoes_o_worker_nao_publica_e_a_thopen_nao_cai_no_fracttal(monkeypatch, tmp_path):
+    # 30/10/2026, Levi: "garanta que a única fonte seja a de normalizações + adaptações sem puxar OS de fractall"
+    import app
+    avisos = []
+    monkeypatch.setattr(app, "FRACTTAL_ON", True)
+    monkeypatch.setattr(app, "_FRAC_DISP_FILE", str(tmp_path / "frac_disp_index.json"))
+    monkeypatch.setattr(app, "_frac_disp_sweep", lambda limite, resumo=None: {"1": [{"code": "X"}]})
+    monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
+    monkeypatch.setattr(app, "_disp_pot_reserva", lambda equip: {})
+    monkeypatch.setattr(app, "_frac_com_vereditos", lambda wos: {})
+    monkeypatch.setattr(app, "_disp_normalizacoes", lambda equip: (None, {}, "o livro ainda não está no banco"))
+    monkeypatch.setattr(app, "_frac_disp_registrar", lambda ok, msg, resumo=None: avisos.append((ok, msg)))
+    app._frac_disp_recalcular()
+    assert avisos and avisos[0][0] is False and "normalizações do COS indisponíveis" in avisos[0][1]
+    assert not (tmp_path / "frac_disp_index.json").exists()

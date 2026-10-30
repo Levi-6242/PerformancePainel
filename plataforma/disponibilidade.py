@@ -955,43 +955,41 @@ COS_TIPOS_USINA = ("DESLIGAMENTO_USINA", "FALHA_CONCESSIONARIA")
 # normalização sem OS de 02/07 a 28/10 vale só a cabine 1. Ficam à vista no "alinhar"; o certo é o COS corrigir lá
 # 30/10/2026 (Levi: "se o COS marcou como desligamento então tudo ok, você pode checar com o gráfico de barras do
 # dashboard thopen para bater e me retornar o que não faz sentido, mas o que fizer manda para frente!"): cada OS do COS de
-# outubro contra a geração do dia (a esperada pela irradiação dos dias limpos da usina; a parada pesada pela energia do
-# horário). Estas, com 20% ou mais da energia de um dia na conta do COS e menos de 30% disso na barra, ficam FORA até o
-# Levi conferir; as que batem em parte seguem contando. A conta não lê geração (15/10/2026): isto é a decisão dele sobre a
-# conferência daquele dia, escrita aqui, e não um juiz automático
-EM_CONFERENCIA = "em conferência (30/10/2026): a geração do dia não mostra a parada — "
+# outubro contra a geração do dia; as 31 em que a barra não caiu foram ao Levi, e ele respondeu uma a uma na planilha
+# (30/10/2026, "RESPONDI TUDO"): "Não desligou" = fora; "VOLTOU hh:mm" = a volta certa; "DESLIGOU DE ... AS ..." = o
+# trecho certo; "OK" = conta como o COS marcou (essas não estão aqui). A conta não lê geração (15/10/2026): isto é a
+# decisão dele, escrita aqui, à vista no "alinhar"; o certo é o COS corrigir na Ronda COS (o arquivo que foi para eles)
+CONFERENCIA = "conferência do Levi com as barras do Diário (30/10/2026)"
+_d = lambda dia, h, m=0: datetime(2026, 10, dia, h, m)          # noqa: E731
 COS_EXCECOES = {
     "os:12693": ("fora", None, "Brodowski: a geração não parou (Levi, 29/10/2026)"),
     "060f2693-003b-4e94-aa36-a26cb4044b61": ("cabine", 1, "Brodowski: só a cabine 1 parou (Levi, 29/10/2026)"),
-    "os:14838": ("fora", None, EM_CONFERENCIA + "Pharma IV"),
-    "os:14863": ("fora", None, EM_CONFERENCIA + "Cipó Guaçu"),
-    "os:14913": ("fora", None, EM_CONFERENCIA + "Mandaguaçu"),
-    "os:15216": ("fora", None, EM_CONFERENCIA + "Mandaguaçu"),
-    "os:15316": ("fora", None, EM_CONFERENCIA + "Fazenda Limão"),
-    "os:15318": ("fora", None, EM_CONFERENCIA + "Senador"),
-    "os:15322": ("fora", None, EM_CONFERENCIA + "Matão 1"),
-    "os:15335": ("fora", None, EM_CONFERENCIA + "Ipixuna 1, Ipixuna 2"),
-    "os:15364": ("fora", None, EM_CONFERENCIA + "Indaiatuba"),
-    "os:15367": ("fora", None, EM_CONFERENCIA + "Fernandópolis"),
-    "os:15376": ("fora", None, EM_CONFERENCIA + "Matão 1"),
-    "os:15483": ("fora", None, EM_CONFERENCIA + "Canarana 1"),
-    "os:15485": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
-    "os:15802": ("fora", None, EM_CONFERENCIA + "Vargem Grande 1"),
-    "os:15866": ("fora", None, EM_CONFERENCIA + "Junco"),
-    "os:15923": ("fora", None, EM_CONFERENCIA + "Coração 1"),
-    "os:16007": ("fora", None, EM_CONFERENCIA + "Sorocaba"),
-    "os:16021": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
-    "os:16063": ("fora", None, EM_CONFERENCIA + "Mandaguaçu"),
-    "os:16086": ("fora", None, EM_CONFERENCIA + "Junco"),
-    "os:16101": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
-    "os:16174": ("fora", None, EM_CONFERENCIA + "Ipixuna 1"),
-    "os:16186": ("fora", None, EM_CONFERENCIA + "Sarandi"),
-    "os:16219": ("fora", None, EM_CONFERENCIA + "Santo Anastacio"),
-    "os:16321": ("fora", None, EM_CONFERENCIA + "Matão 2"),
-    "os:16374": ("fora", None, EM_CONFERENCIA + "Canarana 1"),
-    "os:17447": ("fora", None, EM_CONFERENCIA + "Boa Esperança do Sul 2"),
-    "os:17863": ("fora", None, EM_CONFERENCIA + "Matão 2"),
-    "os:17865": ("fora", None, EM_CONFERENCIA + "Nova Londrina"),
+    # "Não desligou"
+    "os:14838": ("fora", None, f"Pharma IV não desligou — {CONFERENCIA}"),
+    "os:14913": ("fora", None, f"Mandaguaçu não desligou — {CONFERENCIA}"),
+    "os:15316": ("fora", None, f"Fazenda Limão não desligou — {CONFERENCIA}"),
+    "os:15367": ("fora", None, f"Fernandópolis não desligou — {CONFERENCIA}"),
+    "os:15866": ("fora", None, f"Junco não desligou — {CONFERENCIA}"),
+    "os:15923": ("fora", None, f"Coração 1 não desligou — {CONFERENCIA}"),
+    "os:17447": ("fora", None, f"Boa Esperança do Sul 2 não desligou — {CONFERENCIA}"),
+    "os:17863": ("fora", None, f"Matão 2 não desligou — {CONFERENCIA}"),
+    "os:17865": ("fora", None, f"Nova Londrina não desligou — {CONFERENCIA}"),
+    # a volta certa ({usina da aba Equipamentos ou "*": a hora}); a Ipixuna 1 e a 2 voltaram em horas diferentes
+    "os:14863": ("volta", {"*": datetime(2026, 9, 29, 12, 5)}, f"Cipó Guaçu voltou 12:05 de 29/09 — {CONFERENCIA}"),
+    "os:15216": ("volta", {"*": _d(2, 12, 45)}, f"Mandaguaçu voltou 12:45 — {CONFERENCIA}"),
+    "os:15318": ("volta", {"*": _d(3, 9, 30)}, f"Senador voltou 09:30 — {CONFERENCIA}"),
+    "os:15335": ("volta", {"Ipixuna 1": _d(4, 9, 40), "Ipixuna 2": _d(4, 11)},
+                 f"Ipixuna 1 voltou 09:40 e Ipixuna 2 11:00 — {CONFERENCIA}"),
+    "os:15485": ("volta", {"*": _d(6, 8, 30)}, f"Santo Anastácio voltou 08:30 de 06/10 — {CONFERENCIA}"),
+    "os:15802": ("volta", {"*": _d(8, 10, 35)}, f"Vargem Grande 1 voltou 10:35 — {CONFERENCIA}"),
+    "os:16021": ("volta", {"*": _d(10, 8, 45)}, f"Santo Anastácio voltou 08:45 — {CONFERENCIA}"),
+    "os:16063": ("volta", {"*": _d(11, 11)}, f"Mandaguaçu voltou 11:00 — {CONFERENCIA}"),
+    "os:16101": ("volta", {"*": _d(12, 9)}, f"Santo Anastácio voltou 09:00 de 12/10 — {CONFERENCIA}"),
+    "os:16174": ("volta", {"*": _d(13, 13, 45)}, f"Ipixuna 1 (inversor 1.4) voltou 13:45 de 13/10 — {CONFERENCIA}"),
+    # o trecho certo
+    "os:15483": ("periodo", (_d(6, 10, 55), _d(6, 11, 10)),
+                 f"Canarana 1: não desligou; caiu de 10:55 a 11:10 de 06/10 — {CONFERENCIA}"),
+    "os:16086": ("periodo", (_d(11, 13, 25), _d(11, 14, 55)), f"Junco desligou de 13:25 a 14:55 — {CONFERENCIA}"),
 }
 
 
@@ -1058,6 +1056,16 @@ def consolidar_normalizacao(r):
          "aberta": False, "aberta_sem_fim": False, "ini": ini, "fim": fim or ini, "criada": None, "alinhar": [],
          "fonte": "cos", "tipo_cos": tipo, "registro": _txt(r.get("registro")), "codigos": codigos,
          "protecoes": [p for p in (_txt(x) for x in _txt(r.get("protecoes")).split(";")) if p]}
+    exc = excecao_cos(r)
+    if exc and exc[0] == "periodo":                     # o trecho certo, pela conferência do Levi
+        ini, fim = exc[1]
+        o["ini"], o["fim"] = ini, fim
+        o["alinhar"].append(f"hora pela decisão do Levi: {exc[2]}")
+    elif exc and exc[0] == "volta":                     # a volta certa (uma por usina, quando o cadastro é de duas)
+        o["volta_levi"] = dict(exc[1])
+        fim = max(exc[1].values())
+        o["fim"] = fim
+        o["alinhar"].append(f"hora pela decisão do Levi: {exc[2]}")
     if fim is not None and fim < ini:
         o["fim"] = ini
         o["alinhar"].append("volta antes da falha na normalização: conta 0 h")
@@ -1070,7 +1078,6 @@ def consolidar_normalizacao(r):
     conta, motivo = veredito_normalizacao(r)
     if not conta:
         o["excl"] = motivo
-    exc = excecao_cos(r)
     if exc and exc[0] == "fora":
         o["excl"] = f"fora pela decisão do Levi: {exc[2]}"         # sem o "COS: ": fica à vista no "alinhar"
     elif exc and exc[0] == "cabine":
@@ -1231,9 +1238,15 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         if b <= a:
             continue
         dono = por_folio[o["folio"]]
-        dono.setdefault("_trechos", set()).add((a, b))      # as horas da OS do COS são as dos eventos, não do vão
+        volta = o.get("volta_levi") or {}
         for (u2, nivel, chave, kwp) in esc:
-            eventos.append({"usina": u2, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": dono})
+            b2 = min(volta.get(u2) or volta.get("*") or o["fim"], per_fim)
+            if b2 <= a:
+                continue
+            dono.setdefault("_trechos", set()).add((a, b2))  # as horas da OS do COS são as dos eventos, não do vão
+            eventos.append({"usina": u2, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b2, "o": dono})
+            if volta.get(u2):
+                dono.setdefault("fim_por_usina", {})[u2] = volta[u2].isoformat()
 
     det_os_usina, det_os_dia = defaultdict(float), {}
     h_eq, kwh, det_os = _varrer(eventos, usinas, per_fim, det_os_usina, det_os_dia)
@@ -1331,7 +1344,8 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
                                           "desc", "flags", "excl", "aberta", "criado_por",
                                           "responsavel", "dias_aberta")},
                  # a OS do COS (29/10/2026) diz de onde veio e as proteções; a do Fracttal fica como era
-                 **({"fonte": o["fonte"], "protecoes": o.get("protecoes") or []} if o.get("fonte") else {}),
+                 **({"fonte": o["fonte"], "protecoes": o.get("protecoes") or [],
+                     "fim_por_usina": o.get("fim_por_usina") or {}} if o.get("fonte") else {}),
                  "ini": o["ini"].isoformat() if o.get("ini") else None,
                  "criada": o["criada"].isoformat() if o.get("criada") else None,
                  # a aberta sem data final conta até o fim do período, mas não TERMINOU: sem fim na saída

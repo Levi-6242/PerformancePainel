@@ -1494,10 +1494,14 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   escopo: desligamento de usina = a usina inteira (o relé citado não muda); com código, a MESMA leitura do `escopo_os`;
   código que não é de geração vale pelo tipo, com a potência média, e vai ao "alinhar"; normalização de mais de 24 h
   também vai ("conferir a falha e a volta na Ronda COS"). As proteções vão na OS (`protecoes`) e na aba
-  `disponibilidade_os_dia` (`fonte` cos). A conta de antes (só do Fracttal) fica em `meses_fracttal` e nas abas
-  `disponibilidade_dia_fracttal` e `disponibilidade_os_dia_fracttal`, só da Thopen, para o cliente do Dashboard Thopen
-  até o Levi liberar (`thopen/CLAUDE.md`, "Liberação ao cliente"). Sem o livro, com a leitura pela metade ou sem o
-  de-para, a Thopen segue pelo Fracttal e o índice diz por quê (`cos`). Ensaio de 29/10/2026 (outubro até o dia 28, 555
+  `disponibilidade_os_dia` (`fonte` cos). **A única fonte da Thopen é a normalização + as adaptações** (30/10/2026,
+  Levi: "garanta que a única fonte seja a de normalizações + adaptações sem puxar OS de fractall"): a OS do Fracttal só
+  da Thopen sai, a de site misto perde a parte da Thopen, e sem o livro, com a leitura pela metade ou sem o de-para o
+  worker NÃO publica (fica o índice anterior; nunca cai para o Fracttal; teste
+  `test_sem_as_normalizacoes_o_worker_nao_publica_e_a_thopen_nao_cai_no_fracttal`). A conta de antes, só para o
+  cliente (`meses_fracttal` e as abas `_fracttal`), existiu de 29 a 30/10/2026 e saiu com a liberação. Fora do
+  índice, a cascata do Gerencial, o Criador de Relatório e o % disp do Diagnóstico ainda usam as OS do Fracttal
+  (`_frac_os_filtradas`, a régua do BI antigo). Ensaio de 29/10/2026 (outubro até o dia 28, 555
   normalizações da Thopen, 444 contando): Thopen ponderada 88,85% (Fracttal) → 94,16% (COS); Brodowski 95,49% → 46,75%
   (a cabine 1 o mês todo), Colorado 2 78,43% → 61,60%.
   **Conferência com as barras do Diário (30/10/2026**, Levi: "se o COS marcou como desligamento então tudo ok, você pode
@@ -1505,9 +1509,12 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   para frente!"): cada OS do COS de outubro contra a geração do dia (a esperada = a geração por irradiação dos dias sem
   perda da usina × a irradiação do dia; a parada pesada pela energia do horário, seno de 06 a 18 h). Das 432: 314
   pequenas (menos de 20% da energia de um dia), 68 batem, 16 em parte (seguem contando), 3 sem geração e 31 em que a
-  barra não caiu. Destas, 29 OS ficam fora até o Levi conferir (`COS_EXCECOES`, "em conferência", à vista no
-  "alinhar") e a 16498 segue a regra de 26/10 (`ESCOPO_COS`, só a AP2, que agora vale também na normalização). A conta
-  não lê geração: a lista é a decisão dele sobre aquela conferência, não um juiz automático. Thopen de outubro: 95,39%.
+  barra não caiu, que foram a ele. As respostas dele (30/10/2026, na planilha) estão em `COS_EXCECOES`, à vista no
+  "alinhar": "Não desligou" = fora (9 OS); "VOLTOU hh:mm" = a volta certa (10; a Ipixuna 1 e a 2 da OS 15335 voltaram
+  em horas diferentes: a volta é por usina, `fim_por_usina` na OS e na `disponibilidade_os_dia`); "DESLIGOU DE ... AS"
+  = o trecho certo (Canarana 1, 15483; Junco, 16086); "OK" = conta como o COS marcou (8, fora da lista). A 16498 segue a
+  regra de 26/10 (`ESCOPO_COS`, só a AP2, que vale também na normalização). A conta não lê geração: as exceções são a
+  decisão dele sobre aquela conferência, não um juiz automático; o certo é o COS corrigir na Ronda COS.
   Prova: `tests/test_disp_normalizacoes_cos.py`.
 - **Falta de comunicação NÃO é parada** (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
   disponibilidade"). A OS cuja descrição (ou o ativo) diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`; no

@@ -106,6 +106,7 @@ import app  # noqa: E402  (carga pesada única; roda as cargas do BD_Performance
 
 
 def pytest_configure(config):
+    config.addinivalue_line("markers", "normalizacoes_reais: o teste lê o livro das normalizações do COS de verdade")
     config.addinivalue_line(
         "markers", f"{MARCA_REDE_CORTADA}: o teste corta a rede no socket.getaddrinfo para CONTAR as tentativas; a trava "
                    "das fontes pagas deixa o pedido seguir até lá (e só enquanto a resolução estiver trocada)")
@@ -296,3 +297,13 @@ def _sunop_coleta_completa_por_padrao(monkeypatch):
     monkeypatch.setattr(app, "SUNOP_COLETA", "completa", raising=False)
     if isinstance(getattr(app, "_sunop_trk_cache", None), dict):
         monkeypatch.setitem(app._sunop_trk_cache, "_ttl", app.SUNOP_TTL)
+
+
+@pytest.fixture(autouse=True)
+def _normalizacoes_do_cos_vazias(monkeypatch, request):
+    """A disponibilidade da Thopen é só pelas normalizações do COS (30/10/2026): sem o livro, o worker não publica nada.
+    Nos testes o livro vem vazio (nenhuma normalização, nenhum de-para) e as fixtures de usina não são da Thopen; o
+    teste que quer as normalizações dubla o `app._disp_normalizacoes` (ou usa a marca `normalizacoes_reais`)."""
+    if request.node.get_closest_marker("normalizacoes_reais") is None:
+        monkeypatch.setattr(app, "_disp_normalizacoes", lambda equip: ([], {}, ""))
+    yield

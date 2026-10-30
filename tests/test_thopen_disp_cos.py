@@ -40,43 +40,22 @@ def test_cabine_do_cos_e_a_os_do_fracttal_como_era():
 
 
 def _dados():
-    atu = {"mes": "2026-10", "disponibilidade_dia": 2, "disponibilidade_os_dia": 2, "disponibilidade_dia_fracttal": 1,
-           "disponibilidade_os_dia_fracttal": 1}
+    atu = {"mes": "2026-10", "disponibilidade_dia": 1, "disponibilidade_os_dia": 2}
     return {"atualizacao": [atu], "de_para": [],
             "disponibilidade_dia": [{"mes": "2026-10", "dia": "2026-10-10", "usina": "Alfa", "pot_kwp": 1000,
-                                     "disp": 50.0, "h_perdidas": 6.0},
-                                    {"mes": "2026-10", "dia": "2026-10-10", "usina": "Gama", "pot_kwp": 500,
-                                     "disp": 75.0, "h_perdidas": 3.0}],
-            "disponibilidade_os_dia": [_os(), _os(usina="Gama", os="600", fonte="fracttal", protecoes=None)],
-            "disponibilidade_dia_fracttal": [{"mes": "2026-10", "dia": "2026-10-10", "usina": "Alfa", "pot_kwp": 1000,
-                                              "disp": 100.0, "h_perdidas": 0.0}],
-            "disponibilidade_os_dia_fracttal": [_os(os="500", fonte="fracttal", protecoes=None, trechos="10:00-11:00")]}
-
-
-def test_a_de_antes_so_troca_a_usina_da_thopen_no_mes():
-    d = om.disp_de_antes(_dados())
-    assert [(r["usina"], r["h_perdidas"]) for r in d["disponibilidade_dia"]] == [("Gama", 3.0), ("Alfa", 0.0)]
-    assert sorted(r["os"] for r in d["disponibilidade_os_dia"]) == ["500", "600"]
-    assert om.conferir(_dados())
-    sem = {k: v for k, v in _dados().items() if not k.endswith("_fracttal")}
-    assert om.disp_de_antes(sem) is sem
+                                     "disp": 50.0, "h_perdidas": 6.0}],
+            "disponibilidade_os_dia": [_os(), _os(usina="Alfa", os="600", fonte="fracttal", protecoes=None)]}
 
 
 def test_a_os_do_cos_nao_vai_buscar_o_trip_no_fracttal():
-    assert om.os_desligamento_do_mes(_dados(), "Alfa", 2026, 10) == []
-    assert om.os_desligamento_do_mes(om.disp_de_antes(_dados()), "Alfa", 2026, 10) == ["500"]
+    assert om.conferir(_dados())
+    assert om.os_desligamento_do_mes(_dados(), "Alfa", 2026, 10) == ["600"]
 
 
-def test_o_cliente_ve_a_de_antes_e_a_grid_a_nova(monkeypatch):
+def test_uma_conta_so_para_todas_as_contas(monkeypatch):
+    # 30/10/2026: liberada ao cliente e a conta de antes saiu ("garanta que a única fonte seja a de normalizações")
     d = _dados()
     monkeypatch.setattr(fonte_operacao, "dados", lambda *a, **k: d)
-    assert dth.LIBERADO_AO_CLIENTE["disponibilidade_cos"] is True            # liberada em 30/10/2026
-    monkeypatch.setitem(dth.LIBERADO_AO_CLIENTE, "disponibilidade_cos", False)
-    monkeypatch.setattr(dth, "_e_grid", lambda: False)
-    alfa = lambda x: [r["h_perdidas"] for r in x["disponibilidade_dia"] if r["usina"] == "Alfa"]   # noqa: E731
-    assert alfa(dth._op_dados()) == [0.0]
-    monkeypatch.setattr(dth, "_e_grid", lambda: True)
-    assert alfa(dth._op_dados()) == [6.0]
-    monkeypatch.setattr(dth, "_e_grid", lambda: False)
-    monkeypatch.setitem(dth.LIBERADO_AO_CLIENTE, "disponibilidade_cos", True)
-    assert alfa(dth._op_dados()) == [6.0]
+    assert "disponibilidade_cos" not in dth.LIBERADO_AO_CLIENTE and dth._op_dados() is d
+    assert not hasattr(om, "disp_de_antes")
+    assert not [k for k in fonte_operacao.ABAS.values() if k[0].endswith("_fracttal")]
