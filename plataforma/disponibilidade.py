@@ -1011,14 +1011,29 @@ def _folio_cos(r):
     return -(int(hashlib.sha1(_txt(r.get("registro")).encode("utf-8")).hexdigest()[:8], 16) or 1)
 
 
-def consolidar_normalizacao(r):
+def abertas_como_normalizacao(abertas, normalizacoes):
+    """As ocorrências ainda abertas da Ronda COS (`fato_ocorrencia_aberta` do Nexus; 30/10/2026, Levi: "para as em aberto
+    contar na disponibilidade precisamos puxar os dados dessa fonte") no formato da normalização, com `aberta` 1 e sem a
+    volta: o `consolidar_normalizacao` as conta até agora. A que já está entre as normalizações (o mesmo registro,
+    normalizada) sai: a parada conta uma vez, pela volta que o COS registrou."""
+    fechadas = {_txt(r.get("registro")) for r in normalizacoes or () if _um(r.get("normalizada"))}
+    return [dict(r, normalizado_em="", normalizada="1", hora_real="1", aberta="1") for r in abertas or ()
+            if _txt(r.get("registro")) and _txt(r.get("registro")) not in fechadas]
+
+
+def consolidar_normalizacao(r, agora=None):
     """→ dict no formato da OS consolidada (o `calcular` e as saídas não distinguem), com `fonte` "cos", as
-    `protecoes` e os `codigos` dos equipamentos; ou None sem registro ou sem início."""
+    `protecoes` e os `codigos` dos equipamentos; ou None sem registro ou sem início. A ocorrência ainda aberta
+    (`aberta` 1, `abertas_como_normalizacao`) conta do início até `agora`, como a OS aberta do Fracttal contava (Levi,
+    15/10/2026: do evento até o fim do período; o `calcular` corta no per_fim)."""
     if not _txt(r.get("registro")):
         return None
-    ini, fim = dt_frac(r.get("inicio")), dt_frac(r.get("normalizado_em"))
+    aberta = _um(r.get("aberta"))
+    ini, fim = dt_frac(r.get("inicio")), None if aberta else dt_frac(r.get("normalizado_em"))
     if ini is None:
         return None
+    if aberta:
+        fim = max(agora or datetime.now(), ini)
     tipo = _txt(r.get("tipo_falha")).upper()
     codigos = [c for c in (_txt(x).upper() for x in _txt(r.get("equipamentos_codigos")).split(";")) if c]
     rot = rotulo_cos(tipo)
@@ -1027,9 +1042,18 @@ def consolidar_normalizacao(r):
     o = {"folio": _folio_cos(r), "tipos": [rot], "origem": "equipamento" if "INVERSOR" in tipo else "queda",
          "flags": ["pela normalização do COS"], "excl": None, "code": codigos[0] if codigos else _txt(r.get("usina_codigo")),
          "item": "", "g1": _txt(r.get("usina_codigo")), "desc": "", "criado_por": "", "responsavel": "",
-         "aberta": False, "aberta_sem_fim": False, "ini": ini, "fim": fim or ini, "criada": None, "alinhar": [],
+         "aberta": aberta, "aberta_sem_fim": aberta, "ini": ini, "fim": fim or ini, "criada": None, "alinhar": [],
          "fonte": "cos", "tipo_cos": tipo, "registro": _txt(r.get("registro")), "codigos": codigos,
          "protecoes": [p for p in (_txt(x) for x in _txt(r.get("protecoes")).split(";")) if p]}
+    if aberta:
+        o["dias_aberta"] = (fim - ini).days
+        etapa = _txt(r.get("etapa"))
+        o["flags"].append("ocorrência ABERTA na Ronda COS → conta até agora" + (f" ({etapa})" if etapa else ""))
+        if o["dias_aberta"] >= 1:
+            # a que passa de um dia pede o olho, como a OS aberta do Fracttal: a parada segue, ou o COS esqueceu de
+            # normalizar? (na 1ª leitura, 30/10/2026, a OS 16958 de Santarém estava aberta havia 110 dias, aguardando peça)
+            o["alinhar"].append(f"ocorrência aberta na Ronda COS: conta enquanto estiver aberta "
+                                f"({o['dias_aberta']} dias em aberto{', ' + etapa.lower() if etapa else ''})")
     exc = excecao_cos(r)
     if exc and exc[0] == "periodo":                     # o trecho certo, pela conferência do Levi
         ini, fim = exc[1]
@@ -1043,13 +1067,17 @@ def consolidar_normalizacao(r):
     if fim is not None and fim < ini:
         o["fim"] = ini
         o["alinhar"].append("volta antes da falha na normalização: conta 0 h")
-    elif fim is not None and (fim - ini).total_seconds() > 24 * 3600:
+    elif fim is not None and not aberta and (fim - ini).total_seconds() > 24 * 3600:
         # conta como o COS registrou, mas pede o olho: na 1ª gravação (29/10/2026) uma falha de comunicação da Brodowski
         # ia de 02/07 a 28/10 com a geração parada, e o mês inteiro saía 0%
         h = (fim - ini).total_seconds() / 3600
         o["alinhar"].append(f"normalização de {int(h // 24)} dias" if h >= 48 else f"normalização de {round(h)} h")
         o["alinhar"][-1] += ": conferir a falha e a volta na Ronda COS"
     conta, motivo = veredito_normalizacao(r)
+    if not conta and aberta and motivo.startswith("COS sem resposta"):
+        # a resposta "a geração parou?" o operador dá ao normalizar: a comunicação aberta só conta depois, pelo trecho
+        # inteiro da normalização; até lá fica fora, sem pedir nada ao COS
+        motivo = EXCL_COS_NAO_CONTA + "falha de comunicação ainda aberta: a resposta \"a geração parou?\" vem na normalização"
     if not conta:
         o["excl"] = motivo
     if exc and exc[0] == "fora":
@@ -1157,7 +1185,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     'comunicacao'} das subtarefas das OS de comunicação (o worker lê; 26/10/2026). `normalizacoes` (29/10/2026): as
     linhas do `fato_normalizacao` do Nexus; com elas, a Thopen é pelas normalizações do COS e a OS do Fracttal da Thopen
     sai da conta; `usinas_por_id` = {usina_id do Registro mestre: [nomes da aba Equipamentos]} (o de-para). None = como
-    antes.
+    antes. As ocorrências ainda abertas vêm junto (`abertas_como_normalizacao`, 30/10/2026) e contam até `agora`.
     → payload completo: usinas, clientes, diário, OSs, `alinhar`, lacunas. Só o Fracttal: a geração não entra."""
     agora = agora or datetime.now()
     usinas, lacunas = montar_catalogo(linhas_equip, pot_reserva)
@@ -1209,7 +1237,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     # eventos dela (a usina caiu duas vezes na mesma OS)
     por_folio, monitoradas = {}, set()
     for r in (normalizacoes or []) if cos is not None else []:
-        o = consolidar_normalizacao(r)
+        o = consolidar_normalizacao(r, agora)
         if o is None:
             continue
         try:
@@ -1232,6 +1260,9 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         else:                                          # a mesma OS: junta as datas, as proteções e os eventos
             ja["ini"], ja["fim"] = min(ja["ini"], o["ini"]), max(ja["fim"], o["fim"])
             ja["protecoes"] = list(dict.fromkeys(ja["protecoes"] + o["protecoes"]))
+            if o["aberta"]:                            # uma parte da OS segue aberta: a OS segue aberta
+                ja["aberta"] = ja["aberta_sem_fim"] = True
+                ja["dias_aberta"] = max(ja.get("dias_aberta") or 0, o["dias_aberta"])
             if ja["excl"] and not o["excl"]:
                 ja["excl"], ja["tipos"], ja["origem"] = None, o["tipos"], o["origem"]
         if o["excl"]:

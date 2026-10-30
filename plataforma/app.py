@@ -27351,7 +27351,7 @@ def _disp_pot_reserva(equip):
 
 
 # A Thopen pelas normalizações do COS (29/10/2026, Levi: "calcule a disponibilidade por lá usando o de-para como
-# referência"; decisões dele: só a Thopen, conta só o que está nas normalizações): o fato que o Nexus grava de hora em
+# referência"; decisões dele: só a Thopen, conta só o que está na Ronda COS): o fato que o Nexus grava de hora em
 # hora (nexus/cos/normalizacoes_banco.py). A conta vai para o índice (`meses`: o Gerencial, a Performance do Nexus e o
 # Dashboard Thopen); desde 30/10/2026 é a única da Thopen (a de antes, só do Fracttal, saiu com a liberação)
 DISP_COS_LIVRO = "nexus_cos_normalizacoes"
@@ -27359,7 +27359,12 @@ DISP_COS_CAB = ("registro", "os", "os_relacionadas", "cliente", "usina_codigo", 
                 "equipamentos_codigos", "equipamentos_qtd", "tipo_falha", "severidade", "estado", "normalizada",
                 "hora_real", "fim_corrigido", "declarada_por", "inicio", "normalizado_em", "data_id_inicio",
                 "data_id_volta", "fora_min", "geracao_parou", "protecoes", "fora_do_escopo_oem", "mudou_em")
-DISP_COS_CAB_ATU = ("atualizado_em", "linhas_qtd", "desde", "ligadas_qtd")
+DISP_COS_CAB_ATU = ("atualizado_em", "linhas_qtd", "desde", "ligadas_qtd", "abertas_em", "abertas_qtd")
+# as ocorrências ainda abertas (30/10/2026, Levi: "para as em aberto contar na disponibilidade precisamos puxar os dados
+# dessa fonte"): o retrato da hora que o Nexus grava na mesma volta das normalizações
+DISP_COS_CAB_ABERTA = ("registro", "os", "cliente", "usina_codigo", "usina_id", "usina_ligada_por",
+                       "equipamentos_codigos", "equipamentos_qtd", "equipamentos_de", "tipo_falha", "severidade", "etapa",
+                       "inicio", "data_id_inicio", "dias_aberta_qtd", "geracao_parou", "protecoes")
 _DISP_COS = {}
 
 
@@ -27378,6 +27383,7 @@ def _disp_normalizacoes(equip):
     try:
         atu = _disp_cos_leitor("atualizacao", DISP_COS_CAB_ATU).linhas()
         fato = _disp_cos_leitor("fato_normalizacao", DISP_COS_CAB).linhas()
+        abertas = _disp_cos_leitor("fato_ocorrencia_aberta", DISP_COS_CAB_ABERTA).linhas() or []
     except Exception as e:                                   # noqa: BLE001
         return None, {}, f"leitura das normalizações: {type(e).__name__}: {e}"
     if not atu or fato is None:
@@ -27388,12 +27394,21 @@ def _disp_normalizacoes(equip):
         esperado = -1
     if len(fato) != esperado:
         return None, {}, f"leitura das normalizações pela metade ({len(fato)} de {esperado} linhas)"
+    try:
+        esperado_ab = int(float(atu[-1][5]))
+    except (TypeError, ValueError, IndexError):
+        esperado_ab = None              # a gravação de antes das abertas (até 30/10/2026): só as normalizações
+    if esperado_ab is not None and len(abertas) != esperado_ab:
+        return None, {}, f"leitura das ocorrências abertas pela metade ({len(abertas)} de {esperado_ab} linhas)"
     reg, _c1, _l1 = _dpf_livro("usinas").linhas()
     dp, _c2, _l2 = _dpf_livro("de_para").linhas()
     por_id = _dpf.usinas_por_id(reg or (), dp or (), equip)
     if not por_id:
         return None, {}, "sem o Registro mestre ou o de-para do Nexus: a Thopen segue pelo Fracttal"
-    return [dict(zip(DISP_COS_CAB, x)) for x in fato], por_id, ""
+    linhas = [dict(zip(DISP_COS_CAB, x)) for x in fato]
+    if esperado_ab is not None:
+        linhas += _disp_mod.abertas_como_normalizacao([dict(zip(DISP_COS_CAB_ABERTA, x)) for x in abertas], linhas)
+    return linhas, por_id, ""
 
 
 def _frac_com_vereditos(wos):

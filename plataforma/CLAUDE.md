@@ -1479,8 +1479,8 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
 - **A Thopen pelas normalizações do COS (29/10/2026)**, Levi: "calcule a disponibilidade por lá [Nexus > COS >
   Normalizações] usando o de-para como referência [...] o que for falha de comunicação tem a coluna Geração Parou, se sim
   então deve contar na disponibilidade e entrar nos comentários. Nos comentários tem que vir as proteções atuadas";
-  decisões dele: **só a Thopen** e **só o que está nas normalizações** (a parada em andamento entra quando o COS a
-  normaliza). O Nexus grava o fato (`nexus_cos_normalizacoes · fato_normalizacao`, de hora em hora); o worker o lê
+  decisões dele: **só a Thopen** e **só o que está na Ronda COS** (as normalizações e, desde 30/10/2026, as ocorrências
+  ainda abertas, abaixo). O Nexus grava o fato (`nexus_cos_normalizacoes · fato_normalizacao`, de hora em hora); o worker o lê
   (`_disp_normalizacoes`, conferido com a contagem da `atualizacao`) e o `disponibilidade.calcular(..., normalizacoes,
   usinas_por_id)` põe as usinas da Thopen (cliente da aba Equipamentos) pela normalização: **início = a falha, fim = a
   volta registrada pelo COS**, não o fechamento da OS no Fracttal; a OS do Fracttal só da Thopen sai da lista. Conta:
@@ -1525,6 +1525,18 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   (30/10/2026: Aruanã, Sapopema e Segredo, com desligamentos registrados pelo COS, e a Coração 2 ficavam fora do parque;
   Levi: "Passam para o COS"): a que tem normalização ligada pelo de-para e potência no catálogo. Thopen de outubro (01 a
   29): 95,22%, 91 usinas.
+  **A parada que segue aberta conta** (30/10/2026, Levi: "para as em aberto contar na disponibilidade precisamos puxar
+  os dados dessa fonte"; até ali só contava quando o COS normalizava, e a OS 16958 de Santarém, inversor parado desde
+  12/07 aguardando peça, não contava nada): o Nexus grava na mesma volta o retrato das abertas da Thopen
+  (`fato_ocorrencia_aberta`, da fotografia do Andamento, `GET /api/nexus/Thopen`); o worker o lê junto, confere com o
+  `abertas_qtd` da `atualizacao` (pela metade = nada publicado; a gravação de antes, sem a coluna, só tem as
+  normalizações) e o `abertas_como_normalizacao` as põe na régua sem a volta, tirando a que já está normalizada (a
+  mesma chave, o registro: conta uma vez, pela volta do COS). O `consolidar_normalizacao` conta a aberta **do início até
+  agora** (o período corta em D-1), como a OS aberta do Fracttal contava (Levi, 15/10/2026), com o mesmo escopo e os
+  mesmos tipos; sai "em aberto" no comentário do Dashboard (`aberta`, `fim` vazio), e a de mais de um dia vai ao
+  "alinhar" com a etapa ("aguardando peça"). A falha de comunicação aberta fica fora até o COS normalizar: a resposta
+  "a geração parou?" vem na normalização, e aí o trecho inteiro conta; não vai ao "alinhar". A OS com uma parte
+  normalizada e outra aberta segue aberta.
   Prova: `tests/test_disp_normalizacoes_cos.py`.
 - **Falta de comunicação NÃO é parada** (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
   disponibilidade"). A OS cuja descrição (ou o ativo) diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`; no

@@ -306,3 +306,106 @@ def test_a_linha_agregada_nao_entra_pela_normalizacao(monkeypatch):
     r = dm.calcular({}, eq, PER_INI, PER_FIM, agora=AGORA, usinas_por_id={55: ["Eta"]},
                     normalizacoes=[norm("r1", usina_id="55", usina_codigo="THPN-ETA100")])
     assert "Eta" not in {u["usina"] for u in r["usinas"]}
+
+
+# ── as ocorrências ainda abertas (30/10/2026, Levi: "para as em aberto contar na disponibilidade precisamos puxar os dados
+# dessa fonte") ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+def aberta(registro, **kw):
+    """Uma linha do `fato_ocorrencia_aberta` do Nexus (sem a volta)."""
+    r = {"registro": registro, "os": "16958", "cliente": "THOPEN", "usina_codigo": "THPN-ALF100", "usina_id": "11",
+         "usina_ligada_por": "código cheio", "equipamentos_codigos": "", "equipamentos_qtd": "0", "equipamentos_de": "",
+         "tipo_falha": "DESLIGAMENTO_USINA", "severidade": "CRITICO", "etapa": "Aguardando peça",
+         "inicio": "2026-10-10T09:00:00-03:00", "data_id_inicio": "20261010", "dias_aberta_qtd": "20",
+         "geracao_parou": "", "protecoes": "27"}
+    r.update(kw)
+    return r
+
+
+def roda_com_abertas(normalizacoes, abertas, agora=AGORA):
+    linhas = normalizacoes + dm.abertas_como_normalizacao(abertas, normalizacoes)
+    return dm.calcular({}, EQUIP, PER_INI, PER_FIM, agora=agora, normalizacoes=linhas, usinas_por_id=POR_ID)
+
+
+def test_desligamento_aberto_conta_ate_o_fim_do_periodo_e_sai_em_aberto():
+    r = roda_com_abertas([], [aberta("a1")])
+    o = a_os(r, 16958)
+    # 10/10 das 09:00 às 18:00 (9 h de sol) e de 11 a 31/10 inteiros (21 dias de 12 h): o período corta, o agora é 05/11
+    assert o["excl"] is None and o["aberta"] is True and o["fim"] is None
+    assert usina(r, "Alfa")["h_perdidas"] == pytest.approx(9 + 21 * 12)
+    assert any("ocorrência aberta na Ronda COS" in a["motivo"] and "aguardando peça" in a["motivo"] for a in r["alinhar"])
+
+
+def test_aberta_conta_ate_agora_dentro_do_mes():
+    r = roda_com_abertas([], [aberta("a1", inicio="2026-10-20T08:00:00-03:00")], agora=datetime(2026, 10, 20, 12, 0))
+    assert usina(r, "Alfa")["h_perdidas"] == pytest.approx(4.0)
+    # aberta há menos de um dia: conta sem pedir o olho
+    assert not r["alinhar"]
+
+
+def test_inversor_aberto_conta_so_o_inversor():
+    # a OS 16958 de Santarém (inversor 2.7 aguardando peça desde 12/07) é este caso: a fração do inversor, o mês todo
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="DESLIGAMENTO_INVERSOR", inicio="2026-07-12T08:00:00-03:00",
+                                     equipamentos_codigos="THPN-ALF100-INVR1.1", equipamentos_qtd="1",
+                                     equipamentos_de="ocorrencias")])
+    assert a_os(r, 16958)["kwh"] == pytest.approx(300 * 12 * 31, rel=1e-3)
+    assert usina(r, "Alfa")["disp"] == pytest.approx(100 * (1 - 0.3), abs=0.01)
+
+
+def test_comunicacao_aberta_so_conta_quando_o_cos_responder():
+    # a resposta "a geração parou?" vem na normalização: até lá fica fora, sem ir ao "alinhar"
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="FALHA_COMUNICACAO", protecoes="")])
+    assert a_os(r, 16958)["excl"].startswith(dm.EXCL_COS_NAO_CONTA) and usina(r, "Alfa")["disp"] == 100
+    assert not r["alinhar"]
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="FALHA_COMUNICACAO", geracao_parou="1", protecoes="")])
+    assert a_os(r, 16958)["excl"] is None and usina(r, "Alfa")["disp"] < 100
+
+
+def test_a_aberta_que_ja_normalizou_conta_uma_vez_pela_volta_do_cos():
+    nr = [norm("a1", os="16958")]
+    assert dm.abertas_como_normalizacao([aberta("a1"), aberta("a2")], nr) == [
+        dict(aberta("a2"), normalizado_em="", normalizada="1", hora_real="1", aberta="1")]
+    r = roda_com_abertas(nr, [aberta("a1")])
+    o = a_os(r, 16958)
+    assert o["aberta"] is False and o["h_solar"] == pytest.approx(6.0)
+    # a normalização desfeita reabre: a ocorrência aberta conta
+    assert len(dm.abertas_como_normalizacao([aberta("a1")], [norm("a1", normalizada="0")])) == 1
+
+
+def test_a_os_com_uma_parte_normalizada_e_outra_aberta_segue_aberta():
+    r = roda_com_abertas([norm("r1", os="16958")],
+                         [aberta("a2", tipo_falha="DESLIGAMENTO_CABINE", equipamentos_codigos="THPN-ALF100-CABN2",
+                                 inicio="2026-10-30T09:00:00-03:00")])
+    o = a_os(r, 16958)
+    assert o["aberta"] is True and o["fim"] is None
+    # 6 h da usina inteira (a normalizada) e 21 h da cabine 2 (400 kWp de 1.000) de 30 a 31/10
+    assert usina(r, "Alfa")["h_perdidas"] == pytest.approx(6 + 21 * 0.4)
+
+
+@pytest.mark.normalizacoes_reais
+def test_o_worker_le_as_abertas_e_confere_a_contagem(monkeypatch):
+    import app
+
+    class Leitor:
+        def __init__(self, linhas):
+            self._l = linhas
+
+        def linhas(self):
+            return self._l
+
+    def leitores(atu, fato, ab):
+        tabelas = {"atualizacao": atu, "fato_normalizacao": fato, "fato_ocorrencia_aberta": ab}
+        monkeypatch.setattr(app, "_disp_cos_leitor", lambda aba, cab: Leitor(
+            [[d.get(c, "") for c in cab] for d in tabelas[aba]] if tabelas[aba] is not None else None))
+
+    monkeypatch.setattr(app, "_dpf_livro", lambda nome: Leitor(([{"x": 1}], None, None)))
+    monkeypatch.setattr(app._dpf, "usinas_por_id", lambda reg, dp, equip: POR_ID)
+    fato = [norm("r1")]
+    leitores([{"linhas_qtd": "1", "abertas_qtd": "2"}], fato, [aberta("a1"), aberta("r1")])
+    linhas, por_id, erro = app._disp_normalizacoes(EQUIP)
+    # a aberta que já está nas normalizações sai; a outra vem com a marca de aberta
+    assert erro == "" and [(x["registro"], x.get("aberta")) for x in linhas] == [("r1", None), ("a1", "1")]
+    leitores([{"linhas_qtd": "1", "abertas_qtd": "3"}], fato, [aberta("a1")])
+    assert "ocorrências abertas pela metade" in app._disp_normalizacoes(EQUIP)[2]
+    # a gravação de antes das abertas (sem abertas_qtd): só as normalizações
+    leitores([{"linhas_qtd": "1"}], fato, None)
+    assert [x["registro"] for x in app._disp_normalizacoes(EQUIP)[0]] == ["r1"]
