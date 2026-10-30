@@ -27,7 +27,7 @@ COOLDOWN = 60                                                 # s sem tentar de 
 CACHE = os.environ.get("THOPEN_OPERACAO_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cache_operacao.json.gz")
 SISTEMA_5080 = "BD_Thopen · Dados Gerais Usinas"
-VERSAO_CACHE = 11       # 30/10/2026: só as normalizações do COS para a Thopen (as abas de antes saíram)
+VERSAO_CACHE = 12       # 30/10/2026: as cabines do Nexus (a fração da cabine nos comentários do BD_Thopen)
 # (workbook, aba) → (chave em `dados`, campos que ficam)
 ABAS = {
     ("falhas_performance", "strings_episodios"): ("strings_episodios",
@@ -74,6 +74,9 @@ ABAS = {
     # campo_nexus · rondas (parado em 02/10) e a carga única das rondas sem OS (06/10) — ver rondas_cliente
     ("rondas_app_campo", "OS de ronda"): ("rondas_com_os", rondas_cliente.CAMPOS_APP),
     ("cadastro_nexus", "de_para"): ("de_para", ("usina_id", "sistema", "chave_externa")),
+    # as cabines de cada usina no cadastro de equipamentos do Nexus (30/10/2026): o "desligamento de cabine" do comentário
+    # do BD_Thopen conta 1 ÷ nº de cabines da usina (disp_comentarios.py)
+    ("nexus_estrutura_usina", "dim_cabine"): ("dim_cabine", ("usina_id", "nome", "potencia_kwp", "excluido")),
 }
 _lock = threading.Lock()
 _estado = {"dados": None, "ts": 0.0, "erro": None, "carregando": False, "proxima": 0.0, "disco_lido": False}

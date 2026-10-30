@@ -46,7 +46,10 @@ CHAVES = ("disponivel", "motivo", "usina", "ano", "mes", "strings", "trackers", 
           # rodada 4 (09/10/2026): a disponibilidade do mês pela régua do Gerencial e para onde a contestação vai
           "disponibilidade", "contestar",
           # 23/10/2026: o trip das OS ainda chegando do Fracttal (trip_os): a tela relê em alguns segundos
-          "trip_pendente")
+          "trip_pendente",
+          # 30/10/2026: de onde vêm a disponibilidade e o comentário do dia ("os" ou "bd_comentarios": as usinas que a
+          # Ronda COS não cobre, pelos comentários do BD_Thopen, disp_comentarios.py)
+          "fonte_disp")
 
 # Outubro de 2026 (Levi, 08/10: "adapte todas desse mês, do nosso lado, sem tocar no Fracttal"): OS de string sem
 # quantidade nem citação foi completada pela plataforma com as strings que a régua viu sem corrente naquele inversor no
@@ -622,8 +625,9 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje, trips=None):
-    """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais."""
+def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None):
+    """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
+    {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026)."""
     r = dict.fromkeys(CHAVES)
     r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
@@ -658,9 +662,16 @@ def resposta(dados, nome, ano, mes, hoje, trips=None):
         r["zeladoria"] = dict(SEM_CADASTRO)
     # rodada 4: Disp (%) e a ronda do dia na tabela; a disponibilidade do mês é a média dos dias — a mesma conta do
     # Gerencial (12 h por dia: 100·(1 − Σh/12n) é a média dos dias)
-    dsp = disp_por_dia(dados, nome, ano, mes)
+    dsp = disp_por_dia(dados, nome, ano, mes) if bd is None else bd[0]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
-                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips))
+                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips) if bd is None else bd[1])
+    r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
+    if bd is not None:
+        # o comentário da equipe vai também no dia que ficou em 100% (a falha de comunicação, que não conta)
+        com = {d.strftime("%d/%m"): v for d, v in bd[1].items()}
+        for p in r["por_dia"]:
+            if com.get(p["dia"]):
+                p["os"] = list(com[p["dia"]])
     r["disponibilidade"] = round(sum(dsp.values()) / len(dsp), 2) if dsp else None
     r["parcial_ate"], r["atualizado_em"] = _mes_info(dados, ano, mes, hoje)
     r["disponivel"] = True

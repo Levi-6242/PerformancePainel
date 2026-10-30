@@ -125,6 +125,19 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   ("Desligamento Usina Trip 27ABC/86 de ... a ...; OS 17001"; "Falha de comunicação com a geração parada, Usina de ...;
   OS ..."; "sem OS" quando a normalização não tem), com a volta de cada usina quando o Levi a corrigiu numa só, e não
   vai buscar o trip no Fracttal. Prova: `tests/test_thopen_disp_cos.py`.
+- **As usinas que a Ronda COS não cobre, pelos comentários do BD_Thopen (30/10/2026**, Levi: "A disponibilidade dessas
+  UFVs devem ser calculados de acordo com os comentários do BD_Thopen e os comentários também"): Rondonópolis, Aruanã,
+  AP. do Taboado, Areia Branca, Monte Aprazível, Nova Iguaçu, Sapopema, Segredo e Cambé (`disp_comentarios.USINAS`; as
+  Sol Maior GD I a V da lista dele não estão no dashboard). De 10/2026 em diante a disponibilidade de cada dia sai do
+  PERÍODO escrito no comentário da equipe ("... - 04/10 às 09:35h ao 09/10 às 07:14h"), na janela de sol 06–18 h, e o
+  comentário da tela é o do BD (a tabela por dia, com a disponibilidade; o dia em 100% com comentário também aparece).
+  A coluna de disponibilidade do BD não serve em outubro (vazia; a Nova Iguaçu em 100% e a Segredo em 0% contra o
+  comentário). Decisões dele: falha de comunicação não conta; desligamento de cabine conta 1 ÷ nº de cabines da usina no
+  cadastro do Nexus (`nexus_estrutura_usina · dim_cabine`, pelo de-para; sem, a usina inteira). O mesmo evento escrito
+  em vários dias conta uma vez; o mês anterior entra na leitura (o desligamento de 30/09 que segue em outubro). Vale no
+  card do mês (`/api/t/operacao`, `fonte_disp` = "bd_comentarios"), no Diário, na Visão Geral e nos Registros
+  (`_disp_dias`). A Cambé tem normalizações do COS na plataforma: no dashboard vale o BD. Prova:
+  `tests/test_thopen_disp_comentarios.py`.
 
 ## Dados
 

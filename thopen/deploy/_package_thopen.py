@@ -60,6 +60,7 @@ ITENS = [
     ("thopen/trip_os.py",                       "thopen/trip_os.py"),
     ("thopen/fonte_zeladoria.py",               "thopen/fonte_zeladoria.py"),
     ("thopen/zeladoria_cliente.py",             "thopen/zeladoria_cliente.py"),
+    ("thopen/disp_comentarios.py",              "thopen/disp_comentarios.py"),
     ("thopen/templates/entrar.html",            "thopen/templates/entrar.html"),
     ("thopen/templates/dashboard_thopen.html",  "thopen/templates/dashboard_thopen.html"),
     ("requirements-thopen.txt",                 "requirements-thopen.txt"),

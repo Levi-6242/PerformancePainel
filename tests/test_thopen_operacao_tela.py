@@ -147,7 +147,9 @@ def test_tabela_por_dia_de_outubro_em_diante():
     # a disponibilidade sai com "%" no valor (Levi: "poderia botar um % no final")
     assert "+'%'" in n
     # entra o dia abaixo de 100%, com as OS dele; o comentário da equipe (pontos[].com) nem é lido (14/10, noite)
-    assert "if(r.disp==null||r.disp>=100) return;" in n and "Object.keys(com)" in n and "p.com" not in n
+    # o dia em 100% fica fora, menos o da usina pelos comentários do BD_Thopen com comentário (30/10/2026)
+    assert "if(r.disp==null||(r.disp>=100&&!(bd&&r.os&&r.os.length))) return;" in n
+    assert "op.fonte_disp==='bd_comentarios'" in n and "Object.keys(com)" in n and "p.com" not in n
     assert "d.pontos" not in n
     assert "Ronda realizada" not in n and "pd[n].ronda" not in n and "op.trackers" not in n   # foram para a outra tabela
     assert "_cmtGrupos(dias, com, val)" in n                             # dias iguais e seguidos viram "01 a 05/10"
@@ -450,6 +452,9 @@ def test_nota_dos_dias_sem_ocorrencia_so_ate_o_ultimo_dia_fechado():
     op = {"strings": 0, "trackers": None, "parcial_ate": "13/10", "zeladoria": {"sem_cadastro": True}}
     assert _nada([4, 5, 6, 7], pd, op) == ("Os dias 01 a 03 e 08 a 12/10 não aparecem na tabela porque não tiveram "
                                            "OS de desligamento no Fracttal (disponibilidade de 100%).")
+    # a usina pelos comentários do BD_Thopen (30/10/2026) não fala em OS do Fracttal
+    assert _nada([4, 5, 6, 7], pd, dict(op, fonte_disp="bd_comentarios")).endswith(
+        "não tiveram desligamento nos comentários da equipe (disponibilidade de 100%).")
     # Ronda e Performance: só o que foi medido — sem cadastro das rondas e sem tracker monitorado, só a string
     assert _nada([], pd, op, "rp") == ("Os dias 01 a 12/10 não aparecem na tabela porque não tiveram string sem "
                                        "corrente.")

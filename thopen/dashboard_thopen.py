@@ -55,6 +55,7 @@ import geracao_possivel      # 20/10/2026: a geração possível pelo IPOA da Vi
 import trip_os               # 23/10/2026: o trip das OS no comentário do dia, lido do Fracttal (nada roda no import)
 import fonte_zeladoria       # 26/10/2026: a Zeladoria que o Nexus publica no banco (nada roda no import)
 import zeladoria_cliente     # ... e a tela da semana (puro)
+import disp_comentarios      # 30/10/2026: a disponibilidade pelos comentários do BD_Thopen (as usinas fora da Ronda COS)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -1422,11 +1423,40 @@ def _disp_gerencial(usina, ano, mes):
     return (sum(dsp.values()) / len(dsp)) / 100.0 if dsp else None
 
 
+def _pelo_bd(usina, ano, mes):
+    """A usina que a Ronda COS não cobre segue os comentários do BD_Thopen de 10/2026 em diante (Levi, 30/10/2026)."""
+    return usina in disp_comentarios.USINAS and _so_os_fracttal(ano, mes)
+
+
+def _n_cabines(usina):
+    """Quantas cabines a usina tem no cadastro de equipamentos do Nexus (as UG com potência), ou None (a usina fora do
+    de-para ou sem cabines no cadastro: o desligamento de cabine conta a usina inteira)."""
+    dados = fonte_operacao.dados() or {}
+    ids = set(operacao_mes.ids_da_usina(dados.get("de_para") or [], usina))
+    n = sum(1 for c in dados.get("dim_cabine") or [] if operacao_mes._int(c.get("usina_id")) in ids
+            and str(c.get("excluido") or "").strip().lower() != "sim" and str(c.get("nome") or "").upper() != "UFV"
+            and c.get("potencia_kwp") not in (None, ""))
+    return n or None
+
+
+def _disp_bd(usina, ano, mes):
+    """({dia: disp %}, {dia: [linhas]}) pelos comentários do BD_Thopen (disp_comentarios), dos dias fechados (até
+    ontem no mês corrente). O mês anterior entra na leitura: o desligamento de 30/09 que segue em outubro."""
+    ultimo = dt.date(ano, mes, monthrange(ano, mes)[1])
+    ate = min(ultimo, dt.date.today() - dt.timedelta(days=1))
+    ini = dt.date(ano, mes, 1) - dt.timedelta(days=31)
+    regs = [r for r in _daily_records(usina) if ini <= r["data"] <= ultimo]
+    return disp_comentarios.por_dia(regs, ano, mes, ate, _n_cabines(usina))
+
+
 def _disp_dias(usina, ano, mes):
     """{data: disponibilidade %} das OS do Fracttal (a disponibilidade_dia da plataforma), ou None sem o dado
-    (carregando, desligado, usina fora do Gerencial): a Visão Geral fica sem o expurgo, nunca com um 0."""
+    (carregando, desligado, usina fora do Gerencial): a Visão Geral fica sem o expurgo, nunca com um 0. A usina que a
+    Ronda COS não cobre, pelos comentários do BD_Thopen (30/10/2026)."""
     if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
         return None
+    if _pelo_bd(usina, ano, mes):
+        return _disp_bd(usina, ano, mes)[0] or None
     dados = _op_dados()
     return (operacao_mes.disp_por_dia(dados, usina, ano, mes) or None) if dados else None
 
@@ -1719,8 +1749,9 @@ def api_operacao():
         r["motivo"] = "desligado"
         return jsonify(r)
     dados = _op_dados()
-    trips, buscando = _trips_da_tela(dados, usina, ano, mes)
-    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips)
+    bd = _disp_bd(usina, ano, mes) if _pelo_bd(usina, ano, mes) else None
+    trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd)
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None

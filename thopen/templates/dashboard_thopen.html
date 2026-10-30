@@ -1427,7 +1427,9 @@ function _cmtPorDia(tbl, usina, ano, mes, d, op){
   // equipe saiu: as duas contas não se conversavam (1 a 13/10: 37 dias com parada da equipe e 100% do Gerencial; 90
   // dias com o mesmo desligamento duas vezes, Ipixuna II 01/10). os null = a parcela ainda não publicada no mês
   const com={};
-  Object.keys(pd).forEach(n=>{ const r=pd[n]; if(r.disp==null||r.disp>=100) return;
+  // 30/10/2026: a usina que segue os comentários do BD_Thopen mostra todo dia com comentário, mesmo em 100%
+  const bd=op.fonte_disp==='bd_comentarios';
+  Object.keys(pd).forEach(n=>{ const r=pd[n]; if(r.disp==null||(r.disp>=100&&!(bd&&r.os&&r.os.length))) return;
     com[n]=r.os==null?_CMT_SEM_PUB:(r.os.length?r.os.join('\n'):'Indisponibilidade registrada no Fracttal sem o detalhe da OS.'); });
   // rodada 5 (Levi, 13/10/2026): Usina | Data | Comentário | Disponibilidade — uma linha por dia abaixo de 100%. Ronda,
   // trackers e strings ficam na tabela ao lado
@@ -1519,8 +1521,9 @@ function _cmtNada(dias, pd, op, ano, mes, tipo){
   const lista=_cmtFaixas(ocultos)+'/'+String(mes).padStart(2,'0'), um=ocultos.length===1;
   const ini=um?`O dia ${lista} não aparece na tabela porque não teve `:`Os dias ${lista} não aparecem na tabela porque não tiveram `;
   if(tipo==='cmt'){
-    return ocultos.every(n=>pd[n]&&pd[n].disp===100)
-      ? ini+'OS de desligamento no Fracttal (disponibilidade de 100%).' : ini+'OS de desligamento no Fracttal.';
+    // 30/10/2026: a usina pelos comentários do BD_Thopen diz de onde vem (não há OS do Fracttal nela)
+    const deOnde=op.fonte_disp==='bd_comentarios'?'desligamento nos comentários da equipe':'OS de desligamento no Fracttal';
+    return ocultos.every(n=>pd[n]&&pd[n].disp===100) ? ini+deOnde+' (disponibilidade de 100%).' : ini+deOnde+'.';
   }
   const coisas=[];
   if(!(op.zeladoria&&op.zeladoria.sem_cadastro)) coisas.push('ronda');
