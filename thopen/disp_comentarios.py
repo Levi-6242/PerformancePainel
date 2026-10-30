@@ -9,9 +9,12 @@ da equipe, que segue um molde: "<tipo> - <detalhe> - 04/10 às 09:35h ao 09/10 �
 mesmo dia), uma linha por evento.
 
 Decisões dele no mesmo dia: falha de comunicação NÃO conta (a regra de sempre: falta de comunicação não é parada);
-desligamento de cabine conta a potência média de uma cabine da usina pelo cadastro de equipamentos do Nexus (1 ÷ nº de
-cabines; sem cabines no cadastro, a usina inteira); desligamento de usina (ou usina parada), a usina inteira. A conta é a
-mesma do Gerencial: janela de sol 06–18 h, 12 h por dia, perda = fração da potência × horas. Módulo puro: sem rede.
+desligamento de cabine conta a potência média de uma cabine (1 ÷ nº de cabines); desligamento de usina (ou usina
+parada), a usina inteira. O de-para da usina, das cabines e dos inversores é a própria aba do BD_Thopen (decisão dele,
+30/10/2026: cinco dessas usinas nem estão no Registro mestre do Nexus): as colunas "Inversor N.M" dizem as cabines (N) e
+os inversores; sem elas, as cabines do cadastro do Nexus; sem nada, a usina inteira. Desligamento de inversor conta os
+inversores citados na linha ("Inversor 1.3 e 1.4") ÷ os da usina (um, se não citar). A conta é a mesma do Gerencial:
+janela de sol 06–18 h, 12 h por dia, perda = fração da potência × horas. Módulo puro: sem rede.
 """
 import re
 import unicodedata
@@ -34,13 +37,21 @@ def _norm(s):
 
 
 def tipo_da_linha(linha):
-    """'comunicacao' (não conta), 'cabine', 'usina' ou None (não é parada)."""
+    """'comunicacao' (não conta), 'cabine', 'inversor', 'usina' ou None (não é parada). A cabine vence o inversor ("a
+    cabine caiu e os inversores dela junto")."""
     t = _norm(linha)
     if "comunic" in t:
         return "comunicacao"
     if "deslig" in t or "parad" in t:
-        return "cabine" if any(k in t for k in ("cabine", "skid", "qgbt")) else "usina"
+        if any(k in t for k in ("cabine", "skid", "qgbt")):
+            return "cabine"
+        return "inversor" if "inversor" in t else "usina"
     return None
+
+
+def inversores_citados(linha):
+    """Quantos inversores a linha cita ("Inversor 1.3 e 1.4" = 2); pelo menos um."""
+    return max(1, len(set(re.findall(r"(?<![\d/:])\d{1,2}\.\d{1,2}(?![\d/:])", str(linha or "")))))
 
 
 def _ano(mes_lido, ref):
@@ -88,7 +99,17 @@ def _perda_do_dia(dia, eventos):
     return h
 
 
-def por_dia(registros, ano, mes, ate, n_cabines=None):
+def fracao(tipo, linha, n_cabines=None, n_inversores=None):
+    """A fração da potência que o evento tira: a usina inteira, uma cabine (1 ÷ cabines) ou os inversores citados
+    (÷ inversores). Sem o número, a fração do nível de cima (a cabine, e sem ela a usina inteira)."""
+    if tipo == "inversor" and n_inversores:
+        return min(1.0, inversores_citados(linha) / n_inversores)
+    if tipo in ("cabine", "inversor") and n_cabines:
+        return 1.0 / n_cabines
+    return 1.0
+
+
+def por_dia(registros, ano, mes, ate, n_cabines=None, n_inversores=None):
     """({dia: disponibilidade %}, {dia: [linhas do comentário]}) da usina no mês, dos dias até `ate` (inclusive).
     `registros`: os do BD_Thopen ({data, com}), do mês e de antes (o comentário de 30/09 diz o desligamento que entra em
     outubro). O mesmo evento escrito em vários dias conta uma vez. Dia sem evento = 100."""
@@ -98,10 +119,8 @@ def por_dia(registros, ano, mes, ate, n_cabines=None):
         if not d or not r.get("com"):
             continue
         for tipo, ini, fim, linha in periodos(r["com"], d):
-            if tipo == "usina":
-                eventos.add((ini, fim, 1.0))
-            elif tipo == "cabine":
-                eventos.add((ini, fim, 1.0 / n_cabines if n_cabines else 1.0))
+            if tipo in ("usina", "cabine", "inversor"):
+                eventos.add((ini, fim, fracao(tipo, linha, n_cabines, n_inversores)))
             linhas.setdefault((ini, fim), linha)
         if (d.year, d.month) == (ano, mes) and d <= ate:
             comentarios[d] = [x.strip() for x in str(r["com"]).splitlines() if x.strip()]

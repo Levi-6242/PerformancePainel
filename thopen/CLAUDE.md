@@ -132,8 +132,13 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   PERÍODO escrito no comentário da equipe ("... - 04/10 às 09:35h ao 09/10 às 07:14h"), na janela de sol 06–18 h, e o
   comentário da tela é o do BD (a tabela por dia, com a disponibilidade; o dia em 100% com comentário também aparece).
   A coluna de disponibilidade do BD não serve em outubro (vazia; a Nova Iguaçu em 100% e a Segredo em 0% contra o
-  comentário). Decisões dele: falha de comunicação não conta; desligamento de cabine conta 1 ÷ nº de cabines da usina no
-  cadastro do Nexus (`nexus_estrutura_usina · dim_cabine`, pelo de-para; sem, a usina inteira). O mesmo evento escrito
+  comentário). Decisões dele: falha de comunicação não conta; desligamento de cabine conta 1 ÷ nº de cabines;
+  desligamento de inversor, os inversores citados na linha ("1.3 e 1.4"; um, se não citar) ÷ os da usina. **O de-para de
+  usina, cabines e inversores é a própria aba do BD_Thopen** (`_estrutura_bd`: as colunas "Inversor N.M", N = a cabine;
+  Levi, 30/10/2026, "faça um de-para simples ... só usina, cabines e inversores", e "no dashboard, pela aba do BD":
+  AP. do Taboado, Areia Branca, Monte Aprazível, Nova Iguaçu e Rondonópolis nem estão no Registro mestre do Nexus);
+  sem as colunas, as cabines do cadastro do Nexus (`nexus_estrutura_usina · dim_cabine`); sem nada, a usina inteira.
+  Ex.: Segredo 5 cabines e 40 inversores, Nova Iguaçu 2 e 18. O mesmo evento escrito
   em vários dias conta uma vez; o mês anterior entra na leitura (o desligamento de 30/09 que segue em outubro). Vale no
   card do mês (`/api/t/operacao`, `fonte_disp` = "bd_comentarios"), no Diário, na Visão Geral e nos Registros
   (`_disp_dias`). A Cambé tem normalizações do COS na plataforma: no dashboard vale o BD. Prova:

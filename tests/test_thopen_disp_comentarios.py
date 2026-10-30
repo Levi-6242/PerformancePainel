@@ -80,3 +80,20 @@ def test_a_resposta_do_card_usa_os_comentarios_do_bd():
 
 def test_a_lista_das_usinas_pelo_bd():
     assert {"Nova Iguaçu", "Segredo", "Aruanã", "AP. do Taboado", "Cambé"} <= dc.USINAS
+
+
+def test_inversor_conta_os_citados_sobre_os_da_usina_e_a_cabine_vence():
+    # 30/10/2026: o de-para da aba do BD (cabines e inversores); "Desligamento de inversor" não é a usina inteira
+    assert dc.tipo_da_linha("Desligamento de inversor 1.3 - 08/10 08:00 às 10:00") == "inversor"
+    assert dc.tipo_da_linha("Desligamento de cabine 2, inversores sem tensão - 08/10 08:00 às 10:00") == "cabine"
+    assert dc.inversores_citados("Desligamento dos inversores 1.3 e 1.4 - 08/10 08:00 às 10:00") == 2
+    assert dc.inversores_citados("Desligamento de inversor - 08/10 08:00 às 10:00") == 1
+    assert dc.fracao("inversor", "inversores 1.3 e 1.4", n_cabines=2, n_inversores=20) == pytest.approx(0.1)
+    assert dc.fracao("inversor", "inversor", n_cabines=2) == 0.5 and dc.fracao("inversor", "inversor") == 1.0
+    assert dc.fracao("cabine", "cabine", n_cabines=5, n_inversores=40) == 0.2
+
+
+def test_desligamento_de_inversor_no_dia():
+    c = "Desligamento dos inversores 1.3 e 1.4 - 08/10 06:00 às 18:00"
+    disp, _ = dc.por_dia(_regs((date(2026, 10, 8), c)), 2026, 10, date(2026, 10, 8), n_cabines=1, n_inversores=10)
+    assert disp[date(2026, 10, 8)] == pytest.approx(80.0)

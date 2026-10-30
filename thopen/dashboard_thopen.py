@@ -1428,6 +1428,29 @@ def _pelo_bd(usina, ano, mes):
     return usina in disp_comentarios.USINAS and _so_os_fracttal(ano, mes)
 
 
+def _estrutura_bd(usina):
+    """(cabines, inversores) pela aba do BD_Thopen da usina: as colunas "Inversor N.M" (N = a cabine). O de-para simples
+    de usina, cabines e inversores das usinas que seguem os comentários (Levi, 30/10/2026: "faça um de-para simples para
+    esses que faltam sem especificações de strings só usina, cabines e inversores"; cinco delas nem estão no Registro
+    mestre do Nexus). (None, None) sem as colunas."""
+    key = ("estrutura", usina)
+    if key in _state["df"]:
+        return _state["df"][key]
+    wb = _wb()
+    entry = _state["daily"].get(usina) or _state["daily"].get(_BD_ALIAS.get(usina, ""))
+    cab, inv = set(), set()
+    if entry:
+        hdr, _rows = _cols(_range_rows(wb[entry[0]], entry[1]))
+        for h in hdr:
+            m = re.match(r"(?i)\s*inversor\s*(\d+)\.(\d+)", str(h or ""))
+            if m:
+                cab.add(int(m.group(1)))
+                inv.add((int(m.group(1)), int(m.group(2))))
+    out = (len(cab) or None, len(inv) or None)
+    _state["df"][key] = out
+    return out
+
+
 def _n_cabines(usina):
     """Quantas cabines a usina tem no cadastro de equipamentos do Nexus (as UG com potência), ou None (a usina fora do
     de-para ou sem cabines no cadastro: o desligamento de cabine conta a usina inteira)."""
@@ -1446,7 +1469,9 @@ def _disp_bd(usina, ano, mes):
     ate = min(ultimo, dt.date.today() - dt.timedelta(days=1))
     ini = dt.date(ano, mes, 1) - dt.timedelta(days=31)
     regs = [r for r in _daily_records(usina) if ini <= r["data"] <= ultimo]
-    return disp_comentarios.por_dia(regs, ano, mes, ate, _n_cabines(usina))
+    # o de-para é a aba do BD (as colunas "Inversor N.M"); sem ela, as cabines do cadastro do Nexus
+    n_cab, n_inv = _estrutura_bd(usina)
+    return disp_comentarios.por_dia(regs, ano, mes, ate, n_cab or _n_cabines(usina), n_inv)
 
 
 def _disp_dias(usina, ano, mes):
