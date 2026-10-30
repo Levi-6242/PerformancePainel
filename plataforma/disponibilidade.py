@@ -990,6 +990,9 @@ COS_EXCECOES = {
     "os:15483": ("periodo", (_d(6, 10, 55), _d(6, 11, 10)),
                  f"Canarana 1: não desligou; caiu de 10:55 a 11:10 de 06/10 — {CONFERENCIA}"),
     "os:16086": ("periodo", (_d(11, 13, 25), _d(11, 14, 55)), f"Junco desligou de 13:25 a 14:55 — {CONFERENCIA}"),
+    # a falha de comunicação que foi desligamento (Levi, 30/10/2026, a OS 15632 de São Bento 5, sem a resposta "a geração
+    # parou?": "essa de são bento considera desligamento"): conta como desligamento da usina
+    "os:15632": ("desligamento", None, "São Bento 5: falha de comunicação que foi desligamento (Levi, 30/10/2026)"),
 }
 
 
@@ -1082,6 +1085,10 @@ def consolidar_normalizacao(r):
         o["excl"] = f"fora pela decisão do Levi: {exc[2]}"         # sem o "COS: ": fica à vista no "alinhar"
     elif exc and exc[0] == "cabine":
         o["cabine_levi"] = (exc[1], exc[2])
+    elif exc and exc[0] == "desligamento":
+        o["excl"], o["origem"], o["tipo_cos"] = None, "queda", "DESLIGAMENTO_USINA"
+        o["tipos"] = [COS_ROTULO["DESLIGAMENTO_USINA"]]
+        o["alinhar"].append(f"tipo pela decisão do Levi: {exc[2]}")
     return o
 
 

@@ -1515,7 +1515,8 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   barra não caiu, que foram a ele. As respostas dele (30/10/2026, na planilha) estão em `COS_EXCECOES`, à vista no
   "alinhar": "Não desligou" = fora (9 OS); "VOLTOU hh:mm" = a volta certa (10; a Ipixuna 1 e a 2 da OS 15335 voltaram
   em horas diferentes: a volta é por usina, `fim_por_usina` na OS e na `disponibilidade_os_dia`); "DESLIGOU DE ... AS"
-  = o trecho certo (Canarana 1, 15483; Junco, 16086); "OK" = conta como o COS marcou (8, fora da lista). A 16498 segue a
+  = o trecho certo (Canarana 1, 15483; Junco, 16086); "OK" = conta como o COS marcou (8, fora da lista). Depois,
+  a OS 15632 (São Bento 5, falha de comunicação sem resposta): "considera desligamento" (`desligamento`). A 16498 segue a
   regra de 26/10 (`ESCOPO_COS`, só a AP2, que vale também na normalização). A conta não lê geração: as exceções são a
   decisão dele sobre aquela conferência, não um juiz automático; o certo é o COS corrigir na Ronda COS.
   Prova: `tests/test_disp_normalizacoes_cos.py`.

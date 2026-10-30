@@ -278,3 +278,11 @@ def test_cabine_de_usina_de_site_dividido_e_lida_na_propria_usina():
     o = a_os(r, 17001)
     assert o["kwh"] == pytest.approx(300 * 6, rel=1e-3) and usina(r, "Delta 1")["disp"] == 100
     assert not r["alinhar"]
+
+
+def test_falha_de_comunicacao_que_o_levi_disse_ser_desligamento():
+    # 30/10/2026: a OS 15632 (São Bento 5), comunicação sem a resposta "a geração parou?": "considera desligamento"
+    assert dm.COS_EXCECOES["os:15632"][0] == "desligamento"
+    r = roda([norm("r1", os="15632", tipo_falha="FALHA_COMUNICACAO", geracao_parou="", protecoes="")])
+    o = a_os(r, 15632)
+    assert o["excl"] is None and o["tipos"] == ["desligamento de usina"] and o["kwh"] == pytest.approx(6000, rel=1e-3)
