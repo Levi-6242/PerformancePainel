@@ -124,7 +124,10 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   de normalizações"): uma conta só, para todas as contas. O comentário da OS do COS leva as proteções que atuaram
   ("Desligamento Usina Trip 27ABC/86 de ... a ...; OS 17001"; "Falha de comunicação com a geração parada, Usina de ...;
   OS ..."; "sem OS" quando a normalização não tem), com a volta de cada usina quando o Levi a corrigiu numa só, e não
-  vai buscar o trip no Fracttal. Prova: `tests/test_thopen_disp_cos.py`.
+  vai buscar o trip no Fracttal. A Metodologia, a nota dos Registros e as mensagens da tabela de comentários dizem a
+  fonte ao cliente (30/10/2026): as paradas registradas pelo COS na Ronda COS e, nas usinas fora dela, os comentários
+  da equipe; "OS do Fracttal" ficou só nas strings, que seguem vindo das OS de recomposição. Prova:
+  `tests/test_thopen_disp_cos.py` e `test_metodologia_disponibilidade_pelas_paradas_do_cos_sem_geracao`.
 - **As usinas que a Ronda COS não cobre, pelos comentários do BD_Thopen (30/10/2026**, Levi: "A disponibilidade dessas
   UFVs devem ser calculados de acordo com os comentários do BD_Thopen e os comentários também"): Rondonópolis, Aruanã,
   AP. do Taboado, Areia Branca, Monte Aprazível, Nova Iguaçu, Sapopema, Segredo e Cambé (`disp_comentarios.USINAS`; as

@@ -132,7 +132,7 @@ def test_tabela_de_antes_de_outubro_e_a_de_sempre():
     # partir de outubro quero os comentários 100% OS Fracttal. Antes deixe como estava!")
     r = corpo("renderCmt")
     assert "if(ano*100+mes<202610){ _cmtAntigo(tbl, usina, d);" in r and r.count("_cmtAntigo(") == 1
-    assert "if(!op){ _cmtAviso(tbl, 'Comentários pelas OS do Fracttal indisponíveis no momento.')" in r
+    assert "if(!op){ _cmtAviso(tbl, 'Comentários indisponíveis no momento.')" in r
     # e a volta para ela devolve o cabeçalho de 3 colunas guardado do próprio HTML, sem class="" sobrando
     assert "_CMT_THEAD=$('tblCmt').tHead.innerHTML" in T
     assert "tHead.innerHTML=_CMT_THEAD" in antigo and "removeAttribute('class')" in antigo
@@ -233,16 +233,17 @@ def test_texto_da_metodologia_da_rodada_2():
     assert not EMOJI.search(met)
 
 
-def test_metodologia_disponibilidade_so_das_os_sem_geracao():
-    # Levi, 15/10/2026: "disponibilidade é full Fracttal, isolada da geração". Até então o bloco dizia ao cliente que o
-    # dia em que a geração mostrava a usina funcionando não contava, mesmo com a OS aberta — a regra que saiu
+def test_metodologia_disponibilidade_pelas_paradas_do_cos_sem_geracao():
+    # Levi, 15/10/2026: "disponibilidade é full Fracttal, isolada da geração"; desde 29/10/2026 a conta é pelas paradas
+    # que o COS registra na Ronda COS (e, nas usinas fora dela, pelos comentários da equipe): o texto diz isso ao cliente
     met = _metodologia(T)
     bloco = met[met.index("<h3>Disponibilidade</h3>"):met.index("<dt>Antes de 10/2026")]
-    for trecho in ("religamento remoto", "corretiva emergencial", "de 06h a 18h", "as OS fechadas e as abertas",
-                   "a OS ainda aberta, sem data final, conta até o último dia fechado", "data de criação",
-                   "anterior até à criação, a OS não conta", "a geração não entra nela", "Dia sem OS = 100%",
-                   "falta de comunicação não é usina parada"):
+    for trecho in ("Centro de Operações (COS)", "de 06h a 18h", "da hora da falha até a hora em que o COS registrou a volta",
+                   "atuação de proteção", "falha da concessionária", "a falha de comunicação com a usina gerando não conta",
+                   "falta de comunicação não é usina parada", "comentários da equipe", "A geração não entra na conta",
+                   "Dia sem parada = 100%"):
         assert trecho in bloco, trecho
+    assert "Fracttal" not in bloco
     assert "geração mostra" not in bloco and "não é parada" not in bloco
     assert "anterior ao evento" not in bloco, "'evento' é jargão do Fracttal: o cliente lê 'início da parada'"
 
@@ -424,9 +425,9 @@ def test_comentario_de_outubro_em_diante_e_so_das_os_do_fracttal():
     n = corpo("_cmtPorDia")
     assert "com[n]=r.os==null?_CMT_SEM_PUB:(r.os.length?r.os.join(" in n
     assert "doOS" not in T and "cmt-os" not in T and '<div class="cmt-an">${_opEsc(x)}</div>' in n
-    assert "O registro das OS do Fracttal deste dia ainda não foi publicado." in T      # os null: a parcela não chegou
+    assert "O registro das paradas deste dia ainda não foi publicado." in T      # os null: a parcela não chegou
     # a usina sem a disponibilidade do Gerencial não ganha um "100%" inventado; o card carregando também não
-    assert "Sem a disponibilidade pelas OS do Fracttal para esta usina no mês." in n
+    assert "Sem o registro de disponibilidade desta usina no mês." in n
     assert "Atualizando os dados de operação." in n
     assert "_cmtNada(dias, pd, op, ano, mes, 'cmt')" in n and 'class="cmt-nada"' in n
     # as bolinhas do gráfico Energia × Irradiação seguem a tabela (os dias com OS), e a contestação leva só as OS
@@ -451,7 +452,7 @@ def test_nota_dos_dias_sem_ocorrencia_so_ate_o_ultimo_dia_fechado():
     pd.update({"4": {"disp": 94.2}, "5": {"disp": 22.2}, "6": {"disp": 25.9}, "7": {"disp": 99.7}, "13": {"disp": None}})
     op = {"strings": 0, "trackers": None, "parcial_ate": "13/10", "zeladoria": {"sem_cadastro": True}}
     assert _nada([4, 5, 6, 7], pd, op) == ("Os dias 01 a 03 e 08 a 12/10 não aparecem na tabela porque não tiveram "
-                                           "OS de desligamento no Fracttal (disponibilidade de 100%).")
+                                           "parada registrada pelo COS (disponibilidade de 100%).")
     # a usina pelos comentários do BD_Thopen (30/10/2026) não fala em OS do Fracttal
     assert _nada([4, 5, 6, 7], pd, dict(op, fonte_disp="bd_comentarios")).endswith(
         "não tiveram desligamento nos comentários da equipe (disponibilidade de 100%).")
@@ -465,8 +466,8 @@ def test_nota_dos_dias_sem_ocorrencia_so_ate_o_ultimo_dia_fechado():
 
 def test_nota_sem_a_disponibilidade_nao_diz_100_e_dia_isolado():
     op = {"strings": 0, "trackers": 0, "parcial_ate": "06/10", "zeladoria": {}}
-    assert _nada([1, 2, 3, 4], {}, op) == ("O dia 05/10 não aparece na tabela porque não teve OS de desligamento no "
-                                           "Fracttal.")
+    assert _nada([1, 2, 3, 4], {}, op) == ("O dia 05/10 não aparece na tabela porque não teve parada registrada pelo "
+                                           "COS.")
     assert _nada([1, 2, 3, 4], {}, op, "rp") == ("O dia 05/10 não aparece na tabela porque não teve ronda, tracker "
                                                  "parado nem string sem corrente.")
     assert _nada([1, 2], {}, {"strings": None, "trackers": None, "parcial_ate": "04/10",

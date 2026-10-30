@@ -685,14 +685,14 @@
       </dl></div>
       <div class="card met"><h3>Disponibilidade</h3><dl>
         <dt>De 10/2026 em diante</dt>
-        <dd><span class="fx">Disponibilidade do dia (%) = 100 × (1 − horas perdidas ÷ 12 h)</span>Horas perdidas pelas OS de religamento, de religamento remoto e de corretiva emergencial do Fracttal, de 06h a 18h, ponderadas pela potência afetada (usina, cabine ou inversor). Contam as OS fechadas e as abertas: a OS ainda aberta, sem data final, conta até o último dia fechado. Quando o fim registrado na OS é anterior ao início da parada, vale a data de criação da OS como início (e, se o fim é anterior até à criação, a OS não conta). A OS de falta de comunicação (verificação de comunicação) não conta: falta de comunicação não é usina parada. A conta usa só as OS do Fracttal: a geração não entra nela. Dia sem OS = 100%. A disponibilidade do mês é a média dos dias fechados (até ontem), e a mesma conta aparece por dia na tabela do Diário, com as OS que a formaram.</dd>
+        <dd><span class="fx">Disponibilidade do dia (%) = 100 × (1 − horas perdidas ÷ 12 h)</span>Horas perdidas pelas paradas registradas pelo Centro de Operações (COS) na Ronda COS, de 06h a 18h, ponderadas pela potência afetada (usina, cabine ou inversor): da hora da falha até a hora em que o COS registrou a volta da usina. Contam o desligamento (da usina, da cabine, do SKID, do QGBT ou do inversor), a atuação de proteção, o inversor offline, a falha da concessionária e a falha de comunicação em que a geração parou; a falha de comunicação com a usina gerando não conta (falta de comunicação não é usina parada). Nas usinas fora da Ronda COS, contam os períodos de desligamento escritos nos comentários da equipe na base de dados da Grid Co. A geração não entra na conta. Dia sem parada = 100%. A disponibilidade do mês é a média dos dias fechados (até ontem), e a mesma conta aparece por dia na tabela do Diário, com as paradas que a formaram.</dd>
         <dt>Antes de 10/2026<span class="conf">A CONFIRMAR</span></dt>
         <dd><span class="fx">Disponibilidade (%) = média das disponibilidades diárias do mês</span>O modelo anterior, da base de dados da Grid.</dd>
       </dl></div>
       <div class="card met"><h3>Operação no mês <span style="font-weight:400;color:var(--muted)">(desde 10/2026)</span></h3><dl>
         <dt>Strings sem corrente</dt><dd>Strings das <b>OS de recomposição de string</b> do Fracttal, contadas na <b>data do evento</b> da OS. A quantidade vem da linha “Strings sem corrente: N” das observações da OS ou das strings citadas nela; a mesma string citada em mais de uma OS do mês conta uma vez. OS cancelada não entra. Em outubro de 2026, as OS sem quantidade foram completadas pela Grid a partir do monitoramento (as strings sem corrente naquele inversor no dia do evento), e o card avisa; depois disso, OS sem quantidade fica fora da soma, também com aviso no card.</dd>
         <dt>Trackers parados</dt><dd>Ocorrências da plataforma de monitoramento da Grid Co.: trackers distintos que ficaram parados (sem acompanhar o sol) no mês, contando só os dias em que a usina comunicou (inversor ou string). O dia de hoje, com a geração ainda por fechar, também conta. Tracker sem comunicação não conta, nem parada de menos de 30 min ou tracker parado na posição correta.</dd>
-        <dt>Tabelas do Diário, por dia</dt><dd>Duas tabelas lado a lado. <b>Comentários</b>: uma linha por dia com disponibilidade abaixo de 100%, com a disponibilidade do dia e as OS do Fracttal que a formaram — o comentário é só o registro dessas OS, a mesma conta da coluna Disponibilidade. <b>Ronda e Performance</b>: uma linha por dia com ronda (os níveis de vegetação e de sujidade, de 1 a 5), tracker parado ou OS de string (pela data do evento). Os dias sem nada não viram linha: a nota no fim de cada tabela diz quais são. Os números de cada linha são os daquele dia; o card conta cada string e cada tracker uma vez no mês, por isso o total não é a soma das linhas. Dias seguidos iguais aparecem numa linha só (ex.: “01 a 05/10”). Cada OS diz o que parou naquele dia — a usina, a cabine ou o inversor, nos horários em que tirou disponibilidade (das 06h às 18h) e que parte da potência da usina — e o desligamento inteiro entre parênteses. “—” quer dizer que a usina não tem aquela medição no dia (não é zero).</dd>
+        <dt>Tabelas do Diário, por dia</dt><dd>Duas tabelas lado a lado. <b>Comentários</b>: uma linha por dia com disponibilidade abaixo de 100%, com a disponibilidade do dia e as paradas que a formaram (o registro do COS, com a proteção que atuou; nas usinas fora da Ronda COS, o comentário da equipe) — a mesma conta da coluna Disponibilidade. <b>Ronda e Performance</b>: uma linha por dia com ronda (os níveis de vegetação e de sujidade, de 1 a 5), tracker parado ou OS de string (pela data do evento). Os dias sem nada não viram linha: a nota no fim de cada tabela diz quais são. Os números de cada linha são os daquele dia; o card conta cada string e cada tracker uma vez no mês, por isso o total não é a soma das linhas. Dias seguidos iguais aparecem numa linha só (ex.: “01 a 05/10”). Cada linha diz o que parou — a usina, a cabine ou o inversor —, a proteção que atuou quando foi registrada, o período inteiro da parada e o número da OS. “—” quer dizer que a usina não tem aquela medição no dia (não é zero).</dd>
         <dt>Rondas e fotos</dt><dd>O ícone de imagem no canto do card abre as rondas do mês: os itens verificados em campo, os níveis de sujidade e de vegetação e as fotos de cada item. Clicar na barra de um dia do gráfico Energia × Irradiação contesta os números daquele dia — geração, disponibilidade, desligamento, string, tracker ou ronda; a Grid Co. responde pelo contato informado.</dd>
       </dl></div>
       <div class="card met" style="grid-column:1 / -1"><h3>Zeladoria — a régua de cinco níveis</h3>
@@ -704,7 +704,7 @@
         </tbody></table>
       </div>
       <div class="card met" style="grid-column:1 / -1"><h3>Fontes e atualização</h3>
-        <p class="met-p">Geração, irradiação e metas: base de dados da Grid Co., relida pelo painel a cada 10 minutos. Disponibilidade e comentários: de 10/2026 em diante, as OS do Fracttal (publicadas de hora em hora), com a proteção que atuou (o trip, ex.: "Trip 27/86") quando a OS a registra; antes disso, a base de dados da Grid Co. Strings: OS de recomposição de string do Fracttal; trackers: registro de falhas da plataforma de monitoramento da Grid Co.; os dois publicados de hora em hora. Zeladoria: rondas do App de Campo da Grid Co.</p>
+        <p class="met-p">Geração, irradiação e metas: base de dados da Grid Co., relida pelo painel a cada 10 minutos. Disponibilidade e comentários: de 10/2026 em diante, as paradas registradas pelo COS na Ronda COS (a hora da falha e a da volta, publicadas de hora em hora), com a proteção que atuou (ex.: "Trip 27/86"); nas usinas fora da Ronda COS, os comentários da equipe na base de dados da Grid Co.; antes de 10/2026, a base de dados da Grid Co. Strings: OS de recomposição de string do Fracttal; trackers: registro de falhas da plataforma de monitoramento da Grid Co.; os dois publicados de hora em hora. Zeladoria: rondas do App de Campo da Grid Co.</p>
       </div>
     </div>
   </div>
@@ -1033,7 +1033,7 @@ async function renderRegistros(){
     +`<div class="rg-k"><b>${_rgF(med('ipoa'))}</b><span>Irradiação média (kWh/m²)</span></div>`
     +`<div class="rg-k"><b>${pct(med('disp'))}</b><span>Disponibilidade média</span></div>`;
   $('rgFonte').textContent=!d?'':'Geração e irradiação: base de dados da Grid Co. (BD_Thopen). Disponibilidade: '
-    +(d.fonte_disp==='os'?'OS do Fracttal.':'base de dados da Grid Co.');
+    +(d.fonte_disp==='os'?'paradas registradas pelo COS (Ronda COS) e, nas usinas fora dela, os comentários da equipe.':'base de dados da Grid Co.');
   $('rgAviso').classList.toggle('hidden',!(d&&d.disp_carregando));
   $('rgAviso').textContent='A disponibilidade das OS ainda está carregando. Use Atualizar ou troque de aba em alguns segundos.';
   $('rgCab').classList.toggle('hidden',!U.length);
@@ -1416,7 +1416,7 @@ function _cmtCabeca(tbl){
 }
 // de 10/2026 em diante, sem a resposta do card: uma linha só, que diz por quê (nunca o comentário da equipe)
 function _cmtAviso(tbl, txt){ _cmtCabeca(tbl); tbl.querySelector('tbody').innerHTML=`<tr><td colspan=4 class=muted>${_opEsc(txt)}</td></tr>`; }
-const _CMT_SEM_PUB='O registro das OS do Fracttal deste dia ainda não foi publicado.';
+const _CMT_SEM_PUB='O registro das paradas deste dia ainda não foi publicado.';
 // → a lista dos dias que viraram linha (as bolinhas do gráfico)
 function _cmtPorDia(tbl, usina, ano, mes, d, op){
   const tb=tbl.querySelector('tbody'), ok=op.disponivel===true, mm=String(mes).padStart(2,'0');
@@ -1430,7 +1430,7 @@ function _cmtPorDia(tbl, usina, ano, mes, d, op){
   // 30/10/2026: a usina que segue os comentários do BD_Thopen mostra todo dia com comentário, mesmo em 100%
   const bd=op.fonte_disp==='bd_comentarios';
   Object.keys(pd).forEach(n=>{ const r=pd[n]; if(r.disp==null||(r.disp>=100&&!(bd&&r.os&&r.os.length))) return;
-    com[n]=r.os==null?_CMT_SEM_PUB:(r.os.length?r.os.join('\n'):'Indisponibilidade registrada no Fracttal sem o detalhe da OS.'); });
+    com[n]=r.os==null?_CMT_SEM_PUB:(r.os.length?r.os.join('\n'):'Indisponibilidade registrada sem o detalhe da parada.'); });
   // rodada 5 (Levi, 13/10/2026): Usina | Data | Comentário | Disponibilidade — uma linha por dia abaixo de 100%. Ronda,
   // trackers e strings ficam na tabela ao lado
   const dias=Object.keys(com).map(Number).sort((a,b)=>a-b);
@@ -1439,7 +1439,7 @@ function _cmtPorDia(tbl, usina, ano, mes, d, op){
   // usina sem a disponibilidade do Gerencial no mês (fora do índice do Fracttal): não há o que explicar, e dizer "100%"
   // seria inventar
   if(!Object.keys(pd).some(n=>pd[n].disp!=null)){
-    tb.innerHTML='<tr><td colspan=4 class=muted>Sem a disponibilidade pelas OS do Fracttal para esta usina no mês.</td></tr>';
+    tb.innerHTML='<tr><td colspan=4 class=muted>Sem o registro de disponibilidade desta usina no mês.</td></tr>';
     return [];
   }
   const nada=_cmtNada(dias, pd, op, ano, mes, 'cmt');
@@ -1522,7 +1522,7 @@ function _cmtNada(dias, pd, op, ano, mes, tipo){
   const ini=um?`O dia ${lista} não aparece na tabela porque não teve `:`Os dias ${lista} não aparecem na tabela porque não tiveram `;
   if(tipo==='cmt'){
     // 30/10/2026: a usina pelos comentários do BD_Thopen diz de onde vem (não há OS do Fracttal nela)
-    const deOnde=op.fonte_disp==='bd_comentarios'?'desligamento nos comentários da equipe':'OS de desligamento no Fracttal';
+    const deOnde=op.fonte_disp==='bd_comentarios'?'desligamento nos comentários da equipe':'parada registrada pelo COS';
     return ocultos.every(n=>pd[n]&&pd[n].disp===100) ? ini+deOnde+' (disponibilidade de 100%).' : ini+deOnde+'.';
   }
   const coisas=[];
@@ -1566,11 +1566,11 @@ function renderCmt(){
   if(ano*100+mes<202610){ _cmtAntigo(tbl, usina, d); $('rpCard').classList.add('hidden'); return; }
   // de 10/2026 em diante o comentário é só das OS do Fracttal (14/10/2026): sem a resposta do card a tabela diz isso, e
   // nunca volta ao comentário da equipe
-  if(!op){ _cmtAviso(tbl, 'Comentários pelas OS do Fracttal indisponíveis no momento.'); _cmtBolinhas([]);
+  if(!op){ _cmtAviso(tbl, 'Comentários indisponíveis no momento.'); _cmtBolinhas([]);
     $('rpCard').classList.add('hidden'); return; }
   // as tabelas novas nunca derrubam o Diário (o PDF Carteira segue)
   try{ _cmtBolinhas(_cmtPorDia(tbl, usina, ano, mes, d, op)); _rpPorDia($('tblRp'), ano, mes, op); $('rpCard').classList.remove('hidden'); }
-  catch(e){ console.error('Comentários por dia',e); _cmtAviso(tbl, 'Comentários pelas OS do Fracttal indisponíveis no momento.');
+  catch(e){ console.error('Comentários por dia',e); _cmtAviso(tbl, 'Comentários indisponíveis no momento.');
     $('rpCard').classList.add('hidden'); }
 }
 
@@ -1996,14 +1996,14 @@ function abrirDisponibilidade(){
   for(let n=1;n<=ult;n++){
     const r=pd[n]||{}, v=r.disp, baixo=v!=null&&v<100;
     const com=!baixo?'':(r.os==null?_CMT_SEM_PUB
-      :(r.os.length?r.os.map(_opEsc).join('<br>'):'Indisponibilidade registrada no Fracttal sem o detalhe da OS.'));
+      :(r.os.length?r.os.map(_opEsc).join('<br>'):'Indisponibilidade registrada sem o detalhe da parada.'));
     h+=`<tr><td>${String(n).padStart(2,'0')}/${mm}</td><td class="dp-v${v!=null&&v<99?' baixa':''}">${pc(v)}</td>`
       +`<td class="dp-com">${com}</td></tr>`;
   }
   // a média com 2 casas, como o valor do card (94,66%, não 94,7%)
   const media=o.d.disponibilidade==null?'—':o.d.disponibilidade.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
   h+=`<tr class="tot"><td>Média do mês</td><td>${media}</td><td class="dp-com">`
-    +`Média dos dias, pelas OS do Fracttal (horas paradas de 06h a 18h, pela potência)</td></tr></tbody></table>`;
+    +`Média dos dias, pelas paradas registradas (horas paradas de 06h a 18h, pela potência)</td></tr></tbody></table>`;
   $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}`;
   $('dpCorpo').innerHTML=h;
   $('dpFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('dpX').focus();
