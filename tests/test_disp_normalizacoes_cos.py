@@ -91,8 +91,18 @@ def test_desligamento_de_usina_e_a_usina_inteira_mesmo_com_o_rele_citado():
     assert a_os(r, 17001)["kwh"] == pytest.approx(1000 * 6, rel=1e-3)
 
 
-def test_cabine_sem_o_codigo_da_cabine_vai_pela_media_e_para_o_alinhar():
+def test_rele_e_a_usina_inteira_e_qgbt_e_cabine():
+    # Levi, 30/10/2026: "quando o ativo for rele considere a usina inteira, QGBT é cabine"
     r = roda([norm("r1", tipo_falha="DESLIGAMENTO_CABINE", equipamentos_codigos="ALF100-RELE1")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(1000 * 6, rel=1e-3) and not r["alinhar"]
+    r = roda([norm("r1", tipo_falha="ATUACAO_PROTECAO", equipamentos_codigos="THPN-ALF100-RELE1")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(1000 * 6, rel=1e-3) and not r["alinhar"]
+    r = roda([norm("r1", tipo_falha="DESLIGAMENTO_QGBT", equipamentos_codigos="THPN-ALF100-QGBT2")])
+    assert a_os(r, 17001)["kwh"] == pytest.approx(400 * 6, rel=1e-3)          # a cabine 2 (400 kWp)
+
+
+def test_codigo_que_nao_e_de_geracao_vai_pela_media_e_para_o_alinhar():
+    r = roda([norm("r1", tipo_falha="DESLIGAMENTO_CABINE", equipamentos_codigos="ALF100-DLOG1")])
     assert a_os(r, 17001)["kwh"] == pytest.approx(500 * 6, rel=1e-3)          # a média das cabines (600 e 400)
     assert "potência média" in r["alinhar"][0]["motivo"]
 
@@ -249,3 +259,22 @@ def test_sem_as_normalizacoes_o_worker_nao_publica_e_a_thopen_nao_cai_no_fractta
     app._frac_disp_recalcular()
     assert avisos and avisos[0][0] is False and "normalizações do COS indisponíveis" in avisos[0][1]
     assert not (tmp_path / "frac_disp_index.json").exists()
+
+
+def test_cabine_de_usina_de_site_dividido_e_lida_na_propria_usina():
+    # 30/10/2026: a Rodrigues 2 (site "Rodrigues 1 e 2") citava a CABN1 dela, e a régua a mandava para a Rodrigues 1
+    eq = EQUIP + [
+        {"cliente": "Thopen", "usina": "Delta 1", "usina_fracttal": "Thopen - Delta 1 e 2 - SP", "equipamento": "UFV",
+         "pot_kwp": 500.0, "n_inv": 2, "full_om": "Sim"},
+        {"cliente": "Thopen", "usina": "Delta 2", "usina_fracttal": "Thopen - Delta 1 e 2 - SP", "equipamento": "UFV",
+         "pot_kwp": 900.0, "n_inv": 3, "full_om": "Sim"},
+        {"cliente": "Thopen", "usina": "Delta 2", "usina_fracttal": "Thopen - Delta 1 e 2 - SP", "equipamento": "UG 01",
+         "pot_kwp": 300.0},
+        {"cliente": "Thopen", "usina": "Delta 2", "usina_fracttal": "Thopen - Delta 1 e 2 - SP", "equipamento": "UG 02",
+         "pot_kwp": 600.0}]
+    r = dm.calcular({}, eq, PER_INI, PER_FIM, agora=AGORA, usinas_por_id={44: ["Delta 2"]},
+                    normalizacoes=[norm("r1", usina_id="44", usina_codigo="THPN-DLT200", tipo_falha="DESLIGAMENTO_CABINE",
+                                        equipamentos_codigos="THPN-DLT200-CABN1")])
+    o = a_os(r, 17001)
+    assert o["kwh"] == pytest.approx(300 * 6, rel=1e-3) and usina(r, "Delta 1")["disp"] == 100
+    assert not r["alinhar"]

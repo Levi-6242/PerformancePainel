@@ -1491,7 +1491,10 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   Exceções do Levi pelo registro ou pela OS (`COS_EXCECOES`, à vista no "alinhar"): na Brodowski a OS 12693 sai ("a
   geração não parou") e a normalização sem OS de 02/07 a 28/10 vale só a cabine 1. A usina: o usina_id do Nexus → as usinas da aba pelo de-para (`depara_fracttal.usinas_por_id`: a chave
   externa casa com o nome da usina OU com o site do Fracttal dela; o cadastro "Ipixuna 1 e 2" é as duas da aba). O
-  escopo: desligamento de usina = a usina inteira (o relé citado não muda); com código, a MESMA leitura do `escopo_os`;
+  escopo: desligamento de usina = a usina inteira (o relé citado não muda); com código, a cabine e o inversor lidos NA
+  usina da normalização (o relé, RELE, é a usina inteira e o QGBT N é a cabine N, Levi 30/10/2026;
+  `_escopo_na_usina`: o site dividido não manda a cabine para a vizinha; até 30/10/2026 as
+  cabines da Rodrigues 2 iam para a Rodrigues 1 e caíam na potência média), o `escopo_os` só no cadastro de duas usinas;
   código que não é de geração vale pelo tipo, com a potência média, e vai ao "alinhar"; normalização de mais de 24 h
   também vai ("conferir a falha e a volta na Ronda COS"). As proteções vão na OS (`protecoes`) e na aba
   `disponibilidade_os_dia` (`fonte` cos). **A única fonte da Thopen é a normalização + as adaptações** (30/10/2026,

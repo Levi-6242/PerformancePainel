@@ -1085,6 +1085,30 @@ def consolidar_normalizacao(r):
     return o
 
 
+def _escopo_na_usina(code, u, U, o):
+    """[(usina, nivel, chave, kwp)] do código do ativo na usina `u` já sabida: inversor (INVR/DINV N[.M]), cabine
+    (CABN/SKID/QGBT/PECN/DTRF N) ou a raiz (a usina inteira); [] = o código não é de geração (relé, datalogger)."""
+    m = re.search(r"-D?INVR?(\d+(?:\.\d+)?)$", code)
+    if m and ("INVR" in code or "DINV" in code):
+        num = inv_do_fracttal(code, m.group(1))
+        kwp = U.invs.get(num)
+        if not kwp:
+            kwp = U.pot_inv_media()
+            o["flags"].append(f"inversor {num} sem match exato no BD → potência média")
+        return [(u, "inversor", f"inv{num}", min(kwp, U.pot))] if kwp else []
+    m = re.search(r"-(" + "|".join(SUF_CABINE) + r")(\d+)$", code)
+    if m:
+        n = int(m.group(2))
+        kwp = U.ugs.get(n)
+        if not kwp:
+            kwp = U.pot_ug_media()
+            o["flags"].append(f"cabine {n} sem UG própria no BD ({u}) → potência média de cabine")
+        return [(u, "cabine", f"cab{n}", min(kwp, U.pot))] if kwp else [(u, "usina", "ufv", U.pot)]
+    if re.search(r"[A-Z]{3}\d{3}$", code):
+        return [(u, "usina", "ufv", U.pot)]
+    return []
+
+
 def escopo_normalizacao(o, us, usinas, idx):
     """[(usina, nivel, chave, kwp)] da normalização nas usinas `us` (as da aba Equipamentos do usina_id dela, pelo
     de-para: uma, ou as duas de um cadastro de site como "Ipixuna 1 e 2"). Desligamento de usina e normalização sem
@@ -1115,8 +1139,19 @@ def escopo_normalizacao(o, us, usinas, idx):
         return inteiras
     out = []
     for code in o["codigos"]:
+        # o relé que atuou é a usina inteira (Levi, 30/10/2026: "quando o ativo for rele considere a usina inteira, QGBT
+        # é cabine"; o QGBT N já é a cabine N, em SUF_CABINE)
+        if re.search(r"-RELE\d*$", code):
+            out += inteiras
+            continue
         x = dict(o, code=code, g1=usinas[us[0]].fracttal, item="", desc="", excl=None, flags=[], alinhar=[])
-        esc = escopo_os(x, usinas, idx)
+        # a usina já é sabida (o usina_id do Nexus): a cabine e o inversor se leem NELA. Pelo site do Fracttal, o site
+        # dividido (Rodrigues 1 e 2) mandava a "Cabine 1" da Rodrigues 2 para a Rodrigues 1, e a parada caía na
+        # potência média (30/10/2026: 14 normalizações da Rodrigues 2 com o código certo no arquivo do COS)
+        aplica, esc = _escopo_por_cabine(x, usinas)
+        if not aplica:
+            esc = (_escopo_na_usina(code, com_pot[0], usinas[com_pot[0]], x) if len(com_pot) == 1
+                   else escopo_os(x, usinas, idx))
         esc = [e for e in esc or () if e[0] in us]
         if esc:
             out += esc
