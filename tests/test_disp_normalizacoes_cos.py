@@ -409,3 +409,18 @@ def test_o_worker_le_as_abertas_e_confere_a_contagem(monkeypatch):
     # a gravação de antes das abertas (sem abertas_qtd): só as normalizações
     leitores([{"linhas_qtd": "1"}], fato, None)
     assert [x["registro"] for x in app._disp_normalizacoes(EQUIP)[0]] == ["r1"]
+
+
+def test_aberta_sem_a_tag_conta_a_parte_pelo_tipo_e_a_generica_fica_fora():
+    # 30/10/2026, a 1ª leitura das abertas: a OS 16958 de Santarém ("desligamento de inversor" sem a tag) zerava as duas
+    # usinas o mês todo; a OS 16956 ("Desligamento", aberta desde 09/09 aguardando o cliente) zerava Ribeirão Cascalheiras
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="DESLIGAMENTO_INVERSOR")])
+    o = a_os(r, 16958)
+    assert o["excl"] is None and 0 < usina(r, "Alfa")["h_perdidas"] < 0.9 * (9 + 21 * 12)
+    assert any("potência média" in a["motivo"] for a in r["alinhar"])
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="DESLIGAMENTO", etapa="Aguardando cliente")])
+    assert a_os(r, 16958)["excl"].startswith("COS sem equipamento") and usina(r, "Alfa")["disp"] == 100
+    assert any("COS sem equipamento" in a["motivo"] for a in r["alinhar"])
+    # a normalizada sem código segue a usina inteira, e o desligamento de usina aberto também
+    assert usina(roda([norm("r1", tipo_falha="DESLIGAMENTO_INVERSOR")]), "Alfa")["h_perdidas"] == pytest.approx(6.0)
+    assert usina(roda_com_abertas([], [aberta("a1")]), "Alfa")["h_perdidas"] == pytest.approx(9 + 21 * 12)

@@ -1141,7 +1141,10 @@ def escopo_normalizacao(o, us, usinas, idx):
         return [(com_pot[0], "cabine", f"cab{n}", min(kwp, U.pot))]
     # o desligamento da usina é a usina inteira, qualquer que seja o equipamento citado (na 1ª gravação, 29/10/2026, o
     # relé que atuou vinha como equipamento: "BWK100-RELE1")
-    if not o["codigos"] or tipo in COS_TIPOS_USINA:
+    # a ocorrência ainda aberta sem a tag do equipamento não é a usina inteira: o tipo diz a parte (30/10/2026, na 1ª
+    # leitura das abertas: OS 16958 de Santarém, "desligamento de inversor" sem a tag desde 12/07, zerava as duas
+    # usinas o mês todo, e a Thopen de outubro ia de 95,22% a 86,99%). A comunicação com a geração parada segue a usina
+    if tipo in COS_TIPOS_USINA or (not o["codigos"] and (not o.get("aberta") or "COMUNIC" in tipo)):
         return inteiras
     out = []
     for code in o["codigos"]:
@@ -1171,6 +1174,11 @@ def escopo_normalizacao(o, us, usinas, idx):
             out = [(com_pot[0], "inversor", "inv?", min(U.pot_inv_media(), U.pot))]
         elif any(k in tipo for k in ("CABINE", "SKID", "QGBT")) and U.pot_ug_media():
             out = [(com_pot[0], "cabine", "cab?", min(U.pot_ug_media(), U.pot))]
+        elif o.get("aberta"):
+            # a aberta que não diz o que parou ("Desligamento", a OS 16956 de Ribeirão Cascalheiras, aberta desde 09/09
+            # aguardando o cliente) não zera a usina por semanas: fora da conta e no "alinhar" até o COS dizer
+            o["excl"] = "COS sem equipamento: ocorrência aberta sem dizer o que parou (%s)" % rotulo_cos(tipo)
+            return None
         else:
             out = inteiras
         o["flags"].append(f"escopo pelo tipo ({rotulo_cos(tipo)}): os códigos não dizem o equipamento de geração")

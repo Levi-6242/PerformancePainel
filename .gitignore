@@ -203,3 +203,7 @@ trk_parados_fim_dia.json
 pv_relogio.json
 frac_mtta_index.json
 frac_mtta_linhas.json
+
+# as cópias em disco dos livros do Nexus que o worker lê (Registro mestre e de-para): dado do banco, nunca no git
+depara_registro_*.json
+disp_cos_*.json
