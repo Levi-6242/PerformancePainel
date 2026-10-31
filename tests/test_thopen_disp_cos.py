@@ -81,3 +81,11 @@ def test_uma_conta_so_para_todas_as_contas(monkeypatch):
     assert "disponibilidade_cos" not in dth.LIBERADO_AO_CLIENTE and dth._op_dados() is d
     assert not hasattr(om, "disp_de_antes")
     assert not [k for k in fonte_operacao.ABAS.values() if k[0].endswith("_fracttal")]
+
+
+def test_a_parte_sem_identificacao_nao_vai_com_interrogacao():
+    # 30/10/2026: a OS 16958 aberta sem a tag saiu "Desligamento Inversor ? desde 12/07..." no Dashboard
+    f = om._frase_os(_os(escopo="Inversor ?", tipo="desligamento de inversor", protecoes=None, aberta="sim", fim=None),
+                     DIA, 1000, protecao_sempre=True)
+    assert f.startswith("Desligamento Inversor não identificado desde 10/10 às 09:00h, em aberto") and "?" not in f
+    assert "Cabine não identificada" in om._frase_os(_os(escopo="Cabine ?", tipo="desligamento de cabine"), DIA, 1000)

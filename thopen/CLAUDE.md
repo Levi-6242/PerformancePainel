@@ -128,7 +128,10 @@ prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria` e `protecao_no_com
   ativou no comentário, caso não tenha tem que ter Proteção: Sem proteção ativa"): "Desligamento Usina de ... a ...;
   Proteção: 27ABC/86; OS 17001" e "...; Proteção: Sem proteção ativa; OS ..." (`_frase_cos`, `protecao_sempre`); sobe
   para a conta Performance pela chave `protecao_no_comentario`, e o cliente segue com a frase do Trip até a liberação.
-  A parada que segue aberta na Ronda COS sai "desde DD/MM às HH:MMh, em aberto". A Metodologia, a nota dos Registros e as mensagens da tabela de comentários dizem a
+  A parada que segue aberta na Ronda COS sai "desde DD/MM às HH:MMh, em aberto".
+  A parte que a régua contou pelo tipo sem saber qual (a aberta sem a tag do equipamento) sai "Inversor não
+  identificado" / "Cabine não identificada", nunca "Inversor ?" (`SEM_IDENTIFICACAO`, 30/10/2026: a OS 16958 de
+  Santarém). A Metodologia, a nota dos Registros e as mensagens da tabela de comentários dizem a
   fonte ao cliente (30/10/2026): as paradas registradas pelo COS na Ronda COS e, nas usinas fora dela, os comentários
   da equipe; "OS do Fracttal" ficou só nas strings, que seguem vindo das OS de recomposição. Prova:
   `tests/test_thopen_disp_cos.py` e `test_metodologia_disponibilidade_pelas_paradas_do_cos_sem_geracao`.

@@ -369,6 +369,7 @@ def _usina_inteira(o):
 # a proteção sempre no comentário (Levi, 30/10/2026: "tem que ter a proteção que ativou no comentário, caso não tenha
 # tem que ter Proteção: Sem proteção ativa")
 SEM_PROTECAO = "Sem proteção ativa"
+SEM_IDENTIFICACAO = {"Inversor ?": "Inversor não identificado", "Cabine ?": "Cabine não identificada"}
 
 
 def _frase_cos(o, alvo, quando, protecao_sempre=False):
@@ -405,6 +406,9 @@ def _frase_os(o, dia, pot_usina, trip=None, protecao_sempre=False):
         return None
     ini, fim, aberta = _quando(o.get("inicio")), _quando(o.get("fim")), chave(o.get("aberta")) == "sim"
     esc = [e.strip() for e in str(o.get("escopo") or "").split(";") if e.strip()]
+    # a parte que a régua contou pelo tipo, sem saber qual ("Inversor ?", "Cabine ?": a ocorrência aberta sem a tag do
+    # equipamento, 30/10/2026) não vai ao cliente com o ponto de interrogação
+    esc = [SEM_IDENTIFICACAO.get(e, e) for e in esc]
     partes = ["Usina"] if not esc or esc == ["Usina inteira"] else esc
     alvo = partes[0] if len(partes) == 1 else ", ".join(partes[:-1]) + " e " + partes[-1]
     tipo = ", ".join(x.strip().lower() for x in str(o.get("tipo") or "").split(";") if x.strip())
