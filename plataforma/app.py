@@ -27363,7 +27363,8 @@ DISP_COS_CAB_ATU = ("atualizado_em", "linhas_qtd", "desde", "ligadas_qtd", "aber
 # as ocorrências ainda abertas (30/10/2026, Levi: "para as em aberto contar na disponibilidade precisamos puxar os dados
 # dessa fonte"): o retrato da hora que o Nexus grava na mesma volta das normalizações
 DISP_COS_CAB_ABERTA = ("registro", "os", "cliente", "usina_codigo", "usina_id", "usina_ligada_por",
-                       "equipamentos_codigos", "equipamentos_qtd", "equipamentos_de", "tipo_falha", "severidade", "etapa",
+                       "equipamentos_codigos", "equipamentos_qtd", "equipamentos_de", "equipamentos_citados", "tipo_falha",
+                       "severidade", "etapa",
                        "inicio", "data_id_inicio", "dias_aberta_qtd", "geracao_parou", "protecoes")
 _DISP_COS = {}
 

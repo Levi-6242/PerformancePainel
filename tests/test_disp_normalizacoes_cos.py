@@ -424,3 +424,15 @@ def test_aberta_sem_a_tag_conta_a_parte_pelo_tipo_e_a_generica_fica_fora():
     # a normalizada sem código segue a usina inteira, e o desligamento de usina aberto também
     assert usina(roda([norm("r1", tipo_falha="DESLIGAMENTO_INVERSOR")]), "Alfa")["h_perdidas"] == pytest.approx(6.0)
     assert usina(roda_com_abertas([], [aberta("a1")]), "Alfa")["h_perdidas"] == pytest.approx(9 + 21 * 12)
+
+
+def test_aberta_sem_a_tag_le_o_inversor_que_o_cos_cita_na_usina_certa():
+    # 30/10/2026: a OS 16958 só tinha "Inversor 2.7" (o Nexus guarda INV2.7); é o inversor 2.7, com a potência dele
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="DESLIGAMENTO_INVERSOR", equipamentos_citados="INV1.1")])
+    o = a_os(r, 16958)
+    assert o["kwh"] == pytest.approx(300 * (9 + 21 * 12), rel=1e-3)
+    assert [(e["usina"], e["rotulo"]) for e in o["escopo"]] == [("Alfa", "Inversor 1.1")]
+    assert not any("potência média" in a["motivo"] for a in r["alinhar"])
+    # o inversor que a aba não tem: o tipo, com a potência média, como antes
+    r = roda_com_abertas([], [aberta("a1", tipo_falha="DESLIGAMENTO_INVERSOR", equipamentos_citados="INV9.9")])
+    assert any("potência média" in a["motivo"] for a in r["alinhar"])

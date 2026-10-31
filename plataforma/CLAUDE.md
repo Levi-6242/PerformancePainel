@@ -1534,7 +1534,13 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   mesma chave, o registro: conta uma vez, pela volta do COS). O `consolidar_normalizacao` conta a aberta **do início até
   agora** (o período corta em D-1), como a OS aberta do Fracttal contava (Levi, 15/10/2026), com o mesmo escopo e os
   mesmos tipos; sai "em aberto" no comentário do Dashboard (`aberta`, `fim` vazio), e a de mais de um dia vai ao
-  "alinhar" com a etapa ("aguardando peça"). A falha de comunicação aberta fica fora até o COS normalizar: a resposta
+  "alinhar" com a etapa ("aguardando peça"). **O escopo da aberta sem a tag** (30/10/2026, a 1ª leitura: a OS 16958 de
+  Santarém, "desligamento de inversor" só com o nome "Inversor 2.7", zerava as duas usinas o mês todo e a Thopen ia de
+  95,22% a 86,99%): o equipamento que o COS cita pelo nome (`equipamentos_citados` do Nexus, INV2.7 e CAB2) é lido na
+  usina da aba Equipamentos que o tem (`_escopo_citado`: o 2.7 é da Santarém 2, 361 kWp); sem isso, o tipo diz a parte
+  (um inversor ou uma cabine de potência média, no "alinhar"); a aberta que não diz o que parou ("Desligamento", a OS
+  16956 de Ribeirão Cascalheiras, aguardando o cliente desde 09/09) fica fora e vai ao "alinhar". A normalizada sem
+  código segue a usina inteira. A falha de comunicação aberta fica fora até o COS normalizar: a resposta
   "a geração parou?" vem na normalização, e aí o trecho inteiro conta; não vai ao "alinhar". A OS com uma parte
   normalizada e outra aberta segue aberta.
   Prova: `tests/test_disp_normalizacoes_cos.py`.

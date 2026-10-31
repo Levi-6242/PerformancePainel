@@ -1044,7 +1044,8 @@ def consolidar_normalizacao(r, agora=None):
          "item": "", "g1": _txt(r.get("usina_codigo")), "desc": "", "criado_por": "", "responsavel": "",
          "aberta": aberta, "aberta_sem_fim": aberta, "ini": ini, "fim": fim or ini, "criada": None, "alinhar": [],
          "fonte": "cos", "tipo_cos": tipo, "registro": _txt(r.get("registro")), "codigos": codigos,
-         "protecoes": [p for p in (_txt(x) for x in _txt(r.get("protecoes")).split(";")) if p]}
+         "protecoes": [p for p in (_txt(x) for x in _txt(r.get("protecoes")).split(";")) if p],
+         "citados": [c for c in (_txt(x).upper() for x in _txt(r.get("equipamentos_citados")).split(";")) if c]}
     if aberta:
         o["dias_aberta"] = (fim - ini).days
         etapa = _txt(r.get("etapa"))
@@ -1115,6 +1116,30 @@ def _escopo_na_usina(code, u, U, o):
     return []
 
 
+def _escopo_citado(o, us, usinas):
+    """[(usina, nivel, chave, kwp)] dos equipamentos que o COS cita pelo nome, sem a tag (`equipamentos_citados` do
+    Nexus: INV2.7, CAB2), lidos nas usinas `us` pela aba Equipamentos: o inversor N.M e a cabine N com a potência deles.
+    A referência que não está em exatamente uma das usinas não diz o escopo (30/10/2026: a OS 16958, "Inversor 2.7" do
+    cadastro "Santarém 1 e 2", é o inversor 2.7 da Santarém 2, 361 kWp; pelo tipo, ia um inversor médio na Santarém 1)."""
+    out = []
+    for ref in o.get("citados") or ():
+        if ref.startswith("INV"):
+            num = ref[3:]
+            achou = [u for u in us if usinas[u].invs.get(num)]
+            if len(achou) == 1:
+                U = usinas[achou[0]]
+                out.append((achou[0], "inversor", f"inv{num}", min(U.invs[num], U.pot)))
+        elif ref.startswith("CAB") and ref[3:].isdigit():
+            n = int(ref[3:])
+            achou = [u for u in us if usinas[u].ugs.get(n)]
+            if len(achou) == 1:
+                U = usinas[achou[0]]
+                out.append((achou[0], "cabine", f"cab{n}", min(U.ugs[n], U.pot)))
+    if out:
+        o["flags"].append("escopo pelo equipamento que o COS cita: " + ", ".join(o["citados"]))
+    return out
+
+
 def escopo_normalizacao(o, us, usinas, idx):
     """[(usina, nivel, chave, kwp)] da normalização nas usinas `us` (as da aba Equipamentos do usina_id dela, pelo
     de-para: uma, ou as duas de um cadastro de site como "Ipixuna 1 e 2"). Desligamento de usina e normalização sem
@@ -1146,6 +1171,8 @@ def escopo_normalizacao(o, us, usinas, idx):
     # usinas o mês todo, e a Thopen de outubro ia de 95,22% a 86,99%). A comunicação com a geração parada segue a usina
     if tipo in COS_TIPOS_USINA or (not o["codigos"] and (not o.get("aberta") or "COMUNIC" in tipo)):
         return inteiras
+    if not o["codigos"] and (esc := _escopo_citado(o, com_pot, usinas)):
+        return esc
     out = []
     for code in o["codigos"]:
         # o relé que atuou é a usina inteira (Levi, 30/10/2026: "quando o ativo for rele considere a usina inteira, QGBT
