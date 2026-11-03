@@ -69,7 +69,10 @@ ABAS = {
     ("falhas_performance", "atualizacao"): ("atualizacao",
                                             ("mes", "periodo_fim", "atualizado_em", "strings_episodios",
                                              "trackers_episodios", "cobertura", "strings_os", "trackers_dia",
-                                             "disponibilidade_dia", "disponibilidade_os_dia")),
+                                             "disponibilidade_dia", "disponibilidade_os_dia",
+                                             # a gravação das normalizações do COS que a disponibilidade usou
+                                             # (03/11/2026): o Atualizar sabe que a correção chegou a esta leitura
+                                             "normalizacoes_em")),
     # rondas: o livro do App, regravado de hora em hora (Levi, 09/10: "tem que ser dinâmico"). Substituiu o
     # campo_nexus · rondas (parado em 02/10) e a carga única das rondas sem OS (06/10) — ver rondas_cliente
     ("rondas_app_campo", "OS de ronda"): ("rondas_com_os", rondas_cliente.CAMPOS_APP),
@@ -207,6 +210,21 @@ def dados(agora=None, iniciar=None):
                 _estado.update(carregando=False, erro="%s: %s" % (type(e).__name__, e),
                                proxima=time.time() + COOLDOWN)
     return atual
+
+
+def invalidar():
+    """A próxima chamada de `dados()` recarrega (em segundo plano), sem esperar o TTL: a plataforma publicou a
+    disponibilidade que o Atualizar pediu (03/11/2026)."""
+    with _lock:
+        _estado.update(ts=0.0, proxima=0.0)
+
+
+def normalizacoes_em():
+    """A gravação das normalizações do COS mais nova na leitura que este processo tem (a `atualizacao` de cada mês), ou
+    "" (leitura de antes da coluna, ou nenhuma)."""
+    with _lock:
+        d = _estado["dados"] or {}
+    return max((str(a.get("normalizacoes_em") or "") for a in d.get("atualizacao") or []), default="")
 
 
 def estado():

@@ -601,10 +601,11 @@ def test_colunas_novas_entram_so_no_fim_das_abas():
                                                                                          "dias_sem_prova"]
     # rodada 4 (09/10/2026): a disponibilidade do dia (Gerencial) entra no fim, depois das da rodada 2; as OS que a
     # formaram (12/10/2026, a janela de Disponibilidade da Visão do responsável do Nexus), depois dela
-    # e a parcela de cada OS em cada dia (14/10/2026, o comentário do Dashboard Thopen), por último
+    # e a parcela de cada OS em cada dia (14/10/2026, o comentário do Dashboard Thopen); a hora das normalizações do COS
+    # que a disponibilidade usou (03/11/2026, o Atualizar do Dashboard Thopen), por último
     assert pub.CABECALHOS["atualizacao"][len(ANTES["atualizacao"]):] == ["cobertura", "strings_os", "trackers_dia",
                                                                           "disponibilidade_dia", "disponibilidade_os",
-                                                                          "disponibilidade_os_dia"]
+                                                                          "disponibilidade_os_dia", "normalizacoes_em"]
     assert pub.CABECALHOS["cobertura"] == ["mes", "fonte", "cliente", "usina", "plant_id", "dias_strings",
                                            "dias_trackers", "dias_comunicou"]
     assert pub.CABECALHOS["strings_os"] == ["mes", "data_evento", "cliente", "usina", "plant_id", "inversor", "os",

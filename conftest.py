@@ -305,5 +305,7 @@ def _normalizacoes_do_cos_vazias(monkeypatch, request):
     Nos testes o livro vem vazio (nenhuma normalização, nenhum de-para) e as fixtures de usina não são da Thopen; o
     teste que quer as normalizações dubla o `app._disp_normalizacoes` (ou usa a marca `normalizacoes_reais`)."""
     if request.node.get_closest_marker("normalizacoes_reais") is None:
-        monkeypatch.setattr(app, "_disp_normalizacoes", lambda equip: ([], {}, ""))
+        monkeypatch.setattr(app, "_disp_normalizacoes", lambda equip, forcar=False: ([], {}, ""))
+        # a versão do livro (03/11/2026, a conta pela gravação nova do Nexus) também não vai à rede
+        monkeypatch.setattr(app, "_disp_cos_versao", lambda: None)
     yield

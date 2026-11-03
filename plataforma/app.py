@@ -27232,6 +27232,10 @@ _FRAC_DISP_STATUS = _p_cache("frac_disp_status.json")  # a última TENTATIVA (o 
 _FRAC_COM_SUB_FILE = _p_cache("frac_com_subtarefas.json")
 FRAC_COM_SUB_MAX = 400           # pedidos por volta: o 1º índice lê os dois meses (outubro de 2026 tinha 162 OS)
 FRAC_DISP_TTL = 30 * 60
+# a gravação nova das normalizações do COS refaz o índice na hora (03/11/2026, o Atualizar do Dashboard Thopen): o laço
+# confere a versão do livro do Nexus de minuto em minuto entre as voltas inteiras
+FRAC_DISP_COS_CHECA_S = 60
+FRAC_DISP_COS_TENTATIVAS = 3
 FRAC_DISP_MARGEM_D = 45          # OS criada até 45d antes do mês anterior ainda entra na varredura
 FRAC_DISP_TETO_LINHAS = 40000    # tarefas lidas sem chegar ao limite = algo errado (em 28/09 o limite veio em 17.499)
 _frac_disp_mem = {"mtime": 0.0, "dados": {}}
@@ -27592,13 +27596,31 @@ def _disp_cos_leitor(aba, cab):
     return _DISP_COS[caminho]
 
 
-def _disp_normalizacoes(equip):
-    """(linhas do fato como dicts, {usina_id: [nomes da aba Equipamentos]}, erro). Sem o livro, com a leitura pela metade
-    (a contagem da `atualizacao` não bate) ou sem o de-para: (None, {}, o motivo), e a Thopen segue pelo Fracttal."""
+def _disp_cos_versao():
+    """O `updated_at` do livro das normalizações na listagem da API (uma leitura só), ou None (o banco fora)."""
     try:
-        atu = _disp_cos_leitor("atualizacao", DISP_COS_CAB_ATU).linhas()
-        fato = _disp_cos_leitor("fato_normalizacao", DISP_COS_CAB).linhas()
-        abertas = _disp_cos_leitor("fato_ocorrencia_aberta", DISP_COS_CAB_ABERTA).linhas() or []
+        return next((w.get("updated_at") for w in _bd_api.workbooks() if w.get("key") == DISP_COS_LIVRO), None)
+    except Exception as e:                                   # noqa: BLE001 — a volta inteira segue no horário dela
+        print(f"[disponibilidade] versão do livro das normalizações não lida: {type(e).__name__}: {e}")
+        return None
+
+
+def _disp_cos_atualizado_em():
+    """A hora da gravação do Nexus que o índice usou: a `atualizacao` que o _disp_normalizacoes acabou de ler, da memória
+    do leitor (nenhuma leitura nova; sem o leitor, vazio)."""
+    leitor = _DISP_COS.get(_p_cache("disp_cos_atualizacao.json"))
+    atu = (leitor.linhas() if leitor else None) or []
+    return str(atu[-1][0] or "") if atu and atu[-1] else ""
+
+
+def _disp_normalizacoes(equip, forcar=False):
+    """(linhas do fato como dicts, {usina_id: [nomes da aba Equipamentos]}, erro). Sem o livro, com a leitura pela metade
+    (a contagem da `atualizacao` não bate) ou sem o de-para: (None, {}, o motivo), e a Thopen segue pelo Fracttal.
+    `forcar`: relê o banco agora, sem os 10 min da cópia (a gravação nova do Nexus, _frac_disp_pelas_normalizacoes)."""
+    try:
+        atu = _disp_cos_leitor("atualizacao", DISP_COS_CAB_ATU).linhas(forcar=forcar)
+        fato = _disp_cos_leitor("fato_normalizacao", DISP_COS_CAB).linhas(forcar=forcar)
+        abertas = _disp_cos_leitor("fato_ocorrencia_aberta", DISP_COS_CAB_ABERTA).linhas(forcar=forcar) or []
     except Exception as e:                                   # noqa: BLE001
         return None, {}, f"leitura das normalizações: {type(e).__name__}: {e}"
     if not atu or fato is None:
@@ -27685,6 +27707,7 @@ def _frac_disp_recalcular():
     meses = _disp_meses_alvo()
     limite = min(m[1] for m in meses) - timedelta(days=FRAC_DISP_MARGEM_D)
     t0, resumo = time.time(), {}
+    versao = _disp_cos_versao()                              # antes de ler: a gravação no meio refaz no minuto seguinte
     try:
         wos = _frac_disp_sweep(limite, resumo=resumo)
     except Exception as e:                                   # noqa: BLE001 — vira aviso; o índice bom fica
@@ -27699,7 +27722,6 @@ def _frac_disp_recalcular():
         _frac_disp_registrar(False, "sem aba Equipamentos — índice não recalculado", resumo)
         return
     resumo["s"] = round(time.time() - t0)
-    reserva = _disp_pot_reserva(equip)
     # a OS de comunicação com a parada confirmada na subtarefa volta para a conta (26/10/2026); erro aqui não segura o
     # índice: sem os vereditos, toda OS de comunicação fica fora, como desde 19/10
     try:
@@ -27707,15 +27729,33 @@ def _frac_disp_recalcular():
     except Exception as e:                                   # noqa: BLE001
         _log_arquivo("fracttal.log", f"[disp] vereditos das OS de comunicação: {type(e).__name__}: {e}")
         vereditos = {}
-    dados = {"ts": time.time(), "meses": {}, "varredura": resumo, "comunicacao": vereditos}
+    if _frac_disp_montar(meses, wos, vereditos, resumo, equip, time.time(), versao):
+        _frac_disp_registrar(True, f"índice publicado ({', '.join(m[0] for m in meses)}; {len(wos)} OSs varridas em "
+                                   f"{resumo['paginas']} páginas, até {resumo['ate']}; {resumo['esperas']} esperas "
+                                   f"(cota ou rede), {resumo['espera_s']} s)", resumo)
+
+
+# A última varredura inteira, guardada no worker para a conta rápida (03/11/2026): a Thopen é só das normalizações do COS,
+# e refazer o índice pela gravação nova do Nexus não precisa varrer o Fracttal de novo (as ~175 páginas, minutos e cota)
+_FRAC_DISP_VOLTA = {}
+
+
+def _frac_disp_montar(meses, wos, vereditos, resumo, equip, ts, versao):
+    """Calcula os meses pela varredura `wos` e publica o índice (atômico). → True se publicou; senão avisa e o índice
+    anterior fica. `ts` é a hora da varredura (o "Última varredura" da tela); `versao`, a do livro das normalizações lida
+    ANTES desta leitura, que a conta rápida compara. As normalizações são relidas do banco sempre: com a cópia de 10 min,
+    a versão nova ficaria marcada como usada com o dado de antes, e a correção só chegaria na gravação seguinte."""
+    reserva = _disp_pot_reserva(equip)
+    dados = {"ts": ts, "meses": {}, "varredura": resumo, "comunicacao": vereditos}
     # a Thopen SÓ pelas normalizações do COS (29/10/2026; 30/10/2026, Levi: "garanta que a única fonte seja a de
     # normalizações + adaptações sem puxar OS de fractall"): sem o livro, com a leitura pela metade ou sem o de-para,
     # nada é publicado e o índice anterior fica (a Thopen nunca cai para o Fracttal)
-    cos, cos_por_id, cos_erro = _disp_normalizacoes(equip)
+    cos, cos_por_id, cos_erro = _disp_normalizacoes(equip, forcar=True)
     if cos is None:
         _frac_disp_registrar(False, f"normalizações do COS indisponíveis, nada publicado: {cos_erro}", resumo)
-        return
-    dados["cos"] = {"ok": True, "linhas": len(cos), "erro": ""}
+        return False
+    # a gravação do Nexus que a conta usou vai junto (03/11/2026): o Dashboard Thopen sabe que o Atualizar chegou
+    dados["cos"] = {"ok": True, "linhas": len(cos), "erro": "", "atualizado_em": _disp_cos_atualizado_em()}
     falhas = []
     for rot, ini, fim in meses:
         try:
@@ -27733,7 +27773,7 @@ def _frac_disp_recalcular():
     # busca a dela sozinha (_falhas_geracao).
     if falhas:
         _frac_disp_registrar(False, "; ".join(falhas) + ", nada publicado", resumo)
-        return
+        return False
     # as OS de recomposição de string vão junto, da MESMA varredura inteira (Dashboard Thopen, 08/10/2026): a aba de
     # falhas lê daqui (_falhas_os_string_indice). Erro aqui não segura a Disponibilidade — sem a chave, o mês sai sem a
     # aba `strings_os` (vazio, "não publicado"), nunca com "0 OS"
@@ -27745,9 +27785,40 @@ def _frac_disp_recalcular():
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False)
     os.replace(tmp, _FRAC_DISP_FILE)
-    _frac_disp_registrar(True, f"índice publicado ({', '.join(dados['meses'])}; {len(wos)} OSs varridas em "
-                               f"{resumo['paginas']} páginas, até {resumo['ate']}; {resumo['esperas']} esperas "
-                               f"(cota ou rede), {resumo['espera_s']} s)", resumo)
+    _FRAC_DISP_VOLTA.update(wos=wos, vereditos=vereditos, resumo=resumo, ts=ts, rotulos=[m[0] for m in meses],
+                            dia=datetime.now().date(), versao=versao)
+    return True
+
+
+def _frac_disp_pelas_normalizacoes(versao=None):
+    """WORKER: a gravação nova das normalizações do COS (outra versão do livro do Nexus) refaz o índice NA HORA, com a
+    última varredura do Fracttal (Levi, 03/11/2026: "sinto falta do botão 'Atualizar' (...) fiz umas alterações nas
+    normalizações e precisava trazer"). Antes disso a correção esperava a volta de 30 min, e a aba Falhas mais 1 h.
+    Dia novo, mês novo ou sem varredura guardada (o boot): a volta inteira. → True se refez."""
+    volta = _FRAC_DISP_VOLTA
+    versao = versao or _disp_cos_versao()
+    if not versao or not volta or versao == volta.get("versao"):
+        return False
+    meses = _disp_meses_alvo()
+    if [m[0] for m in meses] != volta["rotulos"] or datetime.now().date() != volta["dia"]:
+        _frac_disp_recalcular()
+        return True
+    equip = _disp_equip_linhas()
+    if not equip:
+        return False
+    t0 = time.time()
+    if not _frac_disp_montar(meses, volta["wos"], volta["vereditos"], volta["resumo"], equip, volta["ts"], versao):
+        # a leitura no meio da gravação do Nexus sai "pela metade": tenta no minuto seguinte; na 3ª, a volta inteira leva
+        n = (volta.get("tentou") or {}).get(versao, 0) + 1
+        volta["tentou"] = {versao: n}
+        if n >= FRAC_DISP_COS_TENTATIVAS:
+            volta["versao"] = versao
+        return False
+    _frac_disp_registrar(True, f"índice refeito pelas normalizações do COS gravadas em "
+                               f"{_disp_cos_atualizado_em()[11:16] or '?'} (a varredura do Fracttal de "
+                               f"{datetime.fromtimestamp(volta['ts']).strftime('%H:%M')}; {time.time() - t0:.0f} s)",
+                         volta["resumo"])
+    return True
 
 
 def _frac_disp_dados():
@@ -27767,7 +27838,8 @@ def _frac_disp_dados():
 
 
 def _frac_disp_loop():
-    """Prewarm no boot + refresh a cada 30 min (roda no worker, como os demais laços)."""
+    """Prewarm no boot + a volta inteira a cada 30 min (roda no worker, como os demais laços); entre elas, de minuto em
+    minuto, a gravação nova das normalizações do COS (_frac_disp_pelas_normalizacoes)."""
     while True:
         try:
             _frac_disp_recalcular()
@@ -27776,7 +27848,17 @@ def _frac_disp_loop():
                 _frac_disp_registrar(False, f"laço: {type(e).__name__}: {e}")
             except Exception:                                # noqa: BLE001
                 print(f"[disp] loop: {e}")
-        time.sleep(FRAC_DISP_TTL)
+        # contado por voltas, não pelo relógio: um sono que volta na hora (o falso dos testes) não vira um giro solto
+        # (03/11/2026: o laço pelo relógio girou 30 min com o sono falso e comeu a memória da máquina na suíte)
+        for _ in range(FRAC_DISP_TTL // FRAC_DISP_COS_CHECA_S):
+            time.sleep(FRAC_DISP_COS_CHECA_S)
+            try:
+                _frac_disp_pelas_normalizacoes()
+            except Exception as e:                           # noqa: BLE001 — a volta inteira segue no horário dela
+                try:
+                    _frac_disp_registrar(False, f"conta pelas normalizações: {type(e).__name__}: {e}")
+                except Exception:                            # noqa: BLE001
+                    print(f"[disp] conta pelas normalizações: {e}")
 
 
 @app.route("/gerencial/disponibilidade")
@@ -29125,6 +29207,9 @@ def _falhas_disp_mes(mes):
             "fim_por_usina": o.get("fim_por_usina") or {}}
            for o in m.get("oss") or [] if not o.get("excl")]
     return {"periodo": [str(m["periodo"]["ini"])[:10], str(m["periodo"]["fim"])[:10]],
+            # a gravação das normalizações do COS que a conta usou (03/11/2026): vai na `atualizacao` do workbook, e o
+            # Atualizar do Dashboard Thopen sabe que a correção chegou
+            "normalizacoes_em": ((_frac_disp_dados() or {}).get("cos") or {}).get("atualizado_em") or None,
             "usinas": [{"usina": u.get("usina"), "fracttal": u.get("fracttal"), "cliente": u.get("cliente"),
                         "pot_kwp": u.get("pot_kwp")} for u in m["usinas"]],
             # a parcela de cada OS no dia (14/10/2026, `disponibilidade_os_dia`): vai só quando o índice a tem — o de
@@ -29173,6 +29258,7 @@ def _falhas_publicar(mes, pacote, meses=None):
 # Workbook `falhas_performance` da Gridco API (Levi, 25/09: "pode criar o workbook"): as mesmas tabelas da aba, para
 # o BI e o histórico. De hora em hora e só quando o dado mudou — a API guarda histórico por linha.
 FALHAS_WB_TTL = 60 * 60
+FALHAS_WB_MIN_S = 60        # a publicação pedida pelas normalizações novas (03/11/2026): no máximo uma por minuto
 _falhas_wb = {"ts": 0.0, "marca": None}
 
 
@@ -29200,27 +29286,33 @@ def _falhas_cobertura_ok(pacote):
     return (datetime.strptime(dias[0], "%Y-%m-%d") - datetime.strptime(ini, "%Y-%m-%d")).days <= 3
 
 
-def _falhas_publicar_workbook(meses):
-    """WORKER: sobe todos os meses publicados (o replace troca a aba inteira) para o workbook falhas_performance."""
+def _falhas_publicar_workbook(meses, agora=False):
+    """WORKER: sobe todos os meses publicados (o replace troca a aba inteira) para o workbook falhas_performance.
+    `agora`: sem a hora de espera (a disponibilidade pelas normalizações novas do COS, _falhas_disp_pelas_normalizacoes).
+    → "espera" quando a última publicação foi há menos do intervalo (quem pediu tenta de novo); senão None."""
     tok = os.environ.get("GRIDCO_SQL_TOKEN", "").strip()
-    if not _falhas_workbook_ligado() or not tok or time.time() - _falhas_wb["ts"] < FALHAS_WB_TTL:
-        return
+    if not _falhas_workbook_ligado() or not tok:
+        return None
+    if time.time() - _falhas_wb["ts"] < (FALHAS_WB_MIN_S if agora else FALHAS_WB_TTL):
+        return "espera"
     import hashlib
     import bd_api
     import falhas_publicar as _fp
     pacotes = [p for p in (_falhas_ler(_falhas_arquivo(m)) for m in meses) if p]
     if not pacotes:
-        return
+        return None
     curtos = [p.get("mes") for p in pacotes if not _falhas_cobertura_ok(p)]
     if curtos:
         _falhas_wb["ts"] = time.time()
         print(f"[falhas] workbook adiado: o registro de strings de {', '.join(map(str, curtos))} não cobre o começo do mês "
               "ou ainda não tem curva avaliada com as vivas")
-        return
+        return None
     tabs = _fp.tabelas(pacotes)
-    # a aba `atualizacao` carrega o "gerado em", que muda a toda volta: fora da marca, senão todo ciclo subiria
-    marca = hashlib.sha1(json.dumps({k: v for k, v in tabs.items() if k != "atualizacao"}, ensure_ascii=False,
-                                    default=str).encode("utf-8")).hexdigest()
+    # a aba `atualizacao` carrega o "gerado em", que muda a toda volta: fora da marca, senão todo ciclo subiria. A hora
+    # das normalizações do COS entra (03/11/2026): a correção que não mexe em número ainda avisa o Dashboard Thopen
+    marca = hashlib.sha1(json.dumps([{k: v for k, v in tabs.items() if k != "atualizacao"},
+                                     [(p.get("disponibilidade") or {}).get("normalizacoes_em") for p in pacotes]],
+                                    ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
     _falhas_wb["ts"] = time.time()
     if marca == _falhas_wb["marca"]:
         return
@@ -29407,6 +29499,30 @@ def _falhas_loop():
             if _falhas_desc_mtime() != mt0:
                 time.sleep(40)                          # junta os cliques de quem está desmarcando várias seguidas
                 break
+            try:
+                _falhas_disp_pelas_normalizacoes()
+            except Exception as e:                      # noqa: BLE001 — a volta de 30 min leva do mesmo jeito
+                print(f"[falhas] disponibilidade pelas normalizações (fica para a volta): {e}")
+
+
+_falhas_cos_visto = {"em": None}
+
+
+def _falhas_disp_pelas_normalizacoes():
+    """WORKER, no laço da aba Falhas (o único que grava os pacotes): o índice refeito com outra gravação das normalizações
+    do COS (_frac_disp_pelas_normalizacoes) leva a disponibilidade aos pacotes e o workbook sobe na hora, sem a volta de
+    30 min nem a hora de espera (03/11/2026, o Atualizar do Dashboard Thopen). → True se publicou."""
+    em = ((_frac_disp_dados() or {}).get("cos") or {}).get("atualizado_em")
+    if not em or em == _falhas_cos_visto["em"]:
+        return False
+    if _falhas_cos_visto["em"] is None:
+        _falhas_cos_visto["em"] = em                    # o 1º índice depois de subir: a volta de 30 min já o leva
+        return False
+    _falhas_disp_fora_da_volta(set())
+    if _falhas_publicar_workbook(_falhas_meses(), agora=True) == "espera":
+        return False                                    # a publicação de há menos de 1 min: tenta na volta de 20 s
+    _falhas_cos_visto["em"] = em
+    return True
 
 
 # ── Ocorrência desconsiderada pelo analista (Levi, 30/09/2026) ─────────────────────────────────────────────────────────

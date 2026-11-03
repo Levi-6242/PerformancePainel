@@ -47,6 +47,12 @@
   #subinfo{ display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12.5px; white-space:nowrap; }
   #subinfo:not(:empty)::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--pos); }
   .acoes{ margin-left:auto; display:flex; align-items:center; gap:8px; }
+  /* a etapa do Atualizar das normalizações do COS (03/11/2026), ao lado do ícone */
+  .atu-etapa{ font-size:12px; color:var(--muted); max-width:440px; overflow:hidden; text-overflow:ellipsis;
+              white-space:nowrap; }
+  .atu-etapa:empty{ display:none; }
+  .atu-etapa.ok{ color:var(--pos); font-weight:600; }
+  .atu-etapa.erro{ color:var(--neg); font-weight:600; }
   .btn{ height:34px; display:inline-flex; align-items:center; gap:7px; border-radius:8px; font:inherit; font-size:13px;
         font-weight:700; padding:0 14px; cursor:pointer; white-space:nowrap; }
   .btn svg{ width:15px; height:15px; flex:none; }
@@ -69,7 +75,8 @@
     #fldCarteira{ overflow-x:auto; }
     .fld{ flex-direction:column; align-items:stretch; gap:4px; }
     .fld select{ width:100%; }
-    .acoes{ margin:0; } .acoes .btn{ flex:1; justify-content:center; } .acoes .btn.icone{ flex:none; }
+    .acoes{ margin:0; flex-wrap:wrap; } .acoes .btn{ flex:1; justify-content:center; } .acoes .btn.icone{ flex:none; }
+    .atu-etapa{ order:9; flex:1 1 100%; max-width:none; white-space:normal; }
   }
   /* Visão Geral — tabela de resumo por carteira */
   table.geral{ font-size:12px; }
@@ -591,6 +598,7 @@
     <div class="fld" id="fldMes"><label for="selMes">Mês</label><select id="selMes"></select></div>
     <div id="subinfo"></div>
     <div class="acoes">
+      <span id="atuEtapa" class="atu-etapa" role="status" aria-live="polite"></span>
       <button id="btnRefresh" class="btn sec icone" type="button" title="Buscar os dados mais recentes do banco" aria-label="Atualizar"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
       <button id="btnPdfAll" class="btn sec" type="button" title="Monta o relatório da carteira (Capa, Visão Geral e Mensal e Diário de cada usina) e abre a impressão para salvar em PDF"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg><span class="rb">PDF da carteira</span></button>
       <button id="btnPdf" class="btn pri" type="button" title="Página 1 Mensal, página 2 Diário"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg><span class="rb">PDF da usina</span></button>
@@ -1872,6 +1880,7 @@ window.addEventListener('beforeprint',()=>{
 async function refreshBD(){
   // o Atualizar é só o ícone (26/10/2026): enquanto relê, o ícone gira e o título diz o que está acontecendo
   const btn=$('btnRefresh'), old=btn.title; btn.disabled=true; btn.classList.add('girando'); btn.title='Atualizando…';
+  atualizarNormalizacoes();                      // em paralelo: a releitura do banco abaixo leva até 2 min
   const usinaAtual=$('selUsina').value;
   try{
     // backend relê o banco (limpa cache) e, com a usina e o mês da tela, busca de novo o trip das OS dela no Fracttal
@@ -1887,6 +1896,37 @@ async function refreshBD(){
   finally{ btn.disabled=false; btn.classList.remove('girando'); btn.title=old; }
 }
 $('btnRefresh').onclick=refreshBD;
+// O Atualizar das normalizações do COS (03/11/2026, Levi: "fiz umas alterações nas normalizações e precisava trazer"):
+// junto com a releitura do banco, o ícone pede ao Nexus as normalizações na hora, acompanha as etapas (o Nexus grava, a
+// plataforma refaz a disponibilidade, esta tela relê) e redesenha a usina quando chegam. O ícone só aparece para a Grid
+const ATU_TXT={nexus:'Pedindo ao Nexus as normalizações do COS…',
+  plataforma:'O Nexus gravou às %s; a plataforma refaz a disponibilidade…',
+  carregando:'Disponibilidade refeita; trazendo para a tela…'};
+const ATU_DEMOROU={nexus:'O Nexus não gravou em 15 min; a correção chega na volta da hora.',
+  plataforma:'A plataforma não publicou em 15 min; a correção chega na próxima volta dela.',
+  carregando:'A tela não releu em 15 min; use Atualizar de novo em alguns minutos.'};
+let ATU=null;                                    // o pedido em acompanhamento: {desde}
+function atuEtapa(txt,cls){ const e=$('atuEtapa'); e.textContent=txt||''; e.title=txt||''; e.className='atu-etapa'+(cls?' '+cls:''); }
+async function atualizarNormalizacoes(){
+  if(ATU) return;                                // um pedido por vez: o clique no meio só relê o banco
+  let r=null;
+  try{ r=await fetch(RAIZ+'/api/t/atualizar_normalizacoes',{method:'POST'}).then(x=>x.json()); }catch(e){}
+  if(!r||!r.ok){ atuEtapa('As normalizações não foram pedidas ao Nexus: '+((r&&r.erro)||'sem resposta')+'.','erro'); return; }
+  ATU={desde:r.pedido_em}; atuEtapa(ATU_TXT.nexus);
+  const passo=async()=>{
+    let e=null;
+    try{ e=await get(RAIZ+'/api/t/atualizar_normalizacoes?desde='+encodeURIComponent(ATU.desde)); }catch(x){}
+    if(e&&e.ok&&e.etapa==='pronto'){
+      ATU=null;
+      try{ await loadUsina(); if(PAGE==='registros') renderRegistros(); }catch(x){}
+      atuEtapa('Disponibilidade com as normalizações das '+String(e.nexus_em||'').slice(11,16)+'.','ok'); return;
+    }
+    if(e&&e.ok&&e.demorou){ ATU=null; atuEtapa(ATU_DEMOROU[e.etapa]||ATU_DEMOROU.nexus,'erro'); return; }
+    if(e&&e.ok&&ATU_TXT[e.etapa]) atuEtapa(ATU_TXT[e.etapa].replace('%s',String(e.nexus_em||'').slice(11,16)));
+    setTimeout(passo,10000);
+  };
+  setTimeout(passo,5000);
+}
 
 init();
 </script>

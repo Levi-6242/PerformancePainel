@@ -359,8 +359,10 @@ def test_laco_registra_a_falha_que_escapa_do_recalculo(ambiente, monkeypatch):
     principal, sono = threading.current_thread(), app.time.sleep
 
     def _sono(s):
-        if s == app.FRAC_DISP_TTL and threading.current_thread() is principal:
-            raise _Parou                   # uma volta só do laço
+        # uma volta só do laço: a 1ª espera depois do recálculo (desde 03/11/2026 o laço confere as normalizações do
+        # COS de minuto em minuto; com o sono falso, esperar pelos 30 min deixava o laço girando e comendo memória)
+        if s == app.FRAC_DISP_COS_CHECA_S and threading.current_thread() is principal:
+            raise _Parou
         return sono(s)
     monkeypatch.setattr(app.time, "sleep", _sono)
     with pytest.raises(_Parou):

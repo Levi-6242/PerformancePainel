@@ -1543,12 +1543,24 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   Teste: `tests/test_disp_cascata_relatorio_sem_geracao.py`.
 - **Antes** (`calcular_pelo_bd` + `_disp_dias_bd_thopen`): só as usinas da Thopen, pela "Disponibilidade Usina (%)" do
   BD_Thopen (o leitor do 5080), sem OS e sem queda × equipamento; de-paras em `_DISP_BD_ABAS` (os do Gerencial).
+- **A gravação nova das normalizações chega na hora (03/11/2026**, o Atualizar do Dashboard Thopen; Levi: "fiz umas
+  alterações nas normalizações e precisava trazer"). A correção feita no Andamento passava por quatro esperas, até 2 h 30:
+  o Nexus de hora em hora, este índice de 30 em 30 min, o workbook de hora em hora e a leitura do 5080. Entre as voltas
+  inteiras, o `_frac_disp_loop` confere de minuto em minuto a versão do livro do Nexus (`_disp_cos_versao`, uma leitura da
+  listagem); a versão nova refaz o índice com a ÚLTIMA varredura do Fracttal, guardada no worker (`_FRAC_DISP_VOLTA`,
+  `_frac_disp_pelas_normalizacoes`: segundos, sem as ~175 páginas; dia novo ou o boot fazem a volta inteira; o "Última
+  varredura" da tela segue a hora da varredura). O índice leva a hora da gravação usada (`cos.atualizado_em`), que vai ao
+  pacote e à coluna `normalizacoes_em` da `atualizacao` do workbook; o laço da aba Falhas (o único que grava os pacotes)
+  vê a hora nova e publica sem a hora de espera (`_falhas_disp_pelas_normalizacoes`, no máximo uma por minuto). A hora
+  entra na marca do workbook: a correção que não muda número ainda avisa o 5080. Quem pede é o ícone de atualizar da
+  conta da Grid no Dashboard Thopen (o pedido no `thopen_pedidos`, que o Nexus lê; `thopen/CLAUDE.md`). Prova:
+  `tests/test_atualizar_normalizacoes.py`.
 - **A Thopen pelas normalizações do COS (29/10/2026)**, Levi: "calcule a disponibilidade por lá [Nexus > COS >
   Normalizações] usando o de-para como referência [...] o que for falha de comunicação tem a coluna Geração Parou, se sim
   então deve contar na disponibilidade e entrar nos comentários. Nos comentários tem que vir as proteções atuadas";
   decisões dele: **só a Thopen** e **só o que está na Ronda COS** (as normalizações e, desde 30/10/2026, as ocorrências
   ainda abertas, abaixo). O Nexus grava o fato (`nexus_cos_normalizacoes · fato_normalizacao`, de hora em hora); o worker o lê
-  (`_disp_normalizacoes`, conferido com a contagem da `atualizacao`) e o `disponibilidade.calcular(..., normalizacoes,
+  (`_disp_normalizacoes`, conferido com a contagem da `atualizacao`, sempre relido do banco na conta) e o `disponibilidade.calcular(..., normalizacoes,
   usinas_por_id)` põe as usinas da Thopen (cliente da aba Equipamentos) pela normalização: **início = a falha, fim = a
   volta registrada pelo COS**, não o fechamento da OS no Fracttal; a OS do Fracttal só da Thopen sai da lista. Conta:
   todo `DESLIGAMENTO_*` (usina, cabine, SKID, QGBT, inversor), a `FALHA_COMUNICACAO` com `geracao_parou` = 1 e, pela

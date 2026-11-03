@@ -93,7 +93,10 @@ CABECALHOS = {
     # publicadas de 29 a 30/10/2026 e saíram com a liberação (ficam no banco, aposentadas)
     "atualizacao": ["mes", "periodo_inicio", "periodo_fim", "atualizado_em", "strings_inversor_dia", "strings_episodios",
                     "trackers_episodios", "regua_strings", "regua_trackers", "cobertura", "strings_os", "trackers_dia",
-                    "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia"],
+                    "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia",
+                    # a gravação das normalizações do COS que a disponibilidade usou (03/11/2026): o Atualizar do
+                    # Dashboard Thopen espera esta hora passar da gravação que o pedido dele fez
+                    "normalizacoes_em"],
 }
 
 
@@ -202,7 +205,8 @@ def tabelas(pacotes):
             len(dos) if (p.get("disponibilidade") or {}).get("oss") is not None else None,
             # índice de antes de 14/10/2026 (sem a parcela de cada OS no dia) conta VAZIO, não 0: o 5080 sabe que não
             # foi publicada, e não que nenhuma OS tirou nada
-            len(dod) if _tem_os_do_dia(p.get("disponibilidade")) else None)])
+            len(dod) if _tem_os_do_dia(p.get("disponibilidade")) else None,
+            (p.get("disponibilidade") or {}).get("normalizacoes_em"))])
     return out
 
 

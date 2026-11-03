@@ -263,7 +263,7 @@ def test_sem_as_normalizacoes_o_worker_nao_publica_e_a_thopen_nao_cai_no_fractta
     monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
     monkeypatch.setattr(app, "_disp_pot_reserva", lambda equip: {})
     monkeypatch.setattr(app, "_frac_com_vereditos", lambda wos: {})
-    monkeypatch.setattr(app, "_disp_normalizacoes", lambda equip: (None, {}, "o livro ainda não está no banco"))
+    monkeypatch.setattr(app, "_disp_normalizacoes", lambda equip, forcar=False: (None, {}, "o livro ainda não está no banco"))
     monkeypatch.setattr(app, "_frac_disp_registrar", lambda ok, msg, resumo=None: avisos.append((ok, msg)))
     app._frac_disp_recalcular()
     assert avisos and avisos[0][0] is False and "normalizações do COS indisponíveis" in avisos[0][1]
@@ -389,7 +389,7 @@ def test_o_worker_le_as_abertas_e_confere_a_contagem(monkeypatch):
         def __init__(self, linhas):
             self._l = linhas
 
-        def linhas(self):
+        def linhas(self, forcar=False):           # o mesmo jeito do cobertura.Decisoes
             return self._l
 
     def leitores(atu, fato, ab):

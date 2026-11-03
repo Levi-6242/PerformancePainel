@@ -51,6 +51,7 @@ import fotos_ronda           # ... as fotos delas, dos anexos da OS no Fracttal 
 import contestacao           # rodada 4: a contestação do cliente sobre um dia da tabela, que avisa a Grid Co. no Teams
 import contestacao_banco     # rodada 5 (13/10/2026): ... e fica no banco, cifrada, para o Nexus (Contratos e clientes)
 import acessos               # login por pessoa (14/10/2026): as contas vêm do Nexus, a senha o 5080 grava (o banco)
+import livro_banco           # 03/11/2026: o pedido do Atualizar das normalizações (o mesmo leitor das senhas)
 import geracao_possivel      # 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário (puro)
 import trip_os               # 23/10/2026: o trip das OS no comentário do dia, lido do Fracttal (nada roda no import)
 import fonte_zeladoria       # 26/10/2026: a Zeladoria que o Nexus publica no banco (nada roda no import)
@@ -1071,7 +1072,8 @@ def _op_dados():
 
 
 _POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina=
-_SO_GRID = {"comentario_extra", "reload_bd"}                           # gravar e forçar a releitura
+_SO_GRID = {"comentario_extra", "reload_bd",                          # gravar e forçar a releitura
+            "atualizar_normalizacoes_pedir", "atualizar_normalizacoes_estado"}   # e o Atualizar das normalizações
 
 
 @app.before_request
@@ -1750,6 +1752,91 @@ def reload_bd():
         trip_os.em_segundo_plano(oss)
     return jsonify({"ok": True, "planilha_em": _planilha_em(),
                     "atualizado_em": dt.datetime.now().strftime("%H:%M:%S")})
+
+
+# O Atualizar das normalizações do COS (03/11/2026, Levi: "sinto falta do botão 'Atualizar' para puxar os dados da API
+# ou do PG para a plataforma, fiz umas alterações nas normalizações e precisava trazer"). A correção feita no Andamento
+# passava por quatro esperas (o Nexus de hora em hora, o índice da plataforma de 30 em 30 min, o workbook de hora em hora
+# e esta leitura de 10 em 10 min): até 2 h 30 para chegar à tela. O ícone de atualizar da conta da Grid grava o pedido no
+# banco; o Nexus grava as normalizações na hora (nexus/cos/normalizacoes_banco.py), a plataforma refaz a conta da Thopen
+# e publica (_frac_disp_pelas_normalizacoes) e a rota de estado diz em que etapa está. Tudo pelo banco: nenhuma chave nova
+PEDIDO_LIVRO, PEDIDO_NOME, PEDIDO_ABA = "thopen_pedidos", "Dashboard Thopen · pedidos do Atualizar", "atualizacao"
+PEDIDO_CAB = ("pedido_em", "alvo", "origem")       # só a hora: quem pediu não vai ao banco
+PEDIDO_JUNTA_S = 60                                 # dois cliques num minuto = um pedido só
+PEDIDO_PRAZO_S = 15 * 60                            # sem chegar em 15 min, a tela diz onde parou
+_BRT = dt.timezone(dt.timedelta(hours=-3))
+_pedido = {"em": None}
+
+
+def _agora():
+    return dt.datetime.now(_BRT)
+
+
+def _instante(v):
+    try:
+        d = dt.datetime.fromisoformat(str(v or "").strip())
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=_BRT)
+
+
+def etapa_do_atualizar(pedido, nexus_em, publicado_em, carregado_em):
+    """A etapa do Atualizar pelas horas que cada lado deixou no banco: `nexus_em` (a gravação das normalizações),
+    `publicado_em` (a gravação que a disponibilidade publicada pela plataforma usou) e `carregado_em` (a da leitura deste
+    processo). → "nexus" (o Nexus ainda não gravou depois do pedido), "plataforma" (gravou e a plataforma ainda refaz),
+    "carregando" (publicado, esta leitura recarrega) ou "pronto"."""
+    p, n = _instante(pedido), _instante(nexus_em)
+    if p is None or n is None or n < p:
+        return "nexus"
+    c, pub = _instante(carregado_em), _instante(publicado_em)
+    if c is not None and c >= n:
+        return "pronto"
+    return "carregando" if pub is not None and pub >= n else "plataforma"
+
+
+def _ultima_hora(livro, aba, coluna):
+    linhas = livro_banco.ler(livro, aba, fonte_api._token())
+    return max((str(r.get(coluna) or "") for r in linhas), default="")
+
+
+@app.route("/api/t/atualizar_normalizacoes", methods=["POST"])
+def atualizar_normalizacoes_pedir():
+    """Grava o pedido (1 linha por clique, só a hora) e devolve a hora dele, que a tela passa à rota de estado."""
+    agora = _agora()
+    if _pedido["em"] and (agora - _pedido["em"]).total_seconds() < PEDIDO_JUNTA_S:
+        return jsonify({"ok": True, "pedido_em": _pedido["em"].isoformat(timespec="seconds"), "juntou": True})
+    em = agora.isoformat(timespec="seconds")
+    try:
+        livro_banco.acrescentar(PEDIDO_LIVRO, PEDIDO_NOME, PEDIDO_ABA, PEDIDO_CAB,
+                                [{"pedido_em": em, "alvo": "disponibilidade_thopen", "origem": "dashboard_thopen"}],
+                                fonte_api._token())
+    except Exception as e:                                   # noqa: BLE001 — a tela diz que não foi
+        return jsonify({"ok": False, "erro": "o pedido não foi gravado no banco (%s)" % type(e).__name__}), 502
+    _pedido["em"] = agora
+    return jsonify({"ok": True, "pedido_em": em})
+
+
+@app.route("/api/t/atualizar_normalizacoes")
+def atualizar_normalizacoes_estado():
+    """?desde=<pedido_em> → a etapa e as horas. Publicado e esta leitura de antes: derruba o TTL e recarrega."""
+    pedido = request.args.get("desde") or ""
+    try:
+        nexus_em = _ultima_hora("nexus_cos_normalizacoes", "atualizacao", "atualizado_em")
+        publicado_em = ""
+        carregado_em = fonte_operacao.normalizacoes_em()
+        n = _instante(nexus_em)
+        if n is not None and (_instante(carregado_em) is None or _instante(carregado_em) < n):
+            publicado_em = _ultima_hora("falhas_performance", "atualizacao", "normalizacoes_em")
+    except Exception as e:                                   # noqa: BLE001 — o banco fora: a tela tenta de novo
+        return jsonify({"ok": False, "erro": "o banco não respondeu (%s)" % type(e).__name__}), 502
+    etapa = etapa_do_atualizar(pedido, nexus_em, publicado_em, carregado_em)
+    if etapa == "carregando":
+        fonte_operacao.invalidar()
+        fonte_operacao.dados()                               # dispara a recarga em segundo plano agora
+    p = _instante(pedido)
+    demorou = etapa != "pronto" and p is not None and (_agora() - p).total_seconds() > PEDIDO_PRAZO_S
+    return jsonify({"ok": True, "etapa": etapa, "demorou": demorou, "nexus_em": nexus_em, "publicado_em": publicado_em,
+                    "carregado_em": carregado_em})
 
 
 # A publicação sob demanda saiu em 28/08/2026 junto com o Excel: ela existia para o PC da

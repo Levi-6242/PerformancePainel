@@ -396,10 +396,25 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
 | card escondido, "Comentários pelas OS do Fracttal indisponíveis no momento" | 10/2026 em diante com `THOPEN_OPERACAO=0` (`motivo: desligado`) ou erro na rota — nunca o comentário da equipe |
 | "Mês em andamento, até dd/mm" | mês corrente, pelo `periodo_fim` da `atualizacao` (não pelo relógio); mês que virou e não fechou: "Dados até dd/mm" |
 
+### O Atualizar das normalizações do COS (03/11/2026)
+
+Levi: "sinto falta do botão 'Atualizar' para puxar os dados da API ou do PG para a plataforma, fiz umas alterações nas
+normalizações e precisava trazer". Escolha dele: no ícone de atualizar que já existe (só a Grid vê). Depois de reler o
+banco, o ícone grava o pedido (`POST /api/t/atualizar_normalizacoes`: 1 linha em `thopen_pedidos · atualizacao`, só a
+hora, sem quem pediu; dois cliques num minuto são um pedido só) e a tela acompanha a etapa a cada 10 s
+(`GET ...?desde=<pedido_em>`, `etapa_do_atualizar`), no texto ao lado do ícone: o Nexus grava as normalizações na hora
+(ele confere o livro de minuto em minuto; `nexus/torres/cos/CLAUDE.md` do Nexus), a plataforma refaz a conta da Thopen e
+publica com a hora da gravação usada (`normalizacoes_em` da `atualizacao`; `plataforma/CLAUDE.md`), e esta rota, vendo
+a publicação, derruba o TTL da leitura (`fonte_operacao.invalidar`) e espera a leitura nova ter aquela hora
+(`fonte_operacao.normalizacoes_em`); aí a usina é redesenhada. Passados 15 min sem chegar, a tela diz onde parou (o
+Nexus, a plataforma ou a releitura) e que a volta normal leva. Tudo pelo banco: nenhuma chave nova entre os três. Prova:
+`tests/test_atualizar_normalizacoes.py`.
+
 ### Leitura (`fonte_operacao.py`)
 
 - **A requisição nunca espera a rede**: serve o que tem e, vencido o TTL, dispara UMA recarga em segundo plano (thread
-  `thopen-operacao`), fora do `_lock` do `_wb()` e do `/api/t/reload` — o botão Atualizar não relê a Operação no Mês. A
+  `thopen-operacao`), fora do `_lock` do `_wb()` e do `/api/t/reload` — o `/api/t/reload` não relê a Operação no Mês (o
+  Atualizar das normalizações, acima, a derruba quando a plataforma publica). A
   1ª requisição depois do boot lê o cache em disco; cache gravado antes de uma aba nova entrar em `ABAS` é descartado.
 - Ids das abas resolvidos pelo nome a cada carga (`/api/sheets`), páginas de 1.000 linhas.
 - **Lista branca** (`ABAS`): do livro do App só são lidas as colunas de `rondas_cliente.APP` (OS, usina, ativo, início,
