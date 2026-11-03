@@ -937,7 +937,20 @@ function openHist(k){ const p=MAP[k]; if(p) window.open(drillUrl(p),'_blank'); }
 // a chave, o comentário publicado aqui na Morada Nova saía calado (stateKey null) e o já feito no Monitoramento não vinha.
 const KEYPFX={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen','SEMP':'semp','Alves Lima':'al'};
 function stateKey(p){const pfx=KEYPFX[p.fonte];return pfx?(pfx+':'+p.plant_id):null;}
-let _comentKeyAtual=null;
+let _comentKeyAtual=null, _comentUsinaAtual='';
+// Quem escreve (03/11/2026, Levi: "não precisar digitar o nome, já puxa automático"): o window.gcEu que o servidor põe na
+// página. Com identidade (entrou pelo Nexus) o campo do nick some e o servidor põe o nome da sessão; pela senha, o nick.
+function _cmEu(){ return window.gcEu||{identificado:false,nome:'',apaga_todos:false,grava:true}; }
+function _cmEuAplica(nickId,textoId){
+  const eu=_cmEu(), n=document.getElementById(nickId), t=document.getElementById(textoId);
+  if(n){ n.style.display=eu.identificado?'none':''; if(!eu.identificado) n.value=localStorage.getItem('gcAnalistaNick')||''; }
+  if(t&&eu.identificado) t.placeholder='Comentar como '+eu.nome+'…';
+}
+function _cmNick(nickId){
+  const eu=_cmEu(); if(eu.identificado) return eu.nome;
+  const v=(document.getElementById(nickId).value||'').trim(); if(v) localStorage.setItem('gcAnalistaNick',v); return v;
+}
+function _cmPodeApagar(c){ return !!c.ts&&c.pode_apagar!==false&&_cmEu().grava!==false; }
 function _cmEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function _cmTs(ts){const m=String(ts||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:'';}
 function _renderComentDrawer(thread){
@@ -945,21 +958,20 @@ function _renderComentDrawer(thread){
   document.getElementById('dComentLista').innerHTML = lst.length ? lst.map(c=>
     `<div style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--panel)">
        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);margin-bottom:3px">
-         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
-         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentarioDrawer('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}${c.meu?' <span style="font-weight:400;color:var(--faint)">(você)</span>':''}</b>
+         <span>${_cmTs(c.ts)}${_cmPodeApagar(c)?` <span onclick="excluirComentarioDrawer('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
        </div>
        <div style="font-size:12px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
      </div>`).join('') : '<div class="empty" style="padding:8px 0">Sem comentários ainda — seja o primeiro.</div>';
 }
 async function publicarComentarioDrawer(){
-  const nick=document.getElementById('dComentNick').value.trim();
-  const texto=document.getElementById('dComentTexto').value.trim();
-  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  const texto=document.getElementById('dComentTexto').value.trim(), nick=texto?_cmNick('dComentNick'):'';
+  if(!nick||!texto){alert(_cmEu().identificado?'Escreva o comentário.':'Preencha seu nick e o comentário.');return;}
   if(!_comentKeyAtual)return;
-  localStorage.setItem('gcAnalistaNick',nick);
   try{
     const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({key:_comentKeyAtual,nick,texto})}).then(r=>r.json());
+      body:JSON.stringify({key:_comentKeyAtual,nick,texto,usina:_comentUsinaAtual})}).then(r=>r.json());
+    if(r.error){alert('Não publicou: '+r.error);return;}
     document.getElementById('dComentTexto').value='';
     _renderComentDrawer(r.thread||[]);
   }catch(e){alert('Falha ao publicar o comentário.');}
@@ -969,6 +981,7 @@ async function excluirComentarioDrawer(ts){
   try{
     const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({key:_comentKeyAtual,ts})}).then(r=>r.json());
+    if(r.error) alert(r.error);
     _renderComentDrawer(r.thread||[]);
   }catch(e){}
 }
@@ -989,9 +1002,9 @@ function _carregarOsDrawer(usina){   // OSs de Performance (Fracttal) da usina �
 }
 function _cmData(d){const m=String(d||'').match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:String(d||'');}
 function _carregarComentariosDrawer(p){
-  _comentKeyAtual=stateKey(p);
+  _comentKeyAtual=stateKey(p); _comentUsinaAtual=(p&&p.usina)||'';
   _carregarOsDrawer(p&&p.usina);
-  document.getElementById('dComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  _cmEuAplica('dComentNick','dComentTexto');
   document.getElementById('dComentTexto').value='';
   if(!_comentKeyAtual){document.getElementById('dComentLista').innerHTML='<div class="empty">Fonte sem chave de estado conhecida.</div>';return;}
   document.getElementById('dComentLista').innerHTML='<div class="empty">Carregando…</div>';
@@ -1845,14 +1858,14 @@ function gOpenDrill(inv){
 function gComentP(){ const u=document.getElementById('gUsi').value, k=norm(u); let p=MAP[k];
   if(!p){ const ks=Object.keys(MAP), c=ks.filter(x=>x.startsWith(k)||k.startsWith(x)); if(c.length===1) p=MAP[c[0]]; }
   return p||null; }
-let _gComentKey=null;
+let _gComentKey=null, _gComentUsina='';
 function _gRenderComent(thread){
   const lst=(thread||[]).slice().reverse();
   document.getElementById('gComentLista').innerHTML = lst.length ? lst.map(c=>
     `<div style="border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-bottom:2px">
-         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
-         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="gComentDel('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:6px;font-weight:700">✕</span>`:''}</span></div>
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}${c.meu?' <span style="font-weight:400;color:var(--faint)">(você)</span>':''}</b>
+         <span>${_cmTs(c.ts)}${_cmPodeApagar(c)?` <span onclick="gComentDel('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:6px;font-weight:700">✕</span>`:''}</span></div>
        <div style="font-size:11.5px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
      </div>`).join('') : '<div class="empty" style="padding:6px 0;font-size:11px">Sem comentários ainda — seja o primeiro.</div>';
 }
@@ -1873,8 +1886,8 @@ function gComentLoad(c){
          ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
        </div>`;}).join('') : '';
   }).catch(()=>{osb.innerHTML='';});
-  const p=gComentP(); _gComentKey = p?stateKey(p):null;
-  document.getElementById('gComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  const p=gComentP(); _gComentKey = p?stateKey(p):null; _gComentUsina=(p&&p.usina)||u||'';
+  _cmEuAplica('gComentNick','gComentTexto');
   document.getElementById('gComentTexto').value='';
   if(!_gComentKey){ box.innerHTML='<div class="empty" style="padding:6px 0;font-size:11px">Fonte sem chave de comentário reconhecida.</div>'; return; }
   box.innerHTML='<div class="empty" style="padding:6px 0">Carregando…</div>';
@@ -1885,19 +1898,19 @@ function gComentLoad(c){
   }).catch(()=>{box.innerHTML='<div class="empty" style="padding:6px 0;font-size:11px">Falha ao carregar.</div>';});
 }
 async function gComentPub(){
-  const nick=document.getElementById('gComentNick').value.trim(), texto=document.getElementById('gComentTexto').value.trim();
-  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  const texto=document.getElementById('gComentTexto').value.trim(), nick=texto?_cmNick('gComentNick'):'';
+  if(!nick||!texto){alert(_cmEu().identificado?'Escreva o comentário.':'Preencha seu nick e o comentário.');return;}
   if(!_gComentKey)return;
-  localStorage.setItem('gcAnalistaNick',nick);
   try{ const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({key:_gComentKey,nick,texto})}).then(r=>r.json());
+    body:JSON.stringify({key:_gComentKey,nick,texto,usina:_gComentUsina})}).then(r=>r.json());
+    if(r.error){alert('Não publicou: '+r.error);return;}
     document.getElementById('gComentTexto').value=''; _gRenderComent(r.thread||[]);
   }catch(e){alert('Falha ao publicar o comentário.');}
 }
 async function gComentDel(ts){
   if(!_gComentKey)return;
   try{ const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({key:_gComentKey,ts})}).then(r=>r.json()); _gRenderComent(r.thread||[]);
+    body:JSON.stringify({key:_gComentKey,ts})}).then(r=>r.json()); if(r.error) alert(r.error); _gRenderComent(r.thread||[]);
   }catch(e){}
 }
 

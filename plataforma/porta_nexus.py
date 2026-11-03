@@ -63,6 +63,8 @@ MAPA = (
     # O Histórico da plataforma saiu em 11/10/2026 (Levi: "Pode matar a seção histórico da plataforma!"), com a rota e
     # o template. A ronda virou "Rondas de Trackers" no mesmo dia; o id ficou (é o endereço do item no Nexus).
     Tela("performance", "monitor-ronda", "Rondas de Trackers", "/ronda/monitor", (), False),
+    # Comentários (03/11/2026, Levi: "Ter um campo na performance de Comentários"): todos os comentários das usinas
+    Tela("performance", "comentarios", "Comentários", "/painel/comentarios", (), False),
     Tela("cos", "acompanhamento", "Acompanhamento COS", "/cos", (), False),
     # /tokens grava as chaves das fontes (SunOp, Axis, Plataforma): administração, só admin do Nexus (spec 5.3)
     Tela("base", "chaves-fontes", "Chaves das fontes", "/tokens", (), True),

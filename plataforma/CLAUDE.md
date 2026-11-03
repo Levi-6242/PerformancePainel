@@ -503,14 +503,14 @@ minúsculo, pontuação vira espaço, romano vira número): mudou num lado, muda
 sem ligação no de-para publicado ficam fora quando um responsável é escolhido (o título do seletor diz quantas). Fora do
 Nexus o seletor não aparece. Teste: `tests/test_gerencial_filtro_responsavel.py`.
 
-**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 15 telas, ids do Nexus (Performance
+**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 16 telas, ids do Nexus (Performance
 `tempo-real`, `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `gemeo`, `monitor-ronda` =
-"Rondas de Trackers"; Relatórios `relatorio`, `relatorio-semanal` e `potencia-ativa`; COS `acompanhamento`; Base
+"Rondas de Trackers", `comentarios` (03/11/2026, `/painel/comentarios`); Relatórios `relatorio`, `relatorio-semanal` e `potencia-ativa`; COS `acompanhamento`; Base
 `chaves-fontes`, `fontes-tempo-real` e `de-para-equipamentos`, só admin). Os relatórios foram para a torre Relatórios em
 13/10/2026 (Levi: "vai para a central de emissão no Nexus > Relatórios [...] Sai da parte de Performance!"): no Nexus
 eles abrem pela Central de emissão, filtrados pelo setor; aqui só muda a torre (o `/t/<torre>/<tela>` do "Entrar pelo
 Nexus"). Os dois lados conferem o mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin`
-por tela) pela assinatura `69aca055f5d2c37a` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
+por tela) pela assinatura `8bdc12283507094b` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
 (`/historico-plataforma`, `historico_pv.html`) foi APAGADO, rota e template (Levi: "Pode matar a seção histórico da
 plataforma!"); as APIs que ele lia (`/api/pv/trackers` e o gráfico por tracker) ficam, servem a outras telas. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
@@ -734,6 +734,73 @@ Nexus, embutido; a injeção; cada tela com 401/500 rodando o código da própri
 dá 503 e o Painel NOC/Gerencial não zeram com `erro`; o link "Entrar" da faixa encadeado pelo `/login` até o `?p=` que
 o Nexus lê, igual a `location.pathname+search`) e `tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus"
 com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no GET com sessão e no login Microsoft).
+
+## Comentários das usinas: o autor da sessão e a tela Comentários (03/11/2026)
+
+Levi, 03/11/2026: "Gostaria de um sistema mais sofisticado de comentários! Ao comentar em tempo real não precisar digitar
+o nome, já puxa automático. Ter um campo na performance de Comentários." Regra pura em `comentarios.py`; rotas no
+`app.py` (`/api/state/comment/*`, `/api/comentarios`, `/painel/comentarios`); tela `templates/comentarios.html`.
+
+- **O dado não mudou de lugar**: `comments_thread` do `ufv_state.json` (`{chave: [{nick, texto, ts}]}`), o mesmo do Tempo
+  real (modal da usina), do Painel NOC (gaveta e o cartão "Comentários da UFV") e do Diagnóstico (`painel_usina_v2` e o
+  antigo). O `estado_backup` copia ao banco só chave, nick, ts e texto (aba `comentarios`): nada novo vai ao banco. Dois
+  campos novos e opcionais no item, só no arquivo: `email` (de quem escreveu, com identidade) e `usina` (o nome que a
+  tela mostrava). Restaurado do banco, o comentário volta sem os dois: fica "de ninguém conhecido" (só o admin do Nexus
+  apaga) e o nome sai da cache.
+- **Quem tem identidade** (`comentarios.identidade`): a sessão do passe do Nexus (`user` = e-mail, `nome` do login) e a do
+  Microsoft. Não têm: a senha compartilhada, a chave de leitura da ponte e a **senha de administrador do Nexus**
+  (`admin@nexus.invalid`, "Administrador do Nexus (senha)"): é uma senha de várias pessoas, e o nome dela não diria quem
+  escreveu, então ali a tela pede o nome como pela senha.
+- **O autor**: com identidade, o SERVIDOR põe `nick = nome da sessão` e o `email`, e ignora o `nick` do corpo; sem ela, o
+  nick é obrigatório (400), como sempre. Vale também para o desligamento (`/api/state/usina-desligada`), a OS atribuída
+  (`/api/state/os-atribuir`) e o "Quem está fechando" dos tickets de strings (`_tk_str_gravar`: `"<nome> (plataforma)"`).
+  Nesses três o e-mail NÃO vai junto: a marca de desligada sai na linha da usina de toda tela, inclusive pela ponte.
+- **O apagar** (`/api/state/comment/del`): com identidade, só o próprio (pelo `email`) ou o admin do Nexus (`admin_nexus`
+  do passe); senão 403 "Só quem escreveu (ou um administrador do Nexus) apaga este comentário." e nada sai. Pela senha,
+  como antes (qualquer um apaga, inclusive o de quem entrou pelo Nexus: a senha é da equipe que já apagava tudo).
+- **O e-mail não sai para tela nenhuma**: o `/api/state`, as respostas do add/del e o `/api/comentarios` passam a conversa
+  por `comentarios.para_tela` (tira o `email`, põe `pode_apagar` e `meu` desta sessão). A tela só mostra o "x" de quem
+  pode; o servidor confere de novo.
+- **`window.gcEu`** (`_gc_eu_js`, injetado na frente do `aviso_de_sessao.js` em toda página): `{identificado, nome,
+  apaga_todos, grava}`, sem e-mail. Síncrono, para o "Seu nome" nem aparecer a quem entrou pelo Nexus (o modal do Tempo
+  real diz "Comentando como <nome>", o Painel NOC e o Diagnóstico escondem o nick e trocam o placeholder). `grava` é falso
+  para o gestor e para a ponte: o modal e a tela dizem "Somente leitura". O `<` do JSON vira escape unicode (um nome com
+  `</script>` não fecha o script); o HTML sai `no-store`. O `/api/eu` (abre/grava admin) não mudou.
+- **A chave** = `<prefixo>:<plant_id>`, o prefixo da TELA em que foi escrita (`VKEY` do Monitoramento: `pv`, `pg`, `so`,
+  `ax`, `se`, `owen`, `semp`, `al`, `c2`, `gy`, `sal`, `apo`; o `KEYPFX` do Painel NOC grava a Axis como `so`). A mesma
+  usina em duas abas tem duas conversas (de propósito: é a regra de antes). Na tela Comentários o nome vem das caches que
+  já estão na memória (`_comentarios_usinas_conhecidas`, as mesmas do `_portfolio_rollup`; nada vai à fonte), depois do
+  `usina` do comentário mais novo, e por último a própria chave, com "usina sem nome na leitura de agora".
+- **A tela `/painel/comentarios`** (no Nexus: Performance → Comentários, porta única): todos os comentários, mais novos
+  primeiro; busca (texto, autor e usina, sem acento nem caixa), usina, autor e período (de/até, inclusive); e só esses
+  filtros, sem corte padrão. "Abrir no tempo real" leva a `/monitor?fonte=<fonte>&usina=<id>&comentarios=1`, que abre a
+  usina com a conversa (o deep link do Monitoramento); Responder escreve na conversa da mesma chave; Apagar só aparece
+  para quem pode. Só a resposta 2xx troca a lista (a falha deixa a de antes, com a faixa). O gestor lê (`/api/comentarios`
+  no `_GET_GESTOR`); a chave da ponte não alcança.
+- **O comentário automático da OS criada** (03/11/2026, Levi: "quando eu crio uma OS de performance já vira um
+  comentário automático: '<Levi> criou uma OS de <String> para o <inversor X>' + 'Observação da OS'"):
+  `POST /api/state/comment/os` com `{chave, usina, tipo, criadas: [{folio, ativo, observacao}], quem}` grava "<Nome>
+  criou a OS <nº> de <tipo> para o <ativo>" e, na linha de baixo, "Observação: <a da OS>", com `origem: "os"`, `folio` e
+  `link_os` (`/os/os/folio/<nº>`, o OS Creator do Nexus). Quem chama é quem SABE que a OS saiu, com o nº: o Criar OS dos
+  trackers do Monitoramento (`_trkOsComentario`, depois do `/os/api/performance/criar`; o nº de cada tracker que não
+  falhou, na ordem do `folios`) e a página de criar OS de Performance do OS Creator do Nexus (`perf.js`,
+  `comentarNaPlataforma`, com o `comentario` que a rota devolve), que é onde nascem as OS de strings (`_osLink`) e de ETM
+  (`abrirOsEtm`): o Tempo real põe `comentario=<chave>` no link. Sem nº (a criação falhou, ou a agrupada sem número),
+  nada. **Um por OS**: o nº já comentado em qualquer conversa não grava de novo (`repetidas`). Sem a chave (a OS criada
+  direto no OS Creator), vai para `os:<usina sem acento>`: aparece na tela Comentários pelo nome do Fracttal e em nenhuma
+  aba do tempo real (adivinhar a fonte pelo nome seria inventar). O autor é o da sessão; sem identidade, o login do
+  Fracttal que o OS Creator manda (`quem`), senão "OS Creator". **Só o admin do Nexus apaga** o automático (nem o autor,
+  nem a senha: é registro, não conversa). A tela Comentários marca "OS criada · nº" com o link e filtra pelo Tipo
+  (escritos ou OS criadas). Limite conhecido: o OS Creator do Nexus fala com a plataforma pelo navegador (mesma origem no
+  servidor): sem a sessão da plataforma aberta naquele navegador (nunca abriu uma tela da Performance), 401 e a OS fica
+  sem o comentário; no PC, com o `/os/*` indo ao oem, só os trackers comentam.
+- **Prova**: `tests/test_comentarios.py` (a regra pura, as rotas com passe, senha, senha de admin do Nexus e gestor, o
+  `gcEu` com `</script>` no nome, o desligamento, a OS atribuída e o ticket, a tela e o modal do Tempo real no node, o
+  mapa). Mutação em 03/11/2026: autor do corpo, apagar sem conferir, e-mail na tela, `gcEu` sem escape, modal pedindo o
+  nome sempre, período sem o "de", ticket com o digitado e a senha de admin virando pessoa: as oito quebram a suíte. Do
+  automático da OS: a OS repetida gravando de novo, a sem nº virando comentário, o autor apagando o automático, os
+  trackers casando o nº pelo índice de todos e o Tipo sem filtrar; no Nexus, comentar a OS que falhou e mandar sem a OS
+  sair (`tests/test_oscreator_perf_comentario.py`): as sete quebram.
 
 ## Diagnóstico: o que já tem tratamento (fase 1, 27/10/2026)
 

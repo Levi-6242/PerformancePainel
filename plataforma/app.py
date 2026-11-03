@@ -315,6 +315,7 @@ app.permanent_session_lifetime = timedelta(days=30)
 #   NEXUS_PORTA_PRINCIPAL  fase 3, DESLIGADA por padrão: com ela (ex.: /nexus/), o "/" leva ao Nexus e o login oferece
 #                          "Entrar pelo Nexus". O Levi liga quando quiser; sem ela o "/" segue sendo a Entrada.
 import porta_nexus as _pn
+import comentarios as _cm
 
 
 def _chave_do_passe_valida(v: str) -> str:
@@ -786,6 +787,32 @@ def _recebe_o_aviso_de_sessao(p: str) -> bool:
     return p != "/login" and not p.startswith(("/gemeo/", "/os/", "/auth/", "/painel/nexus/"))
 
 
+def _eu_para_a_tela() -> dict:
+    """Quem está na sessão, para as telas que escrevem um autor (03/11/2026, Levi: "Ao comentar em tempo real não
+    precisar digitar o nome, já puxa automático"): `identificado` + `nome` (o campo "Seu nome" some e a tela diz "como
+    <nome>"), `apaga_todos` (o admin do Nexus apaga o comentário de qualquer um; os outros, só o próprio) e `grava` (o
+    gestor só lê: a tela não oferece o que o portão recusaria). Sem o e-mail: a tela não precisa dele (o servidor diz
+    `pode_apagar` em cada comentário), e a página não leva o que não usa."""
+    ident = _cm.identidade(session, bool(getattr(flask_g, "nexus_leitura_ok", False)))
+    gestor = (session.get("auth_kind") == "nexus"
+              and _pn.perfil_de(session.get("user"), PLATAFORMA_ANALISTAS, PLATAFORMA_GESTORES) == _pn.GESTOR)
+    return {"identificado": bool(ident), "nome": ident["nome"] if ident else "",
+            "apaga_todos": bool(ident and ident["admin"]),
+            "grava": not getattr(flask_g, "nexus_leitura_ok", False) and not gestor}
+
+
+def _gc_eu_js() -> str:
+    """`window.gcEu`, na frente do aviso de sessão em toda página: síncrono, para o campo "Seu nome" nem aparecer a quem
+    entrou pelo Nexus. O HTML sai `no-store` (`_no_cache_html`): a página de uma pessoa não fica no cache para outra. O
+    `<` vira o escape unicode dele: um nome com `</script>` não fecha o script."""
+    try:
+        eu = _eu_para_a_tela()
+    except Exception as e:                      # nunca derruba a página: sem identidade, a tela pede o nome, como antes
+        print(f"[comentários] não consegui montar o gcEu: {e}")
+        eu = {"identificado": False, "nome": "", "apaga_todos": False, "grava": True}
+    return "window.gcEu=" + json.dumps(eu, ensure_ascii=True).replace("<", "\\u003c") + ";"
+
+
 @app.after_request
 def _aviso_de_sessao_na_resposta(resp):
     """Põe o `aviso_de_sessao.js` logo depois do <head> de toda página da plataforma (registrado depois do modo Nexus:
@@ -801,7 +828,7 @@ def _aviso_de_sessao_na_resposta(resp):
             return resp
         sem_admin = bool(NEXUS_SSO_CHAVE) and session.get("auth_kind") == "nexus" and not session.get("admin_nexus")
         js = _AVISO_DE_SESSAO_JS.replace("/*SEM_ADMIN*/false", "true" if sem_admin else "false")
-        resp.set_data(html[:h.end()] + "<script>" + js + "</script>" + html[h.end():])
+        resp.set_data(html[:h.end()] + "<script>" + _gc_eu_js() + js + "</script>" + html[h.end():])
     except Exception as e:
         print(f"[sessão] não consegui pôr o aviso de sessão na página: {e}")
     return resp
@@ -12039,7 +12066,8 @@ def _tk_str_gravar(linha, finalizar):
     (usina da planilha, inversor, início e os valores originais dos campos editados), que é contra o que a linha
     relida é conferida, mais o que mudou e quem fecha.
 
-    Quem fecha é DIGITADO: no login por senha a plataforma não sabe quem é, e o diário guarda o autor de cada edição.
+    Quem fecha: quem entrou pelo Nexus é o nome da sessão (03/11/2026); no login por senha a plataforma não sabe quem é,
+    e o nome é DIGITADO. O diário guarda o autor de cada edição.
     Vai como "Nome (plataforma)", para o histórico do OS Creator dizer de onde veio."""
     corpo = flask_request.get_json(silent=True) or {}
     t = _tk_str_do_ticket(linha)
@@ -12048,7 +12076,9 @@ def _tk_str_gravar(linha, finalizar):
     tok = _estado_backup._token()
     if not tok:
         return jsonify({"ok": False, "erro": "A plataforma está sem o GRIDCO_SQL_TOKEN. Nada foi gravado."}), 503
-    nome = " ".join(str(corpo.get("quem") or "").split())[:60]
+    # quem entrou pelo Nexus é quem a sessão diz (03/11/2026): o "Quem está fechando" some da tela e o digitado é ignorado
+    _id = _ident_da_sessao()
+    nome = _id["nome"][:60] if _id else " ".join(str(corpo.get("quem") or "").split())[:60]
     quem = f"{nome} (plataforma)" if nome else ""
     email = _quem_na_sessao()
 
@@ -21126,7 +21156,18 @@ _TRANC_MARCA = _tranc_stat()   # o import acima já leu o arquivo: o 1º ciclo d
 @app.route("/api/state")
 def api_state_get():
     with _state_lock:
-        return jsonify(_load_state())
+        d = _load_state()
+    # os comentários saem como a tela os recebe (03/11/2026): sem o e-mail de quem escreveu e com o `pode_apagar` de cada
+    # um para esta sessão (o servidor confere de novo no /api/state/comment/del)
+    ident = _ident_da_sessao()
+    d["comments_thread"] = {k: _cm.para_tela(v, ident) for k, v in (d.get("comments_thread") or {}).items()}
+    return jsonify(d)
+
+
+def _ident_da_sessao():
+    """{nome, email, admin} de quem está na sessão (passe do Nexus ou Microsoft), ou None (a senha compartilhada, a senha
+    de administrador do Nexus e a chave de leitura da ponte não dizem quem é). Regra em `comentarios.identidade`."""
+    return _cm.identidade(session, bool(getattr(flask_g, "nexus_leitura_ok", False)))
 
 
 @app.route("/api/state/string-trancada", methods=["POST"])
@@ -21197,7 +21238,7 @@ def api_state_os_atribuir():
            "desc": str(body.get("desc", "")).strip(), "criada": str(body.get("criada", "")).strip(),
            "evento": str(body.get("evento", "")).strip(), "status": str(body.get("status", "")).strip(),
            "responsavel": str(body.get("responsavel", "")).strip(),   # responsável da OS (vira o da OS filha no deep link)
-           "nick": str(body.get("nick", "")).strip()[:40] or "—",
+           "nick": _cm.autor(_ident_da_sessao(), body.get("nick"))[0] or "—",   # a sessão diz quem, quando sabe
            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     with _state_lock:
         d = _load_state()
@@ -21218,7 +21259,10 @@ def api_state_usina_desligada():
         return jsonify({"error": "pid, usina e a observação são obrigatórios"}), 400
     rec = {"usina": usina, "fonte": str(body.get("fonte", "")).strip()[:20], "texto": texto,
            "desde": (str(body.get("desde", "")).strip().replace("T", " ")[:16] or None),
-           "nick": str(body.get("nick", "")).strip()[:40] or "—", "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+           # quem marcou: com identidade na sessão, o nome dela, e o nick digitado é ignorado (03/11/2026); o e-mail não
+           # vai junto (a marca sai na linha da usina de toda tela, inclusive pela ponte do Nexus)
+           "nick": _cm.autor(_ident_da_sessao(), body.get("nick"))[0] or "—",
+           "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     with _state_lock:
         d = _load_state()
         d.setdefault("usinas_desligadas", {})[pid] = rec
@@ -21326,36 +21370,156 @@ def api_state_comment():
 
 @app.route("/api/state/comment/add", methods=["POST"])
 def api_state_comment_add():
-    """Adiciona um comentário de analista (thread multi-usuário) numa usina. Sem login por pessoa
-    (o dashboard é 1 senha compartilhada) → o 'nick' é auto-declarado (confiança da equipe)."""
+    """Adiciona um comentário de analista (thread multi-usuário) numa usina.
+
+    O autor (03/11/2026, Levi: "Ao comentar em tempo real não precisar digitar o nome, já puxa automático"): quem entrou
+    pelo Nexus (ou pelo Microsoft) é quem a sessão diz, e o `nick` que vier do navegador é IGNORADO; o e-mail fica no item
+    (`email`), para o apagar saber de quem é. Pela senha compartilhada a plataforma não sabe quem é: o nick é
+    auto-declarado (confiança da equipe), como sempre foi. `usina` (opcional) = o nome que a tela mostrava, para a tela
+    Comentários dizer a usina mesmo com a fonte fora."""
     body  = flask_request.get_json(force=True, silent=True) or {}
     key   = str(body.get("key", "")).strip()
-    nick  = str(body.get("nick", "")).strip()[:40]
-    texto = str(body.get("texto", "")).strip()[:2000]
+    texto = str(body.get("texto", "")).strip()[:_cm.TEXTO_MAX]
+    ident = _ident_da_sessao()
+    nick, email = _cm.autor(ident, body.get("nick"))
     if not key or not nick or not texto:
         return jsonify({"error": "key, nick e texto obrigatórios"}), 400
+    usina = " ".join(str(body.get("usina") or "").split())[:_cm.USINA_MAX]
     with _state_lock:
         d = _load_state()
         item = {"nick": nick, "texto": texto, "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}
+        if email:
+            item["email"] = email
+        if usina:
+            item["usina"] = usina
         d["comments_thread"].setdefault(key, []).append(item)
         _save_state(d)
         thread = d["comments_thread"][key]
-    return jsonify({"ok": True, "thread": thread})
+    return jsonify({"ok": True, "thread": _cm.para_tela(thread, ident)})
 
 
 @app.route("/api/state/comment/del", methods=["POST"])
 def api_state_comment_del():
-    """Remove um comentário da thread pelo timestamp (sem login → confiança da equipe)."""
+    """Remove um comentário da thread pelo timestamp. Com identidade na sessão (03/11/2026), só o próprio (pelo e-mail
+    guardado no comentário) ou o administrador do Nexus: 403 e nada sai. Pela senha compartilhada, como sempre foi
+    (confiança da equipe): a plataforma não sabe quem é."""
     body = flask_request.get_json(force=True, silent=True) or {}
     key  = str(body.get("key", "")).strip()
     ts   = str(body.get("ts", "")).strip()
+    ident = _ident_da_sessao()
     with _state_lock:
         d = _load_state()
         lst = d.get("comments_thread", {}).get(key, [])
+        if any(c.get("ts") == ts and not _cm.pode_apagar(c, ident) for c in lst):
+            return jsonify({"error": "Só quem escreveu (ou um administrador do Nexus) apaga este comentário.",
+                            "thread": _cm.para_tela(lst, ident)}), 403
         d.setdefault("comments_thread", {})[key] = [c for c in lst if c.get("ts") != ts]
         _save_state(d)
         thread = d["comments_thread"][key]
-    return jsonify({"ok": True, "thread": thread})
+    return jsonify({"ok": True, "thread": _cm.para_tela(thread, ident)})
+
+
+@app.route("/api/state/comment/os", methods=["POST"])
+def api_state_comment_os():
+    """O comentário automático da OS criada (03/11/2026, Levi: "quando eu crio uma OS de performance já vira um comentário
+    automático: '<Levi> criou uma OS de <String> para o <inversor X>' + 'Observação da OS'").
+
+    Quem chama é quem SABE que a OS saiu, com o nº que o Fracttal devolveu: o Criar OS dos trackers do Tempo real (que
+    fala direto com o `/os/api/performance/criar`) e a página de criar OS de Performance do OS Creator do Nexus (as OS de
+    strings e de ETM que o Tempo real abre nela). Falhou a criação, ninguém chama: sem nº, sem comentário.
+    Corpo: `{chave, usina, tipo, criadas: [{folio, ativo, observacao}], quem}`. `chave` = a conversa da usina na tela que
+    abriu (`pv:22854`); sem ela (a OS criada direto no OS Creator), `os:<usina>` (`comentarios.chave_da_usina_sem_tela`).
+    O autor é o da sessão; sem identidade, o `quem` que o OS Creator manda (o login do Fracttal de quem criou).
+    Um comentário por OS: o nº já comentado, em qualquer conversa, não grava de novo (`repetidas`)."""
+    body = flask_request.get_json(force=True, silent=True) or {}
+    criadas = [c for c in (body.get("criadas") or []) if isinstance(c, dict)][:_cm.OS_POR_PEDIDO]
+    usina = " ".join(str(body.get("usina") or "").split())[:_cm.USINA_MAX]
+    key = _cm.chave_valida(body.get("chave")) or _cm.chave_da_usina_sem_tela(usina)
+    tipo = " ".join(str(body.get("tipo") or "").split())[:120]
+    nick, email = _cm.autor(_ident_da_sessao(), body.get("quem"))
+    nick = nick or "OS Creator"
+    if not key or not criadas:
+        return jsonify({"error": "chave (ou usina) e as OS criadas são obrigatórias"}), 400
+    gravadas, repetidas = [], []
+    with _state_lock:
+        d = _load_state()
+        ja = _cm.folios_comentados(d["comments_thread"])
+        for c in criadas:
+            folio = str(c.get("folio") or "").strip()
+            if not folio.isdigit():                       # sem nº = a OS não saiu (ou saiu sem número): nada a dizer
+                continue
+            if folio in ja:
+                repetidas.append(folio)
+                continue
+            ja.add(folio)
+            item = {"nick": nick, "texto": _cm.texto_da_os(nick, folio, tipo, " ".join(str(c.get("ativo") or "").split())[:120],
+                                                          str(c.get("observacao") or "")[:1500]),
+                    "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"), "origem": _cm.ORIGEM_OS, "folio": folio,
+                    "link_os": _cm.LINK_DA_OS.format(folio=folio)}
+            if email:
+                item["email"] = email
+            if usina:
+                item["usina"] = usina
+            d["comments_thread"].setdefault(key, []).append(item)
+            gravadas.append(folio)
+        if gravadas:
+            _save_state(d)
+        thread = d["comments_thread"].get(key, [])
+    return jsonify({"ok": True, "chave": key, "gravadas": gravadas, "repetidas": repetidas,
+                    "thread": _cm.para_tela(thread, _ident_da_sessao())})
+
+
+def _comentarios_usinas_conhecidas() -> dict:
+    """{chave do comentário: {"usina", "fonte"}} pelas caches das fontes que já estão na memória (nada vai à fonte, nem ao
+    banco: é a mesma leitura do `_portfolio_rollup`). A chave é a das telas (`comentarios.FONTES`); o `so` do Painel NOC
+    vale para a Athon e para a Axis (o `KEYPFX` dele), e a fonte de cada uma vem da cache em que o id aparece."""
+    out = {}
+
+    def por(prefixo, fonte, linhas):
+        for r in linhas or []:
+            pid, nome = r.get("plant_id"), r.get("usina")
+            if pid not in (None, "") and nome:
+                out.setdefault(f"{prefixo}:{pid}", {"usina": str(nome), "fonte": fonte})
+
+    caches = (("pv", "thopen-pv", _cache), ("so", "athon", _sunop_cache), ("so", "axis", _axis_cache),
+              ("ax", "axis", _axis_cache), ("se", "renogrid", _se_cache), ("semp", "semp", _semp_cache),
+              ("al", "alveslima", _alveslima_cache), ("c2", "2capi", _2capi_cache), ("gy", "greenyellow", _gy_cache),
+              ("sal", "salenergia", _sal_cache), ("apo", "apolo", _apo_cache))
+    for prefixo, fonte, c in caches:
+        try:
+            por(prefixo, fonte, (c.get("payload") or {}).get("rows"))
+        except Exception as e:
+            print(f"[comentários] nomes da fonte {fonte} indisponíveis: {e}")
+    try:
+        por("pg", "thopen-db", _pg_cache.get("summary"))
+    except Exception as e:
+        print(f"[comentários] nomes do banco da Thopen indisponíveis: {e}")
+    for code in OWEN_UFVS:                       # a 2C de antes (e-mail): a chave é o código da UFV
+        out.setdefault(f"owen:{code}", {"usina": _owen_nome(code), "fonte": "2c"})
+    return out
+
+
+@app.route("/painel/comentarios")
+def pagina_comentarios():
+    """Comentários (03/11/2026, Levi: "Ter um campo na performance de Comentários"): todos os comentários das usinas, mais
+    novos primeiro, com busca e os filtros de usina, autor e período; responder e apagar dali. No Nexus: Performance ->
+    Comentários (porta única, `porta_nexus.MAPA`)."""
+    return render_template("comentarios.html")
+
+
+@app.route("/api/comentarios")
+def api_comentarios():
+    """A lista da tela Comentários: `itens` (os filtrados, mais novos primeiro), `total` (todos) e as opções dos
+    seletores (`usinas` e `autores`, de TODOS os comentários: filtrar não esconde a opção). Filtros: `q`, `chave`,
+    `autor`, `de`, `ate` (AAAA-MM-DD) e `origem` ("os" = as OS criadas, "comentario" = os escritos). Só lê o estado e as caches que já estão na memória."""
+    with _state_lock:
+        threads = _load_state().get("comments_thread") or {}
+    todos = _cm.listar(threads, _comentarios_usinas_conhecidas(), _ident_da_sessao())
+    a = flask_request.args
+    itens = _cm.filtrar(todos, q=a.get("q", ""), chave=a.get("chave", ""), autor_=a.get("autor", ""),
+                        de=a.get("de", ""), ate=a.get("ate", ""), origem=a.get("origem", ""))
+    return jsonify(dict(_cm.opcoes(todos), itens=itens, total=len(todos), eu=_eu_para_a_tela(),
+                        lido_em=datetime.now().strftime("%H:%M:%S")))
 
 
 # ══ 2C (ARA/IPX/STL/TUP + União) — tudo pela API PV desde 03/10/2026 ════════════════════════════════════════════

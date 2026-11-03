@@ -326,6 +326,9 @@ const STATE_KEY=(KEYPFX[FONTE]||FONTE)+':'+PLANT_ID;
 function _cmEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function _cmTs(ts){const m=String(ts||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:'';}
 let CM_TOTAL=0;
+// Quem escreve (03/11/2026, Levi: "não precisar digitar o nome, já puxa automático"): o window.gcEu que o servidor põe na
+// página. Com identidade (entrou pelo Nexus) o nick some e o servidor põe o nome da sessão; pela senha, o nick digitado.
+function _cmEu(){ return window.gcEu||{identificado:false,nome:'',apaga_todos:false,grava:true}; }
 function _cmSeenKey(){ return 'cmSeen:'+STATE_KEY; }
 function updateCmBadge(){
   const b=document.getElementById('cmBadge'); if(!b) return;
@@ -347,8 +350,8 @@ function _renderComent(thread){
   document.getElementById('cmLista').innerHTML = lst.length ? lst.map(c=>
     `<div style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--panel-2)">
        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);margin-bottom:3px">
-         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
-         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentario('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}${c.meu?' <span style="font-weight:400;color:var(--faint)">(você)</span>':''}</b>
+         <span>${_cmTs(c.ts)}${c.ts&&c.pode_apagar!==false&&_cmEu().grava!==false?` <span onclick="excluirComentario('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
        </div>
        <div style="font-size:12px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
      </div>`).join('') : '<div class="empty" style="padding:8px 0">Sem comentários ainda — seja o primeiro.</div>';
@@ -372,7 +375,9 @@ function _cmLoadOs(){   // OSs de Performance (Fracttal) da usina — só-leitur
 async function loadComentarios(){
   const sc=document.getElementById('cmScope'); if(sc)sc.textContent=NOME;
   _cmLoadOs();
-  document.getElementById('cmNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  { const eu=_cmEu(), n=document.getElementById('cmNick'), t=document.getElementById('cmTexto');
+    n.style.display=eu.identificado?'none':''; n.value=eu.identificado?'':(localStorage.getItem('gcAnalistaNick')||'');
+    if(eu.identificado&&t) t.placeholder='Comentar como '+eu.nome+'…'; }
   try{
     const d=await fetch('/api/state').then(r=>r.json());
     const thread=(d.comments_thread&&d.comments_thread[STATE_KEY])||[];
@@ -381,13 +386,14 @@ async function loadComentarios(){
   }catch(e){ document.getElementById('cmLista').innerHTML='<div class="empty">Falha ao carregar.</div>'; }
 }
 async function publicarComentario(){
-  const nick=document.getElementById('cmNick').value.trim();
+  const eu=_cmEu(), nick=eu.identificado?eu.nome:document.getElementById('cmNick').value.trim();
   const texto=document.getElementById('cmTexto').value.trim();
-  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
-  localStorage.setItem('gcAnalistaNick',nick);
+  if(!nick||!texto){alert(eu.identificado?'Escreva o comentário.':'Preencha seu nick e o comentário.');return;}
+  if(!eu.identificado) localStorage.setItem('gcAnalistaNick',nick);
   try{
     const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({key:STATE_KEY,nick,texto})}).then(r=>r.json());
+      body:JSON.stringify({key:STATE_KEY,nick,texto,usina:Q.get('nome')||''})}).then(r=>r.json());
+    if(r.error){alert('Não publicou: '+r.error);return;}
     document.getElementById('cmTexto').value='';
     _renderComent(r.thread||[]);
   }catch(e){alert('Falha ao publicar o comentário.');}
@@ -396,6 +402,7 @@ async function excluirComentario(ts){
   try{
     const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({key:STATE_KEY,ts})}).then(r=>r.json());
+    if(r.error) alert(r.error);
     _renderComent(r.thread||[]);
   }catch(e){}
 }

@@ -39,7 +39,8 @@ POSTS_DE_CONSULTA = frozenset({"/api/os-performance/counts", "/api/os-creator/fr
 
 # o que as páginas gravam (documentação e teste): com a chave, tudo isto é 403
 GRAVACOES = (
-    "/api/state/string-trancada", "/api/state/comment/add", "/api/state/comment/del", "/api/state/os-atribuir",
+    "/api/state/string-trancada", "/api/state/comment/add", "/api/state/comment/del", "/api/state/comment/os",
+    "/api/state/os-atribuir",
     "/api/state/os-desatribuir", "/api/state/usina-desligada", "/api/state/usina-religada", "/api/state/tracking",
     "/api/strings/tickets/", "/api/entrada/tempo-real/atualizar", "/api/notificacoes/ler-agora",
     # o Salvar do Modo de-para do Tempo real (20/10/2026) grava a ponte da fonte depois da estrutura no Nexus
@@ -191,6 +192,7 @@ _GET_GESTOR = (
     "/api/relatorio",                                         # Criador de relatório e Relatório semanal
     "/api/ronda/recorrentes", "/api/ronda/analise", "/api/ronda/book", "/api/ronda/obs",
     "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
+    "/api/comentarios",                                       # Comentários (03/11/2026): a lista; responder é gravação
     "/api/tokens",                                            # Chaves das fontes: a validade (e só para admin)
     "/api/admin/tempo-real/fontes",                           # Fontes do tempo real: a lista (e só para admin)
     # De-para de equipamentos (e só para admin): o diagnóstico, o editor e, desde 20/10/2026, as leituras do Modo de-para

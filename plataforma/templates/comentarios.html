@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comentários · Plataforma de Performance</title>
+{# Comentários (03/11/2026; Levi: "Gostaria de um sistema mais sofisticado de comentários! Ao comentar em tempo real não
+   precisar digitar o nome, já puxa automático. Ter um campo na performance de Comentários"). Todos os comentários das
+   usinas (o comments_thread do ufv_state.json, o mesmo do Tempo real, do Painel NOC e do Diagnóstico), mais novos
+   primeiro, com a usina pelo nome; a busca e os filtros de usina, autor e período, e só eles; responder e apagar dali.
+   O autor vem da sessão (window.gcEu, posto pelo servidor na frente do aviso de sessão): quem entrou pelo Nexus não
+   digita o nome; pela senha compartilhada, a tela pede, como o Tempo real sempre pediu. No Nexus: Performance ->
+   Comentários. Um nível de superfície (cada comentário é o único cartão, direto no fundo); o tema segue o do Nexus na
+   moldura (navy no escuro, o claro do Nexus no claro), a régua das Falhas e do De-para. #}
+<script>
+// O tema do Nexus antes da 1ª pintura (a régua das Falhas, 12/10/2026): o cookie nexus_tema ou, sem ele, o localStorage
+// nexus.tema; o botão de tema do Nexus troca esta tela na hora (o evento storage chega às molduras da mesma origem).
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro' || t === 'escuro') raiz.setAttribute('data-tema', t); }
+  try {
+    var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/);
+    aplica(c ? c[1] : localStorage.getItem('nexus.tema'));
+  } catch(e) {}
+  window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+})();
+</script>
+<style>
+  :root{
+    --bg:#090d18; --card:#161d30; --linha:rgba(255,255,255,.08); --linha2:rgba(255,255,255,.15);
+    --campo:#0e1626;
+    --txt:#e9eef6; --txt2:#c3cad7; --txt3:#96a0b4;
+    --verde:#a3d900; --verde-txt:#c4e755; --verde-suave:rgba(163,217,0,.12);
+    --ambar:#ffd83d; --ambar-suave:rgba(255,216,61,.12); --vermelho:#ff5b6e; --vermelho-suave:rgba(255,91,110,.13);
+    --mudo-suave:rgba(150,160,180,.12);
+  }
+  /* o claro do Nexus (os tokens do nexus.css, os mesmos das Falhas e do De-para): só na moldura com o Nexus no claro */
+  html.modo-nexus[data-tema="claro"]{color-scheme:light;
+    --bg:#FCFCFC; --card:#ffffff; --linha:rgba(15,23,42,.10); --linha2:rgba(15,23,42,.18); --campo:#f5f6f8;
+    --txt:#1f2937; --txt2:#475569; --txt3:#5a6475;
+    --verde:#a9db21; --verde-txt:#566610; --verde-suave:rgba(169,219,33,.18);
+    --ambar:#7a5200; --ambar-suave:rgba(230,175,46,.16); --vermelho:#b42230; --vermelho-suave:rgba(220,53,69,.09);
+    --mudo-suave:rgba(15,23,42,.06);
+  }
+  *{box-sizing:border-box}
+  html:not(.modo-nexus),html.modo-nexus:not([data-tema="claro"]){color-scheme:dark}
+  body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  [hidden]{display:none !important}
+  .topo{border-bottom:1px solid var(--linha);padding:14px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .topo h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .topo a{color:var(--txt3);text-decoration:none;font-size:13px}
+  .topo a:hover{color:var(--verde-txt)}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 24px 56px}
+  .intro{color:var(--txt2);margin:0 0 16px;max-width:860px}
+  .quem{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:13px;color:var(--txt2)}
+  .quem b{color:var(--txt);font-weight:600}
+  .filtros{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0 0 10px}
+  .filtros label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--txt3);letter-spacing:.03em}
+  input,select,textarea{background:var(--campo);color:var(--txt);border:1px solid var(--linha2);border-radius:8px;
+    padding:8px 11px;font:inherit;font-size:13.5px}
+  textarea{width:100%;resize:vertical;min-height:72px}
+  #q{min-width:260px}
+  #fUsina{min-width:220px;max-width:320px}
+  #fAutor{min-width:170px;max-width:240px}
+  .contagem{color:var(--txt3);font-size:12.5px;margin:4px 0 14px;min-height:18px}
+  .lista{display:flex;flex-direction:column;gap:10px}
+  .cmt{background:var(--card);border-radius:12px;padding:14px 18px}
+  .cmt .cab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .cmt .usina{font-weight:600;font-size:14.5px;color:var(--txt)}
+  .cmt .fonte{font-size:11.5px;color:var(--txt3)}
+  .cmt .chave{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--txt3)}
+  .cmt .abrir{font-size:12.5px;color:var(--txt3);text-decoration:none}
+  .cmt .abrir:hover{color:var(--verde-txt)}
+  .cmt .autor{margin-left:auto;font-size:12.5px;color:var(--txt2);white-space:nowrap}
+  .cmt .autor b{color:var(--txt);font-weight:600}
+  .cmt .texto{margin:8px 0 0;white-space:pre-wrap;word-wrap:break-word;color:var(--txt);font-size:13.5px}
+  .cmt .acoes{display:flex;gap:8px;margin-top:10px}
+  .cmt .resp{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+  .cmt .resp .lin{display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+  .cmt .os{font-size:12px;color:var(--ambar);background:var(--ambar-suave);border-radius:5px;padding:1px 8px}
+  .cmt .os a{color:inherit;text-decoration:none;font-weight:600}
+  .cmt .os a:hover{text-decoration:underline}
+  .meu{font-size:11px;color:var(--verde-txt);background:var(--verde-suave);border-radius:5px;padding:1px 7px;margin-left:6px}
+  .vazio{color:var(--txt3);padding:28px 4px;font-size:13.5px}
+  .faixa{border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:13px;background:var(--ambar-suave);color:var(--ambar)}
+  .faixa.ruim{background:var(--vermelho-suave);color:var(--vermelho)}
+  .msg{font-size:12.5px;color:var(--txt3)}
+  .msg.ruim{color:var(--vermelho)}
+  button{font:inherit;font-size:13px;cursor:pointer;border-radius:8px;border:1px solid var(--linha2);background:transparent;
+    color:var(--txt);padding:6px 13px}
+  button:hover:not(:disabled){border-color:var(--verde);color:var(--verde-txt)}
+  button:disabled{opacity:.5;cursor:default}
+  button.prim{background:var(--verde);border-color:var(--verde);color:#0b1020;font-weight:600}
+  button.prim:hover:not(:disabled){filter:brightness(1.08);color:#0b1020}
+  button.discreto{border-color:transparent;color:var(--txt3);padding:4px 8px}
+  button.discreto:hover:not(:disabled){border-color:var(--linha2);color:var(--txt)}
+  button.apagar:hover:not(:disabled){border-color:var(--vermelho);color:var(--vermelho)}
+  :focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+  @media (max-width:640px){
+    .topo{padding:12px 16px}
+    .wrap{padding:16px 16px 48px}
+    .filtros label,#q,#fUsina,#fAutor{width:100%;max-width:none;min-width:0}
+    .filtros input,.filtros select{width:100%}
+    .filtros label.data{width:calc(50% - 5px)}
+    .cmt .autor{margin-left:0;width:100%}
+  }
+</style>
+</head>
+<body>
+<div class="topo">
+  <h1>Comentários</h1>
+  <a href="/" data-casca>← Início</a>
+  <span style="flex:1"></span>
+  <span class="msg" id="lido" role="status"></span>
+</div>
+<div class="wrap">
+  <p class="intro">O que a equipe anotou sobre cada usina no Tempo real, no Painel NOC e no Diagnóstico, mais novos
+    primeiro. Responder aqui escreve na conversa da mesma usina, que aparece também nessas telas.</p>
+  <div class="quem" id="quem"></div>
+  <div class="filtros" role="search">
+    <label>Buscar<input type="search" id="q" placeholder="Texto, autor ou usina" autocomplete="off"></label>
+    <label>Usina<select id="fUsina"><option value="">Todas as usinas</option></select></label>
+    <label>Autor<select id="fAutor"><option value="">Todos os autores</option></select></label>
+    <label>Tipo<select id="fOrigem"><option value="">Todos</option><option value="comentario">Comentários escritos</option>
+      <option value="os">OS criadas</option></select></label>
+    <label class="data">De<input type="date" id="fDe"></label>
+    <label class="data">Até<input type="date" id="fAte"></label>
+    <button type="button" id="limpar" class="discreto">Limpar filtros</button>
+  </div>
+  <div id="faixa"></div>
+  <div class="contagem" id="contagem" aria-live="polite"></div>
+  <div class="lista" id="lista"><div class="vazio">Carregando os comentários…</div></div>
+</div>
+<script>
+(function(){
+  'use strict';
+  var EU = window.gcEu || {identificado:false, nome:'', apaga_todos:false, grava:true};
+  var NICK_KEY = 'gcAnalistaNick';                 // o mesmo do Painel NOC e do Diagnóstico: quem já digitou não redigita
+  var st = {itens:null, total:0, seq:0, resp:null};
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function nickSalvo(){ try { return localStorage.getItem(NICK_KEY) || ''; } catch(e) { return ''; } }
+
+  // Quem escreve: com identidade, o nome da sessão (o servidor põe de novo e ignora o que vier); sem ela, o campo
+  function desenhaQuem(){
+    var q = $('quem');
+    if (!EU.grava) { q.innerHTML = '<span>Somente leitura: o seu perfil na Performance lê os comentários, sem responder.</span>'; return; }
+    if (EU.identificado) { q.innerHTML = '<span>Comentando como <b>' + esc(EU.nome) + '</b></span>'; return; }
+    q.innerHTML = '<label for="nick">Seu nome</label><input id="nick" maxlength="40" autocomplete="name" style="width:220px" value="' +
+      esc(nickSalvo()) + '"><span class="msg">a senha é compartilhada: a plataforma não sabe quem é</span>';
+  }
+  function nickAtual(){
+    if (EU.identificado) return EU.nome;
+    var n = (($('nick') || {}).value || '').trim();
+    if (n) { try { localStorage.setItem(NICK_KEY, n); } catch(e) {} }
+    return n;
+  }
+
+  function filtros(){
+    return {q:$('q').value.trim(), chave:$('fUsina').value, autor:$('fAutor').value, de:$('fDe').value, ate:$('fAte').value,
+            origem:$('fOrigem').value};
+  }
+  function qs(f){
+    var p = [];
+    Object.keys(f).forEach(function(k){ if (f[k]) p.push(k + '=' + encodeURIComponent(f[k])); });
+    return p.length ? '?' + p.join('&') : '';
+  }
+  function preenche(sel, opcoes, valor, rotulo){
+    var atual = sel.value;
+    sel.innerHTML = '<option value="">' + rotulo + '</option>' + opcoes.map(function(o){
+      return '<option value="' + esc(o.v) + '">' + esc(o.t) + '</option>'; }).join('');
+    sel.value = valor != null ? valor : atual;
+    if (sel.value !== (valor != null ? valor : atual)) sel.value = '';
+  }
+
+  // Só a resposta 2xx vira lista (a régua da porta única, 10/10/2026): a leitura que falha deixa a lista de antes, com a
+  // faixa dizendo por quê, nunca "Nenhum comentário".
+  function carrega(){
+    var seq = ++st.seq, f = filtros();
+    return fetch('/api/comentarios' + qs(f), {credentials:'same-origin'}).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d){
+      if (seq !== st.seq) return;
+      if (!d || !Array.isArray(d.itens)) throw new Error('resposta sem a lista');
+      if (d.eu) { EU = d.eu; desenhaQuem(); }
+      preenche($('fUsina'), (d.usinas || []).map(function(u){
+        return {v:u.chave, t:u.usina + (u.fonte ? ' · ' + u.fonte : '') + ' (' + u.qtd + ')'}; }), f.chave, 'Todas as usinas');
+      preenche($('fAutor'), (d.autores || []).map(function(a){ return {v:a.nome, t:a.nome + ' (' + a.qtd + ')'}; }),
+        f.autor, 'Todos os autores');
+      st.itens = d.itens; st.total = d.total || 0;
+      $('faixa').innerHTML = '';
+      $('lido').textContent = 'Atualizado às ' + (d.lido_em || '').slice(0, 5);
+      desenha();
+    }).catch(function(e){
+      if (seq !== st.seq) return;
+      $('faixa').innerHTML = '<div class="faixa">Não atualizou (' + esc(e.message) + ')' +
+        (st.itens ? ': a lista abaixo é a da última leitura.' : '. Tente de novo em instantes.') + '</div>';
+      if (!st.itens) $('lista').innerHTML = '';
+    });
+  }
+
+  function ativos(f){ return !!(f.q || f.chave || f.autor || f.de || f.ate || f.origem); }
+  function desenha(){
+    var it = st.itens || [], f = filtros();
+    $('contagem').textContent = ativos(f)
+      ? it.length + ' de ' + st.total + ' comentário' + (st.total === 1 ? '' : 's')
+      : st.total + ' comentário' + (st.total === 1 ? '' : 's');
+    if (!it.length) {
+      $('lista').innerHTML = '<div class="vazio">' + (st.total ? 'Nenhum comentário com esses filtros.'
+        : 'Nenhum comentário ainda. Eles nascem no Tempo real, no Painel NOC e no Diagnóstico de cada usina.') + '</div>';
+      return;
+    }
+    $('lista').innerHTML = it.map(function(c, i){
+      var abre = c.link ? '<a class="abrir" href="' + esc(c.link) + '">Abrir no tempo real ›</a>' : '';
+      var acoes = EU.grava ? '<div class="acoes"><button type="button" class="discreto" data-resp="' + i + '">Responder</button>' +
+        (c.pode_apagar ? '<button type="button" class="discreto apagar" data-apaga="' + i + '">Apagar</button>' : '') + '</div>' : '';
+      var resp = st.resp === i ? '<div class="resp"><label class="msg" for="rt' + i + '">Responder em ' + esc(c.usina) + '</label>' +
+        '<textarea id="rt' + i + '" maxlength="2000" placeholder="Escrever comentário…"></textarea>' +
+        '<div class="lin"><span class="msg" id="rm' + i + '" role="status"></span><button type="button" class="discreto" data-cancela="1">Cancelar</button>' +
+        '<button type="button" class="prim" data-publica="' + i + '">Publicar</button></div></div>' : '';
+      return '<article class="cmt"><div class="cab"><span class="usina">' + esc(c.usina) + '</span>' +
+        (c.usina_conhecida ? (c.fonte ? '<span class="fonte">' + esc(c.fonte) + '</span>' : '')
+                           : '<span class="fonte">usina sem nome na leitura de agora</span>') +
+        abre + (c.origem === 'os' && c.folio ? '<span class="os">OS criada · <a href="' + esc(c.link_os) +
+          '" target="_blank" rel="noopener">nº ' + esc(c.folio) + ' ›</a></span>' : '') + '<span class="autor"><b>' + esc(c.nick || 'Sem nome') + '</b>' + (c.meu ? '<span class="meu">você</span>' : '') +
+        ' · ' + esc(c.quando) + '</span></div><p class="texto">' + esc(c.texto) + '</p>' + acoes + resp + '</article>';
+    }).join('');
+    if (st.resp != null) { var t = $('rt' + st.resp); if (t) t.focus(); }
+  }
+
+  function publica(i){
+    var c = (st.itens || [])[i], t = $('rt' + i), m = $('rm' + i);
+    if (!c || !t) return;
+    var texto = t.value.trim(), nick = nickAtual();
+    if (!texto) { m.textContent = 'Escreva o comentário.'; return; }
+    if (!nick) { m.textContent = 'Diga o seu nome no campo lá em cima.'; m.className = 'msg ruim'; return; }
+    m.className = 'msg'; m.textContent = 'Publicando…';
+    fetch('/api/state/comment/add', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:c.chave, texto:texto, nick:nick, usina:c.usina_conhecida ? c.usina : ''})})
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {r:r, j:j}; }); })
+      .then(function(x){
+        if (!x.r.ok || !x.j.ok) { m.className = 'msg ruim'; m.textContent = 'Não publicou: ' + ((x.j && x.j.error) || 'resposta ' + x.r.status); return; }
+        st.resp = null; carrega();
+      }).catch(function(){ m.className = 'msg ruim'; m.textContent = 'Não consegui falar com a plataforma. Tente de novo.'; });
+  }
+  function apaga(i){
+    var c = (st.itens || [])[i];
+    if (!c || !window.confirm('Apagar o comentário de ' + (c.nick || 'sem nome') + ' em ' + c.usina + '?')) return;
+    fetch('/api/state/comment/del', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:c.chave, ts:c.ts})})
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {r:r, j:j}; }); })
+      .then(function(x){
+        if (!x.r.ok) { $('faixa').innerHTML = '<div class="faixa ruim">Não apagou: ' + esc((x.j && x.j.error) || 'resposta ' + x.r.status) + '</div>'; return; }
+        carrega();
+      }).catch(function(){ $('faixa').innerHTML = '<div class="faixa ruim">Não consegui falar com a plataforma. Tente de novo.</div>'; });
+  }
+
+  $('lista').addEventListener('click', function(ev){
+    var b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.resp != null) { st.resp = +b.dataset.resp; desenha(); }
+    else if (b.dataset.cancela) { st.resp = null; desenha(); }
+    else if (b.dataset.publica != null) publica(+b.dataset.publica);
+    else if (b.dataset.apaga != null) apaga(+b.dataset.apaga);
+  });
+  var tempo = null;
+  $('q').addEventListener('input', function(){ clearTimeout(tempo); tempo = setTimeout(function(){ st.resp = null; carrega(); }, 250); });
+  ['fUsina', 'fAutor', 'fOrigem', 'fDe', 'fAte'].forEach(function(id){ $(id).addEventListener('change', function(){ st.resp = null; carrega(); }); });
+  $('limpar').addEventListener('click', function(){
+    $('q').value = ''; $('fUsina').value = ''; $('fAutor').value = ''; $('fOrigem').value = ''; $('fDe').value = ''; $('fAte').value = '';
+    st.resp = null; carrega();
+  });
+  desenhaQuem();
+  carrega();
+  window.gcComentarios = {estado: st, carrega: carrega};      // os testes no node leem por aqui
+})();
+</script>
+</body>
+</html>

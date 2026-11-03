@@ -88,6 +88,13 @@ mapa do Nexus (o dono), e os dois lados conferem a mesma assinatura do texto can
 contra esta pasta com `PLATAFORMA_REPO`). Tudo fica inerte sem a chave. Regras, variáveis e prova: `plataforma/CLAUDE.md`,
 seção "Porta única com o Nexus".
 
+## Acoplamento conhecido: OS Creator do Nexus → comentário da usina (03/11/2026)
+
+A página de criar OS de Performance do OS Creator do Nexus (`perf.js`, `comentarNaPlataforma`) manda à plataforma, pelo
+navegador, o nº de cada OS que saiu (`POST /api/state/comment/os`, `{chave, usina, tipo, criadas, quem}`), e a plataforma
+grava o comentário automático na conversa da usina, um por nº. Mudou o corpo num lado, muda no outro no mesmo trabalho.
+Regras: `plataforma/CLAUDE.md`, seção "Comentários das usinas"; no Nexus, `nexus/torres/oscreator/README.md`.
+
 ## Convenções (valem para os quatro)
 
 - **Sempre pt-BR**, inclusive comentários de código.

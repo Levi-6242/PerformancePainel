@@ -797,17 +797,25 @@ window.abrirComent=async(vkey,usina)=>{
   if(state._ckey===vkey) _renderComent();
 };
 window.fecharComent=()=>{ state._ckey=null; const m=document.getElementById('gc-cmodal'); if(m)m.remove(); };
+// Quem escreve (03/11/2026, Levi: "Ao comentar em tempo real não precisar digitar o nome, já puxa automático"): o
+// window.gcEu que o servidor põe na página. Quem entrou pelo Nexus não vê o "Seu nome" (o servidor põe o nome da sessão e
+// ignora o que vier); pela senha compartilhada a plataforma não sabe quem é e o campo fica, lembrado neste navegador.
+const _gcEu=()=>window.gcEu||{identificado:false,nome:'',apaga_todos:false,grava:true};
+function _gcNickSalvo(k){ try{ return localStorage.getItem(k)||''; }catch(e){ return ''; } }
 window.publicarComent=async()=>{
   const ta=document.getElementById('gc-ctxt'), ni=document.getElementById('gc-cnick');
   const texto=((ta&&ta.value)||'').trim(); if(!texto) return;
-  const nick=((ni&&ni.value)||'').trim()||'Anônimo';
-  try{ const d=await fetchJSON('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,nick,texto})});
-    if(d&&d.thread) RD.comments[state._ckey]=d.thread; }catch(e){}
+  const eu=_gcEu(), digitado=((ni&&ni.value)||'').trim();
+  if(!eu.identificado&&digitado){ try{ localStorage.setItem('gcAnalistaNick',digitado); }catch(e){} }
+  const nick=eu.identificado?eu.nome:(digitado||'Anônimo');
+  try{ const d=await fetchJSON('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,nick,texto,usina:state._cusina||''})});
+    if(d&&d.thread) RD.comments[state._ckey]=d.thread; else if(d&&d.error) _toast('Não publicou: '+d.error,'ruim'); }catch(e){}
   if(ta)ta.value=''; _renderComent(); render();
 };
 window.excluirComent=async(ts)=>{
   try{ const d=await fetchJSON('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,ts})});
-    if(d&&d.thread) RD.comments[state._ckey]=d.thread; }catch(e){}
+    if(d&&d.thread) RD.comments[state._ckey]=d.thread;
+    if(d&&d.error) _toast(d.error,'ruim'); }catch(e){}
   _renderComent(); render();
 };
 function _renderComent(){
@@ -819,9 +827,9 @@ function _renderComent(){
     : (!os.length ? `<div class="text-muted" style="font-size:12.5px;padding:6px 0">Nenhuma OS de performance.</div>`
       : os.map(o=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-radius:8px;background:color-mix(in srgb, var(--gc-amber) 9%, transparent);border:1px solid color-mix(in srgb, var(--gc-amber) 25%, transparent);margin-bottom:6px"><i class="ph ph-wrench" style="color:var(--gc-amber);margin-top:2px"></i><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">OS ${_he(o.os)} · <span style="font-weight:500;color:var(--color-neutral-300)">${_he(o.status)}</span>${o.atribuida?` · <span style="display:inline-flex;padding:1px 7px;border-radius:5px;background:color-mix(in srgb, var(--color-accent) 15%, transparent);color:var(--color-accent);font-size:10.5px;font-weight:600">atribuída${o.inv?' · '+_he(o.inv):''}</span>`:''}${o.sub?` · <span class="text-muted">${_he(o.sub)}</span>`:''}</div><div class="text-muted" style="font-size:11.5px;margin-top:2px">${_he(o.nota)}</div><div class="text-muted" style="font-size:11px;margin-top:2px">${_he(o.data)}</div></div></div>`).join(''));
   const thHtml = thread.length
-    ? thread.map(c=>`<div style="padding:9px 12px;border-radius:8px;background:var(--color-neutral-900);border:1px solid var(--color-divider);margin-bottom:6px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px"><span style="font-size:12px;font-weight:700;color:var(--color-accent-200)">${_he(c.nick)}</span><span style="display:flex;align-items:center;gap:8px"><span class="text-muted" style="font-size:11px">${_he((c.ts||'').slice(0,16))}</span><i class="ph ph-x" onclick="excluirComent('${esc(c.ts).replace(/['"\\]/g,'')}')" title="Excluir" style="cursor:pointer;font-size:12px;color:var(--color-neutral-500)"></i></span></div><div style="font-size:13px;white-space:pre-wrap">${_he(c.texto)}</div></div>`).join('')
+    ? thread.map(c=>`<div style="padding:9px 12px;border-radius:8px;background:var(--color-neutral-900);border:1px solid var(--color-divider);margin-bottom:6px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px"><span style="font-size:12px;font-weight:700;color:var(--color-accent-200)">${_he(c.nick)}${c.origem==='os'&&c.folio?` <a href="${_he(c.link_os||'')}" target="_blank" rel="noopener" style="font-weight:500;color:var(--gc-amber);text-decoration:none">· OS ${_he(c.folio)}</a>`:''}${c.meu?' <span style="font-weight:500;color:var(--color-neutral-400)">(você)</span>':''}</span><span style="display:flex;align-items:center;gap:8px"><span class="text-muted" style="font-size:11px">${_he((c.ts||'').slice(0,16))}</span>${c.pode_apagar!==false&&_gcEu().grava!==false?`<i class="ph ph-x" onclick="excluirComent('${esc(c.ts).replace(/['"\\]/g,'')}')" title="Excluir" style="cursor:pointer;font-size:12px;color:var(--color-neutral-500)"></i>`:''}</span></div><div style="font-size:13px;white-space:pre-wrap">${_he(c.texto)}</div></div>`).join('')
     : `<div class="text-muted" style="font-size:12.5px;padding:6px 0">Nenhum comentário ainda.</div>`;
-  m.innerHTML=`<div onclick="fecharComent()" class="gc-overlay" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:560px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px"><i class="ph-fill ph-chat-circle" style="color:var(--gc-blue);margin-right:7px"></i>${_he(state._cusina)}</span><i class="ph ph-x" onclick="fecharComent()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div><div style="padding:16px 20px;max-height:62vh;overflow-y:auto"><div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:8px">Ordens de serviço</div>${osHtml}<div class="card-kicker" style="color:var(--color-neutral-400);margin:16px 0 8px">Comentários</div>${thHtml}<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px"><input id="gc-cnick" class="input" placeholder="Seu nome" style="font-size:13px"><textarea id="gc-ctxt" class="input" rows="3" placeholder="Escrever comentário…" style="font-size:13px;resize:vertical"></textarea><button class="btn btn-primary" onclick="publicarComent()" style="align-self:flex-end"><i class="ph ph-paper-plane-tilt"></i> Publicar</button></div></div></div></div>`;
+  m.innerHTML=`<div onclick="fecharComent()" class="gc-overlay" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:560px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px"><i class="ph-fill ph-chat-circle" style="color:var(--gc-blue);margin-right:7px"></i>${_he(state._cusina)}</span><i class="ph ph-x" onclick="fecharComent()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div><div style="padding:16px 20px;max-height:62vh;overflow-y:auto"><div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:8px">Ordens de serviço</div>${osHtml}<div class="card-kicker" style="color:var(--color-neutral-400);margin:16px 0 8px">Comentários</div>${thHtml}${_gcEu().grava===false?`<div class="text-muted" style="margin-top:14px;font-size:12px">Somente leitura: o seu perfil na Performance lê os comentários, sem escrever.</div>`:`<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">${_gcEu().identificado?`<div class="text-muted" style="font-size:12px">Comentando como <b style="color:var(--color-text)">${_he(_gcEu().nome)}</b></div>`:`<input id="gc-cnick" class="input" placeholder="Seu nome" value="${_he(_gcNickSalvo('gcAnalistaNick'))}" style="font-size:13px">`}<textarea id="gc-ctxt" class="input" rows="3" placeholder="Escrever comentário…" style="font-size:13px;resize:vertical"></textarea><button class="btn btn-primary" onclick="publicarComent()" style="align-self:flex-end"><i class="ph ph-paper-plane-tilt"></i> Publicar</button></div>`}</div></div></div>`;
   _prendeOverlays();
 }
 /* ── Atribuir OS (Fracttal) a um inversor sem geração ── */
@@ -838,7 +846,7 @@ window.gcPickOS=(i)=>{ if(state._osA){ state._osA.sel=i; _renderOSAtrib(); } };
 window.gcConfirmarOS=async()=>{
   const a=state._osA; if(!a||a.sel==null||!a.list) return;
   const o=a.list[a.sel]; if(!o) return;
-  const nick=(localStorage.getItem('gcNick')||'').trim();
+  const nick=_gcEu().identificado?_gcEu().nome:(localStorage.getItem('gcNick')||'').trim();
   const _had=!!RD.osAtrib[a.pid+'|'+a.invId];   // já tinha OS neste inversor? (substituir não muda a contagem)
   try{ const d=await fetchJSON('/api/state/os-atribuir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:a.pid,inv_id:a.invId,inv_nome:a.invNome,usina:a.usina,folio:o.folio,ativo:o.ativo,desc:o.desc,criada:o.criada,evento:o.evento,status:o.status,responsavel:o.responsavel,nick})});
     if(d&&d.rec){ RD.osAtrib[a.pid+'|'+a.invId]=d.rec; if(!_had&&a.usina){ RD.os=RD.os||{}; RD.os[a.usina]=(RD.os[a.usina]||0)+1; } } }catch(e){}   // badge sobe na hora
@@ -999,7 +1007,8 @@ function _osObs(sids){ const l=sids.slice().sort((a,b)=>(_snum(a)||0)-(_snum(b)|
      seleção de strings de pé. Com URL de verdade, um `location.href` levaria a pessoa embora e
      jogaria fora o que ela marcou. */
 const OS_WEB_CRIAR='/os/performance/criar';
-function _osLink(g){ const p={frase:'recomposicao de string',usina:g.usina,ativo:g.inv,obs:_osObs(g.sids),origem:'plataforma-strings'};
+function _osLink(g){ const p={frase:'recomposicao de string',usina:g.usina,ativo:g.inv,obs:_osObs(g.sids),origem:'plataforma-strings',
+    comentario:(VKEY[state.source]||'pv')+':'+g.pid};   // a conversa da usina: o OS Creator grava "<nome> criou a OS ..." nela (03/11/2026)
   const atr=(RD.osAtrib||{})[g.pid+'|'+g.invId];   // inversor com OS atribuída → ela vira a OS PAI e herda o responsável
   if(atr&&atr.folio){ p.os_pai=String(atr.folio); if(atr.responsavel)p.resp=atr.responsavel; }
   return OS_WEB_CRIAR+'?'+new URLSearchParams(p).toString(); }
@@ -1236,7 +1245,9 @@ window.abrirOsEtm=(usina)=>{ const f=SKEY[state.source];
   const obs=(RD._etmObs||{})[usina]||'Estação meteorológica com anomalia, verificar';
   // `frase` = a FRASE do plano "Geração e ETM" na web (sem ela o roteador cai em Recomposição de
   // String — foi o caminho errado que o Levi viu em 26/08); modo=etm pede o segmentado ETM.
-  gcAbrirOs([OS_WEB_CRIAR+'?'+new URLSearchParams({frase:'coleta de dados de geracao',usina:usina,ativo:'Estação Meteorológica',obs:obs,modo:'etm',origem:'plataforma-etm'}).toString()]); };
+  const lin=((RD.pv&&RD.pv.rows)||[]).find(r=>r.usina===usina), q={frase:'coleta de dados de geracao',usina:usina,ativo:'Estação Meteorológica',obs:obs,modo:'etm',origem:'plataforma-etm'};
+  if(lin&&lin.plant_id!=null) q.comentario=(VKEY[state.source]||'pv')+':'+lin.plant_id;   // a conversa da usina (03/11/2026)
+  gcAbrirOs([OS_WEB_CRIAR+'?'+new URLSearchParams(q).toString()]); };
 window.abrirEtmChart=async(usina,pid)=>{ const date=_todayISO(); state._graf={t:'etm',usina:usina,pid:pid,date:date}; _renderEtmChart('load');
   let d=null; const url=_etmChartUrl(pid,usina,date); if(url){ try{ d=await fetchJSON(url); }catch(e){} }
   if(!state._graf||state._graf.t!=='etm'||String(state._graf.usina)!==String(usina)) return; _renderEtmChart(d); };
@@ -1694,6 +1705,7 @@ function _deslRow(pid){ return ((RD.pv&&RD.pv.rows)||[]).find(r=>String(r.plant_
 window.gcUsinaDesligada=pid=>{
   const r=_deslRow(pid); if(!r) return;
   let nick=''; try{ nick=(localStorage.getItem('gcNick')||'').trim(); }catch(e){}
+  const eu=_gcEu();
   const desde=r.ultima_leitura?String(r.ultima_leitura).replace(' ','T').slice(0,16):'';
   let el=document.getElementById('gc-deslmodal'); if(!el){ el=document.createElement('div'); el.id='gc-deslmodal'; document.body.appendChild(el); }
   const inp='width:100%;box-sizing:border-box;background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:13px;padding:8px 10px';
@@ -1703,7 +1715,7 @@ window.gcUsinaDesligada=pid=>{
     <div class="text-muted" style="font-size:12px;margin-top:4px">A tabela passa a dizer "Usina desligada" com esta observação, para todo mundo. A marca sai sozinha quando a usina voltar a gerar.</div>
     <label style="${lab}">Observação</label><textarea id="gc-desl-txt" rows="3" maxlength="300" placeholder="Ex.: desligada pela concessionária; furto, em recomposição; avaria no transformador" style="${inp};resize:vertical"></textarea>
     <div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:180px"><label style="${lab}">Desligada desde</label><input id="gc-desl-desde" type="datetime-local" value="${_he(desde)}" style="${inp}"></div>
-    <div style="flex:1;min-width:180px"><label style="${lab}">Seu nome</label><input id="gc-desl-nick" type="text" maxlength="40" value="${_he(nick)}" style="${inp}"></div></div>
+    ${eu.identificado?`<div style="flex:1;min-width:180px"><label style="${lab}">Quem marca</label><div style="font-size:13px;padding:8px 0">${_he(eu.nome)}</div></div>`:`<div style="flex:1;min-width:180px"><label style="${lab}">Seu nome</label><input id="gc-desl-nick" type="text" maxlength="40" value="${_he(nick)}" style="${inp}"></div>`}</div>
     <div id="gc-desl-erro" style="font-size:12px;color:#ff9a9d;margin-top:10px;min-height:16px"></div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px"><button class="btn btn-secondary" onclick="gcDeslFechar()">Cancelar</button><button class="btn btn-primary" onclick="gcDeslConfirmar('${_jsq(pid)}')"><i class="ph ph-power"></i> Marcar desligada</button></div>
   </div></div>`;
@@ -1713,7 +1725,7 @@ window.gcUsinaDesligada=pid=>{
 window.gcDeslFechar=()=>{ const el=document.getElementById('gc-deslmodal'); if(el) el.remove(); };
 window.gcDeslConfirmar=async pid=>{
   const r=_deslRow(pid); if(!r) return;
-  const txt=(document.getElementById('gc-desl-txt')||{}).value||'', nick=((document.getElementById('gc-desl-nick')||{}).value||'').trim(),
+  const txt=(document.getElementById('gc-desl-txt')||{}).value||'', nick=_gcEu().identificado?_gcEu().nome:((document.getElementById('gc-desl-nick')||{}).value||'').trim(),
         desde=(document.getElementById('gc-desl-desde')||{}).value||'', err=document.getElementById('gc-desl-erro');
   if(!txt.trim()){ if(err) err.textContent='Escreva a observação: é ela que diz por que a usina está desligada.'; return; }
   try{
@@ -1721,7 +1733,7 @@ window.gcDeslConfirmar=async pid=>{
       body:JSON.stringify({pid:String(pid),usina:r.usina,fonte:SKEY[state.source]||'',texto:txt.trim(),desde,nick})});
     const j=await resp.json().catch(()=>({}));
     if(!resp.ok||!j.ok){ if(err) err.textContent='Não gravou: '+((j&&j.error)||('resposta '+resp.status)); return; }
-    try{ if(nick) localStorage.setItem('gcNick',nick); }catch(e){}
+    try{ if(nick&&!_gcEu().identificado) localStorage.setItem('gcNick',nick); }catch(e){}
     r.desligada=Object.assign({por:'manual'},j.rec);            // na hora; a próxima leitura já vem do servidor assim
     gcDeslFechar(); render();
   }catch(e){ if(err) err.textContent='Não consegui falar com a plataforma. Tente de novo.'; }
@@ -1952,7 +1964,9 @@ function _tkQtdSug(t,inv){
 }
 function _tkIsoAgora(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 function _tkDias(ini){ const d=Date.parse(String(ini||'').replace(' ','T')); return isFinite(d)?Math.max(0,Math.floor((Date.now()-d)/864e5)):null; }
-function _tkQuem(){   // quem fecha: digitado uma vez e lembrado NESTE navegador (no login por senha a plataforma não sabe quem é)
+function _tkQuem(){   // quem fecha: o nome da sessão quando ela sabe quem é (03/11/2026); no login por senha, digitado uma vez e lembrado NESTE navegador
+  const eu=globalThis.gcEu||{};   // o window.gcEu, sem depender do resto da página (o card roda sozinho nos testes)
+  if(eu.identificado) return eu.nome;
   if(state._tkQuemV==null){ try{ state._tkQuemV=localStorage.getItem('gc_tk_quem')||''; }catch(e){ state._tkQuemV=''; } }
   return state._tkQuemV;
 }
@@ -2034,7 +2048,7 @@ function _tkCardHtml(t,est,f,naUsina,o){   // f = o formulário deste ticket (st
     <div class="gc-tkc-h"><span class="t"><i class="ph ph-clipboard-text"></i>${t.usina_inteira?'Ticket da usina inteira':(naUsina?'Ticket do '+_he(t.inversor||'inversor'):'Ticket aberto')}</span><span class="l">linha ${t.linha} da planilha de tickets · aba Strings indisp</span><span class="gc-tkc-e ${est.k}"><i class="ph ${ic}"></i>${_he(est.txt)}</span></div>
     <div class="gc-tkc-g">${campo('Strings do ticket',ss,!(t.strings||[]).length)}${qtdCampo}${campo('Início da ocorrência',iniTxt||'—',!iniTxt)}${campo('Aberto há',dias==null?'—':(dias===0?'menos de 1 dia':dias+' dia'+(dias===1?'':'s')),dias==null)}${sel('Causa raiz','causa',esc.causa,TK_CAUSAS,'escolha a causa')}${campo('OS vinculada',t.os?'OS '+t.os:'nenhuma',!t.os)}${sel('Status do ticket','status',esc.status,TK_STATUS,'sem status')}${campo('Usina na planilha',t.usina_planilha||'—')}</div>
     ${_tkObsHtml(t,o,morta)}
-    <div class="gc-tkc-f"><label><span>Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_he((f&&f.fim)||sug||_tkIsoAgora())}" max="${_tkIsoAgora()}" onchange="tkStrFim(${t.linha},this.value)" style="width:210px"></label><label><span>Quem está fechando</span><input type="text" id="gc-tkquem-${t.linha}" value="${_he(_tkQuem())}" placeholder="seu nome" maxlength="60" onchange="tkStrQuem(this.value)" style="width:220px"></label>${btnSalvar}${btnFim}${ajuda}</div>
+    <div class="gc-tkc-f"><label><span>Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_he((f&&f.fim)||sug||_tkIsoAgora())}" max="${_tkIsoAgora()}" onchange="tkStrFim(${t.linha},this.value)" style="width:210px"></label><label><span>Quem está fechando</span>${(globalThis.gcEu||{}).identificado?`<span style="display:inline-block;width:220px;padding:6px 0">${_he(globalThis.gcEu.nome)}</span>`:`<input type="text" id="gc-tkquem-${t.linha}" value="${_he(_tkQuem())}" placeholder="seu nome" maxlength="60" onchange="tkStrQuem(this.value)" style="width:220px">`}</label>${btnSalvar}${btnFim}${ajuda}</div>
     ${dicas.length?`<div class="gc-tkc-m" style="color:var(--color-neutral-400)"><i class="ph ph-info" style="font-size:15px"></i><span>${dicas.join(' ')}</span></div>`:''}${msg}
   </div>`;
 }
@@ -2079,7 +2093,7 @@ function _tkCardsUsina(u){   // no alto do drill: tickets da usina inteira e os 
   return feitos+sobram.map(t=>_tkCardHtml(t,_tkEstadoUsina(t,u,ks),tkf[t.linha],true,t.usina_inteira?{ok:false,motivo:'ticket da usina inteira'}:_tkOsDe(t,u.name))).join('');
 }
 function _tkForm(linha){ const f=state._tkF||(state._tkF={}); return f[linha]||(f[linha]={}); }
-window.tkStrQuem=v=>{ state._tkQuemV=String(v||'').trim(); try{ localStorage.setItem('gc_tk_quem',state._tkQuemV); }catch(e){} };
+window.tkStrQuem=v=>{ if((globalThis.gcEu||{}).identificado) return; state._tkQuemV=String(v||'').trim(); try{ localStorage.setItem('gc_tk_quem',state._tkQuemV); }catch(e){} };
 window.tkStrFim=(linha,v)=>{ _tkForm(linha).fim=v; };
 window.tkStrCampo=(linha,campo,v)=>{ const f=_tkForm(linha); f[campo]=v; if(f.fase==='salvo'||f.fase==='erro'){ f.fase=''; f.msg=''; } render(); };
 // − e + contam a partir do que o card mostra; mínimo 1 e teto TK_QTD_MAX, os mesmos que o servidor confere
@@ -3106,11 +3120,26 @@ window.trkOsCriar=async()=>{
     } else if(r.ok){
       const j=r.j, tudo=!j.falhas&&j.ok>0;
       l.itens.forEach((it,i)=>{ if(!_trkOsFalhou(j,it)){ _trkOsSel.delete(it.k); if(tudo&&j.folios&&j.folios[i]!=null) RD.trkOsFeitas[it.k]=String(j.folios[i]); } });
+      _trkOsComentario(l.itens,j);
     }
     m.resultado.push(res); _trkOsRender();
   }
   m.fase='feito'; _trkOsRender(); render(); _trkOsBar();
 };
+// O comentário automático de cada OS que saiu (03/11/2026, Levi: "quando eu crio uma OS de performance já vira um
+// comentário automático"): na conversa da usina na aba de onde veio, com o nº que o OS Creator devolveu. As que deram
+// certo saem na ordem do pedido (o `folios` do OS Creator), então cada nº casa com o tracker que não falhou. Sem nº,
+// nada; o servidor não grava o mesmo nº duas vezes.
+function _trkOsComentario(itens,j){
+  const ok=(itens||[]).filter(it=>!_trkOsFalhou(j,it)), folios=(j&&j.folios)||[];
+  const por={};
+  ok.forEach((it,i)=>{ const f=folios[i]; if(f==null||f==='') return;
+    const [fo,pid]=String(it.k||'').split('|'), src=Object.keys(SKEY).find(s=>SKEY[s]===fo)||state.source;
+    const chave=(VKEY[src]||'pv')+':'+(pid||'');
+    (por[chave]=por[chave]||{chave,usina:it.usinaFr||'',tipo:it.base||'',criadas:[]}).criadas.push({folio:String(f),ativo:(it.alvo||{}).label||(it.alvo||{}).code||'',observacao:it.obs||''}); });
+  Object.values(por).forEach(c=>{ fetch('/api/state/comment/os',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)})
+    .then(r=>r.ok?r.json():null).then(d=>{ if(d&&d.thread) RD.comments[d.chave]=d.thread; render(); }).catch(()=>{}); });
+}
 function _trkOsAlvoOpts(alvos,sel){
   // Trackers individuais primeiro, em ordem natural; o generalizado e as controladoras (NCU) no fim — a OS de conjunto
   // existe no OS Creator, mas aqui cada tracker marcado é um tracker.
@@ -3686,6 +3715,10 @@ loadCurrent();
     if(state.view!=='strings'||!RD.pv||!RD.pv.rows){ setTimeout(passo,300); return; }
     if(!RD.pv.rows.some(r=>String(r.plant_id)===String(pid))) return;                  // usina nao e desta fonte
     if(state.expandedUsina!==String(pid)) setState({expandedUsina:String(pid),expandedInversor:null});
+    if(qs.get('comentarios')==='1'&&!passo.conversa){   // da tela Comentários (03/11/2026): a usina aberta com a conversa dela
+      passo.conversa=true; const r=RD.pv.rows.find(x=>String(x.plant_id)===String(pid));
+      if(r) abrirComent((VKEY[state.source]||'pv')+':'+pid, r.usina);
+    }
     const key=state.source+'|'+pid, invs=RD.plants[key];
     if(invs===undefined){ loadPlant(pid); setTimeout(passo,300); return; }
     if(invs===null){ setTimeout(passo,300); return; }
