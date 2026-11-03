@@ -369,28 +369,31 @@ def _usina_inteira(o):
 # a proteção sempre no comentário (Levi, 30/10/2026: "tem que ter a proteção que ativou no comentário, caso não tenha
 # tem que ter Proteção: Sem proteção ativa")
 SEM_PROTECAO = "Sem proteção ativa"
+# o motivo, quando o COS registra a causa (Levi, 03/11/2026: "aqui não está aparecendo o motivo e a proteção"; a escolha
+# dele: "só quando há causa"). Em outubro, 805 das 882 linhas do COS eram só o evento ("desligamento de usina", "de
+# inversor", "de cabine"): sem causa, o campo não sai, e fica a proteção. A comunicação já diz a causa na abertura
+MOTIVOS = ("falha da concessionária", "atuação de proteção", "inversor offline")
 SEM_IDENTIFICACAO = {"Inversor ?": "Inversor não identificado", "Cabine ?": "Cabine não identificada"}
 
 
-def _frase_cos(o, alvo, quando, protecao_sempre=False):
-    """A OS do COS (29/10/2026): o que a Ronda COS registrou, com as proteções que atuaram (Levi: "Nos comentários tem
-    que vir as proteções atuadas"). Com `protecao_sempre` (30/10/2026), a proteção vai num campo próprio, também quando
-    não houve: "Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Proteção: 27ABC/86; OS 17001" e "...; Proteção:
-    Sem proteção ativa; OS 17002". Sem ele, a frase do Trip de 23/10/2026 ("Desligamento Usina Trip 27ABC/86 de ...; OS
-    17001"), a que o cliente vê até o Levi liberar."""
+def _frase_cos(o, alvo, quando):
+    """A OS do COS (29/10/2026): o que a Ronda COS registrou, com o motivo quando ela diz a causa e a proteção sempre, em
+    campo próprio (30/10/2026: "tem que ter a proteção que ativou no comentário, caso não tenha tem que ter Proteção: Sem
+    proteção ativa"; liberado ao cliente em 03/11/2026). Ex.: "Desligamento Usina de 09/10 às 15:58h a 13/10 às 09:47h;
+    Motivo: falha da concessionária; Proteção: Sem proteção ativa; OS 15997" e "Desligamento Usina de ...; Proteção:
+    27ABC/86; OS 17001"."""
     prot = "/".join(p.strip() for p in str(o.get("protecoes") or "").split(";") if p.strip())
     n = str(o.get("os") or "").strip()
-    fim = "; " + ("OS " + n if n else "sem OS")
-    if protecao_sempre:
-        fim = "; Proteção: %s%s" % (prot or SEM_PROTECAO, fim)
-    else:
-        alvo += (" Trip %s" % prot) if prot else ""
+    motivo = [m for m in (t.strip().lower() for t in str(o.get("tipo") or "").split(";")) if m in MOTIVOS]
+    fim = "; Proteção: %s; %s" % (prot or SEM_PROTECAO, "OS " + n if n else "sem OS")
+    if motivo:
+        fim = "; Motivo: %s%s" % (", ".join(dict.fromkeys(motivo)), fim)
     if "comunica" in str(o.get("tipo") or "").lower():
         return "Falha de comunicação com a geração parada, %s%s%s" % (alvo, quando, fim)
     return "Desligamento %s%s%s" % (alvo, quando, fim)
 
 
-def _frase_os(o, dia, pot_usina, trip=None, protecao_sempre=False):
+def _frase_os(o, dia, pot_usina, trip=None):
     """O que a OS tirou NAQUELE dia, na conta do Gerencial (Levi, 14/10/2026: "Como assim continua? preciso de um motivo
     que faça sentido esse valor de 80%"; e, à noite: "A partir de outubro quero os comentários 100% OS Fracttal"). Desde
     15/10/2026 à tarde o texto é curto e leva o nº da OS (o Levi pediu), nunca o texto da OS. Ex.: "Desligamento Cabine 2
@@ -420,7 +423,7 @@ def _frase_os(o, dia, pot_usina, trip=None, protecao_sempre=False):
     else:
         quando = ""
     if chave(o.get("fonte")) == "cos":
-        return _frase_cos(o, alvo, quando, protecao_sempre)
+        return _frase_cos(o, alvo, quando)
     n = str(o.get("os") or "").strip()
     # 23/10/2026 (Levi: "Desligamento Usina Trip X de 13/10 às 17:02h a 14/10 às 07:29h; religamento, OS 16249"): a
     # proteção que atuou, lida da OS no Fracttal (trip_os), logo depois do que parou. Sem proteção, a frase de sempre
@@ -468,7 +471,7 @@ def os_desligamento_do_mes(dados, nome, ano, mes):
     return out
 
 
-def os_por_dia(dados, nome, ano, mes, trips=None, protecao_sempre=False):
+def os_por_dia(dados, nome, ano, mes, trips=None):
     """{dia: [frase da OS]} — o comentário de cada dia, só das OS do Fracttal que formaram a disponibilidade dele (Levi,
     14/10/2026: "A partir de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade!"). Vem da
     aba disponibilidade_os_dia, a parcela de cada OS no dia na MESMA conta da disponibilidade_dia: o texto e o número
@@ -492,7 +495,7 @@ def os_por_dia(dados, nome, ano, mes, trips=None, protecao_sempre=False):
             if _usina_inteira(o) and any(j != i and _usina_inteira(y) and _dentro(tr[i], tr[j]) and (j < i or tr[i] != tr[j])
                                          for j, y in enumerate(lst)):
                 continue
-            frase = _frase_os(o, d, pot_usina, trips.get(str(o.get("os") or "").strip()), protecao_sempre)
+            frase = _frase_os(o, d, pot_usina, trips.get(str(o.get("os") or "").strip()))
             if frase and frase not in out[d]:
                 out[d].append(frase)
     return dict(out)
@@ -640,10 +643,9 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, protecao_sempre=False):
+def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
-    {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026).
-    `protecao_sempre`: a proteção em campo próprio no comentário do COS (`_frase_cos`, 30/10/2026)."""
+    {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026)."""
     r = dict.fromkeys(CHAVES)
     r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
@@ -680,7 +682,7 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, protecao_sempre=F
     # Gerencial (12 h por dia: 100·(1 − Σh/12n) é a média dos dias)
     dsp = disp_por_dia(dados, nome, ano, mes) if bd is None else bd[0]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
-                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips, protecao_sempre) if bd is None else bd[1])
+                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips) if bd is None else bd[1])
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
     if bd is not None:
         # o comentário da equipe vai também no dia que ficou em 100% (a falha de comunicação, que não conta)

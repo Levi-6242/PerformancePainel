@@ -23,40 +23,40 @@ def _os(**kw):
     return o
 
 
-def test_comentario_do_cos_com_as_protecoes():
-    assert om._frase_os(_os(), DIA, 1000) == "Desligamento Usina Trip 27ABC/86 de 10/10 às 09:00h a 10/10 às 15:00h; OS 17001"
-
-
 def test_a_protecao_sempre_no_comentario_e_sem_protecao_ativa_quando_nao_houve():
     # Levi, 30/10/2026: "tem que ter a proteção que ativou no comentário, caso não tenha tem que ter Proteção: Sem
-    # proteção ativa"
-    assert om._frase_os(_os(), DIA, 1000, protecao_sempre=True) == (
+    # proteção ativa"; liberado ao cliente em 03/11/2026 (o mesmo comentário para todas as contas)
+    assert om._frase_os(_os(), DIA, 1000) == (
         "Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Proteção: 27ABC/86; OS 17001")
-    assert om._frase_os(_os(protecoes=None), DIA, 1000, protecao_sempre=True) == (
+    assert om._frase_os(_os(protecoes=None), DIA, 1000) == (
         "Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Proteção: Sem proteção ativa; OS 17001")
     f = om._frase_os(_os(tipo="falha de comunicação com a geração parada", protecoes="", os=None, aberta="sim",
-                         fim=None), DIA, 1000, protecao_sempre=True)
+                         fim=None), DIA, 1000)
     assert f == "Falha de comunicação com a geração parada, Usina desde 10/10 às 09:00h, em aberto; Proteção: Sem proteção ativa; sem OS"
+    assert "protecao_no_comentario" not in dth.LIBERADO_AO_CLIENTE
+    assert next(iter(om.os_por_dia(_dados(), "Alfa", 2026, 10).values()))[0].endswith("Proteção: 27ABC/86; OS 17001")
 
 
-def test_a_protecao_no_comentario_sobe_primeiro_para_a_conta_performance(monkeypatch):
-    # 27/10/2026: "o usuário thopen que é o do cliente só vê se eu liberar"
-    assert dth.LIBERADO_AO_CLIENTE["protecao_no_comentario"] is False
-    monkeypatch.setattr(dth, "_e_grid", lambda: True)
-    assert dth._liberado("protecao_no_comentario")
-    monkeypatch.setattr(dth, "_e_grid", lambda: False)
-    assert not dth._liberado("protecao_no_comentario")
-    assert next(iter(om.os_por_dia(_dados(), "Alfa", 2026, 10, protecao_sempre=True).values()))[0].endswith("Proteção: 27ABC/86; OS 17001")
+def test_o_motivo_so_quando_o_cos_registra_a_causa():
+    # Levi, 03/11/2026: "aqui não está aparecendo o motivo e a proteção"; a escolha dele: só quando há causa
+    f = om._frase_os(_os(tipo="falha da concessionária", protecoes=None, os="15997"), DIA, 1000)
+    assert f == ("Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Motivo: falha da concessionária; "
+                 "Proteção: Sem proteção ativa; OS 15997")
+    assert "Motivo: atuação de proteção; Proteção: 27ABC/86" in om._frase_os(_os(tipo="atuação de proteção"), DIA, 1000)
+    assert "Motivo: inversor offline" in om._frase_os(_os(escopo="Inversor 2.7", tipo="inversor offline"), DIA, 1000)
+    # o desligamento sem causa não ganha o campo
+    assert "Motivo" not in om._frase_os(_os(tipo="desligamento de usina"), DIA, 1000)
 
 
 def test_comentario_da_comunicacao_com_a_geracao_parada_e_sem_os():
     f = om._frase_os(_os(tipo="falha de comunicação com a geração parada", protecoes=None, os=None), DIA, 1000)
-    assert f == "Falha de comunicação com a geração parada, Usina de 10/10 às 09:00h a 10/10 às 15:00h; sem OS"
+    assert f == ("Falha de comunicação com a geração parada, Usina de 10/10 às 09:00h a 10/10 às 15:00h; "
+                 "Proteção: Sem proteção ativa; sem OS")
 
 
 def test_cabine_do_cos_e_a_os_do_fracttal_como_era():
     f = om._frase_os(_os(escopo="Cabine 2", tipo="desligamento de cabine", protecoes="59C"), DIA, 1000)
-    assert f.startswith("Desligamento Cabine 2 Trip 59C de 10/10")
+    assert f.startswith("Desligamento Cabine 2 de 10/10") and f.endswith("Proteção: 59C; OS 17001")
     fr = om._frase_os(_os(fonte="fracttal", tipo="Religamento", protecoes=None), DIA, 1000, trip="27/86")
     assert fr == "Desligamento Usina Trip 27/86 de 10/10 às 09:00h a 10/10 às 15:00h; religamento, OS 17001"
 
@@ -86,6 +86,6 @@ def test_uma_conta_so_para_todas_as_contas(monkeypatch):
 def test_a_parte_sem_identificacao_nao_vai_com_interrogacao():
     # 30/10/2026: a OS 16958 aberta sem a tag saiu "Desligamento Inversor ? desde 12/07..." no Dashboard
     f = om._frase_os(_os(escopo="Inversor ?", tipo="desligamento de inversor", protecoes=None, aberta="sim", fim=None),
-                     DIA, 1000, protecao_sempre=True)
+                     DIA, 1000)
     assert f.startswith("Desligamento Inversor não identificado desde 10/10 às 09:00h, em aberto") and "?" not in f
     assert "Cabine não identificada" in om._frase_os(_os(escopo="Cabine ?", tipo="desligamento de cabine"), DIA, 1000)

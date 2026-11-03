@@ -114,7 +114,7 @@ se eu liberar". Como o push já chega ao cliente, toda tela ou aba nova sobe com
 vê a aba (o `libera` do template) e a rota responde 403 "ainda não está liberada" (`_portao`). Liberar = o Levi pede,
 a chave vira `True` e sobe. Mudança dentro de uma tela que o cliente já vê não tem chave sozinha: precisa dos dois
 caminhos (`_liberado(chave)` escolhe) até a liberação, e o velho sai quando ela vem. Login desligado (as cópias de
-prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria` e `protecao_no_comentario`. Prova:
+prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
 `tests/test_thopen_liberacao.py`.
 
 - **A disponibilidade da Thopen pelas normalizações do COS (29/10/2026; liberada ao cliente em 30/10/2026):** a régua
@@ -126,8 +126,12 @@ prova) vê tudo, como o `_e_grid`. Fechadas hoje: `zeladoria` e `protecao_no_com
   OS ..."; "sem OS" quando a normalização não tem), com a volta de cada usina quando o Levi a corrigiu numa só, e não
   vai buscar o trip no Fracttal. **A proteção sempre, em campo próprio** (30/10/2026, Levi: "tem que ter a proteção que
   ativou no comentário, caso não tenha tem que ter Proteção: Sem proteção ativa"): "Desligamento Usina de ... a ...;
-  Proteção: 27ABC/86; OS 17001" e "...; Proteção: Sem proteção ativa; OS ..." (`_frase_cos`, `protecao_sempre`); sobe
-  para a conta Performance pela chave `protecao_no_comentario`, e o cliente segue com a frase do Trip até a liberação.
+  Proteção: 27ABC/86; OS 17001" e "...; Proteção: Sem proteção ativa; OS ..." (`_frase_cos`). **E o motivo quando o COS
+  registra a causa** (03/11/2026, Levi: "aqui não está aparecendo o motivo e a proteção"; a escolha dele: só quando há
+  causa): "...; Motivo: falha da concessionária; Proteção: ...; OS 15997" (`MOTIVOS`: concessionária, atuação de
+  proteção, inversor offline; em outubro, 805 das 882 linhas do COS eram só o evento, sem causa, e não ganham o campo).
+  Subiu para a conta Performance em 30/10 e foi liberado ao cliente em 03/11/2026 ("Libera para o cliente"): a frase do
+  Trip saiu, e o comentário do COS é um só para todas as contas.
   A parada que segue aberta na Ronda COS sai "desde DD/MM às HH:MMh, em aberto".
   A parte que a régua contou pelo tipo sem saber qual (a aberta sem a tag do equipamento) sai "Inversor não
   identificado" / "Cabine não identificada", nunca "Inversor ?" (`SEM_IDENTIFICACAO`, 30/10/2026: a OS 16958 de
