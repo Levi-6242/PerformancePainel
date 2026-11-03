@@ -132,7 +132,8 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   proteção, inversor offline; em outubro, 805 das 882 linhas do COS eram só o evento, sem causa, e não ganham o campo).
   Subiu para a conta Performance em 30/10 e foi liberado ao cliente em 03/11/2026 ("Libera para o cliente"): a frase do
   Trip saiu, e o comentário do COS é um só para todas as contas.
-  A parada que segue aberta na Ronda COS sai "desde DD/MM às HH:MMh, em aberto".
+  A parada que segue aberta na Ronda COS sai "desde DD/MM às HH:MMh", sem aviso (03/11/2026, Levi: "não precisa desse
+  disclaimer de 'Em aberto' trate como algo padrão").
   A parte que a régua contou pelo tipo sem saber qual (a aberta sem a tag do equipamento) sai "Inversor não
   identificado" / "Cabine não identificada", nunca "Inversor ?" (`SEM_IDENTIFICACAO`, 30/10/2026: a OS 16958 de
   Santarém). A Metodologia, a nota dos Registros e as mensagens da tabela de comentários dizem a

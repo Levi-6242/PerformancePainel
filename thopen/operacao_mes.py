@@ -417,7 +417,9 @@ def _frase_os(o, dia, pot_usina, trip=None):
     tipo = ", ".join(x.strip().lower() for x in str(o.get("tipo") or "").split(";") if x.strip())
     hm = lambda d: d.strftime("%d/%m às %H:%Mh")                      # noqa: E731
     if aberta and ini:
-        quando = " desde %s, em aberto" % hm(ini)
+        # a parada que segue é o caso comum, sem aviso (Levi, 03/11/2026: "não precisa desse disclaimer de 'Em aberto'
+        # trate como algo padrão"): o "desde" já diz que não voltou
+        quando = " desde %s" % hm(ini)
     elif ini and fim:
         quando = " de %s a %s" % (hm(ini), hm(fim))
     else:

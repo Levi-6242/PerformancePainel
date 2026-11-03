@@ -32,7 +32,7 @@ def test_a_protecao_sempre_no_comentario_e_sem_protecao_ativa_quando_nao_houve()
         "Desligamento Usina de 10/10 às 09:00h a 10/10 às 15:00h; Proteção: Sem proteção ativa; OS 17001")
     f = om._frase_os(_os(tipo="falha de comunicação com a geração parada", protecoes="", os=None, aberta="sim",
                          fim=None), DIA, 1000)
-    assert f == "Falha de comunicação com a geração parada, Usina desde 10/10 às 09:00h, em aberto; Proteção: Sem proteção ativa; sem OS"
+    assert f == "Falha de comunicação com a geração parada, Usina desde 10/10 às 09:00h; Proteção: Sem proteção ativa; sem OS"
     assert "protecao_no_comentario" not in dth.LIBERADO_AO_CLIENTE
     assert next(iter(om.os_por_dia(_dados(), "Alfa", 2026, 10).values()))[0].endswith("Proteção: 27ABC/86; OS 17001")
 
@@ -87,5 +87,5 @@ def test_a_parte_sem_identificacao_nao_vai_com_interrogacao():
     # 30/10/2026: a OS 16958 aberta sem a tag saiu "Desligamento Inversor ? desde 12/07..." no Dashboard
     f = om._frase_os(_os(escopo="Inversor ?", tipo="desligamento de inversor", protecoes=None, aberta="sim", fim=None),
                      DIA, 1000)
-    assert f.startswith("Desligamento Inversor não identificado desde 10/10 às 09:00h, em aberto") and "?" not in f
+    assert f.startswith("Desligamento Inversor não identificado desde 10/10 às 09:00h;") and "?" not in f
     assert "Cabine não identificada" in om._frase_os(_os(escopo="Cabine ?", tipo="desligamento de cabine"), DIA, 1000)

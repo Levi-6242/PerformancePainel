@@ -506,7 +506,7 @@ def test_os_de_cabine_de_inversor_e_em_aberto():
                     HOJE)
     assert r["por_dia"][0]["os"] == [
         "Desligamento Cabine 3 de 11/09 às 09:20h a 06/10 às 15:30h; religamento, OS do Fracttal",   # sem o nº
-        "Desligamento Inversor 1.3 e Inversor 1.5 desde 30/09 às 10:00h, em aberto; corretiva emergencial, OS do Fracttal"]
+        "Desligamento Inversor 1.3 e Inversor 1.5 desde 30/09 às 10:00h; corretiva emergencial, OS do Fracttal"]
 
 
 def test_os_segue_a_mesma_ligacao_da_disponibilidade():
