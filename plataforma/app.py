@@ -5865,8 +5865,10 @@ def _entrada_tempo_real_build() -> dict:
     fontes_trk = {"Athon": _entrada_trk_fonte("Athon"), "Axis": _entrada_trk_fonte("Axis"),
                   "API PV": _pv, "2C": _2c, "Thopen": lambda: _pg_parados_rows()}
     if _sg.configurado():
-        # a NCU da Rio do Peixe (29/10/2026), do pacote que o worker monta. Só onde há o token do scadaGridco: sem ele a
-        # aba nunca chega, e a fonte ficaria "pendente" para sempre (a Entrada refeita de 5 em 5 min em vez de 30)
+        # os trackers do scadaGridco (Rio do Peixe desde 29/10/2026; Castelo do Piauí e Cedro desde 03/11), do pacote que o
+        # worker monta. Só onde há o token do scadaGridco: sem ele a aba nunca chega, e a fonte ficaria "pendente" para
+        # sempre (a Entrada refeita de 5 em 5 min em vez de 30)
+        fontes_trk["GreenYellow"] = lambda: _sg_parados_rows("greenyellow")
         fontes_trk["Apolo"] = lambda: _sg_parados_rows("apolo")
     # As cinco correm em PARALELO e com PRAZO. Sequencial e sem prazo, bastava uma consulta lenta para a entrada nunca
     # ficar pronta (05/09: o PG passou de 15 min e a tela ficou eternamente "coletando as fontes pela primeira vez").
@@ -15612,9 +15614,9 @@ def api_solaredge_curva(site_id):
 #   Levi: "OS para tempo real e histórico das UFVs da Green Yellow"; "separe green yellow e sal energia"; tempo real
 #   "Igual às outras fontes"; histórico "só até 45 dias tá bom" (é o que a API guarda). A API, as regras da Automação e
 #   o de-para dos inversores estão em scadagridco.py. Aqui: a linha da tabela, o drill e a curva, no formato da
-#   RenoGrid/Athon que a tela já desenha. Sem ETM nem trackers: essas usinas não mandam. A Apolo (Rio do Peixe I e II,
-#   29/10/2026) é a 3ª fonte, pelo mesmo gateway MQTT da GreenYellow; ela manda a NCU dos trackers e 3 relés, que ainda
-#   não entram (só os inversores).
+#   RenoGrid/Athon que a tela já desenha. Sem ETM (a Castelo do Piauí e a Cedro mandam `weather`, que ainda não entra).
+#   Trackers desde 03/11/2026 (bloco "os trackers", abaixo): Castelo do Piauí, Cedro e Rio do Peixe. A Apolo (Rio do
+#   Peixe I e II, 29/10/2026) é a 3ª fonte, pelo mesmo gateway MQTT da GreenYellow; os 3 relés dela não entram.
 import scadagridco as _sg
 _sg.SOBREPOR = _dp_sg_inversores          # De-para de equipamentos: o decidido na tela vence o mapa do scadagridco.py
 
@@ -15909,40 +15911,78 @@ def _sg_curva_inversor(fonte, cfg, equip, dia):
             "abaixo": 0, "strings": strs}
 
 
-# ── scadaGridco: a NCU como tracker (Apolo, 29/10/2026) ──────────────────────────────────────────────────────────────
-#   Levi: "traga a NCU como tracker também e nomeie como NCU". A Rio do Peixe I e II manda UMA NCU (`tracker_ncu`): o
-#   ângulo atual (posat) e o alvo (posal) da central, sem os trackers do campo. Ela entra na aba Trackers como UM tracker,
-#   "NCU", pela MESMA régua da 2C e da API PV (`_trk_analise_curvas`: parado pela amplitude do dia, desvio/atraso pela
-#   mediana da usina — numa usina de um tracker só a mediana é ele mesmo, então desvio e atraso relativos nunca acendem;
-#   o que vale é o parado e a disparidade contra o alvo). As falhas da NCU (flh_com, flh_leve, out_of_range...) vão no
-#   tracker como estão (`alarmes`, só as que estão em 1): a régua não tem regra para elas e nenhuma foi inventada.
-_sg_trk_curvas = _sg.CurvasDoDia(ler=_sg.curva_tracker, juntar=_sg.junta_ncu)
+# ── scadaGridco: os trackers (Apolo 29/10/2026; pela API de rastreadores, 03/11/2026) ────────────────────────────────
+#   Levi, 03/11/2026, com a doc nova da Automação para os rastreadores: "já adapta para a plataforma". O supervisório
+#   manda um equipamento por tracker e duas leituras por usina (scadagridco.py, seção "Trackers"): o agora
+#   (`/api/trackers/<usina>`, uma chamada barata a cada montagem) e a curva do dia (`/historico`, passo de 5 min, uma
+#   chamada por usina a cada 15 min). A régua é a MESMA da 2C e da API PV (`_trk_analise_curvas`: parado pela amplitude
+#   do dia, a freeze-based e o alvo pela mediana capada em ±55°), sem limite novo; do agora vêm só o que a curva não
+#   diz — o ponto mais novo, o `sem_comunicacao`/`stale` da fonte e os `alarmes`, que vão no tracker como estão (a régua
+#   não tem regra para eles). O nome de cada tracker é o do supervisório ("tracker-ncu1-001" na GreenYellow, "1" a "96"
+#   na Rio do Peixe). Medido em 03/11/2026: Castelo do Piauí 128, Cedro 68, Rio do Peixe 96 (a NCU única de 29/10 virou os
+#   96 do campo). A 2C (Ipixuna do Pará, Araputanga) segue pela API PV: ver o CLAUDE.md da plataforma.
+_sg_trk_hist = _sg.HistoricoTrackers()
+_gy_trk_cache = {"payload": None, "ts": 0.0}
 _apo_trk_cache = {"payload": None, "ts": 0.0}
-_SG_TRK_CACHE = {"apolo": _apo_trk_cache}            # as fontes do scadaGridco com tracker (só a Apolo manda NCU)
+_SG_TRK_CACHE = {"greenyellow": _gy_trk_cache, "apolo": _apo_trk_cache}   # as fontes do scadaGridco com tracker
+
+
+def _sg_trk_grupos(fonte) -> list:
+    """[(cfg, nome da linha)]: uma linha por usina DO SUPERVISÓRIO com gateway MQTT (a Sal Energia é Modbus e não
+    manda tracker). A Cedro 1 e a Cedro 2 são uma usina só para ele ("cedro"), e os 68 trackers vêm todos da mesma NCU
+    ("tracker-ncu1-001" a "-068"), sem nada que diga qual é de qual: o cadastro não tem a quantidade de trackers delas
+    (Info Geral sem "Qnt. Trackers", sem aba de trackers) e a API não separa. Ficam numa linha só, "Cedro 1 e Cedro 2",
+    pela chave da Cedro 1, até alguém trazer a separação — não se chuta metade para cada uma. Entra se uma das duas
+    está no tempo real (Fontes do tempo real)."""
+    grupos = {}
+    for cfg in _sg.usinas(fonte):
+        if _sg.via(fonte, cfg["id"]) == "mqtt":
+            grupos.setdefault(_sg.scada_id(fonte, cfg["id"]), []).append(cfg)
+    out = []
+    for cfgs in grupos.values():
+        cfgs = sorted(cfgs, key=lambda c: c["id"])
+        if any(_cob_entra(fonte, c["id"]) for c in cfgs):
+            out.append((cfgs[0], " e ".join(c["usina"] for c in cfgs)))
+    return out
+
+
+def _sg_trk_nome(fonte, cfg) -> str:
+    """O nome da linha de trackers da usina (o de `_sg_trk_grupos`), também para o drill e o gráfico."""
+    sid = _sg.scada_id(fonte, cfg["id"])
+    cfgs = sorted((c for c in _sg.usinas(fonte) if _sg.scada_id(fonte, c["id"]) == sid), key=lambda c: c["id"])
+    return " e ".join(c["usina"] for c in cfgs) or cfg["usina"]
+
+
+def _sg_trk_curvas_dia(fonte, cfg, dia):
+    """(curvas {tracker: {"atual", "alvo"}}, agora {tracker: leitura}) da usina num dia. Hoje: o agora primeiro (usina
+    sem tracker para aí, sem pedir o histórico), depois o histórico guardado + o ponto do agora; dia passado: só o
+    histórico."""
+    agora = []
+    if dia >= _sg.hoje():
+        agora = _sg.trackers_agora(fonte, cfg["id"])
+        if not agora:
+            return {}, {}
+    curvas = _sg_trk_hist.curvas(fonte, cfg["id"], dia)
+    return _sg.junta_agora(curvas, agora), {t["equip"]: t for t in agora}
 
 
 def _sg_trackers_analise(fonte, cfg, date=None) -> dict:
     """A análise de trackers de uma usina do scadaGridco, no formato da 2C (`_owen_trackers_analise`)."""
     pid, dia = cfg["id"], date or _sg.hoje()
-    base = {"usina": cfg["usina"], "plant_id": pid, "total": 0, "parados": 0, "desvios": 0, "atrasos": 0,
-            "sem_alvo": False, "pior_disparidade": None, "ultima_leitura": None, "trackers": [],
-            "tem_trackers": bool(_sg.trackers(cfg))}
-    trks, alarmes = {}, {}
-    for equip, nome in sorted(_sg.trackers(cfg).items()):
-        c = _sg_trk_curvas.curva(fonte, pid, equip, dia)
-        trks[nome] = {"atual": list(c.get("atual") or []), "alvo": list(c.get("alvo") or [])}
-        alarmes[nome] = c.get("alarmes") or {}
+    base = {"usina": _sg_trk_nome(fonte, cfg), "plant_id": pid, "total": 0, "parados": 0, "desvios": 0, "atrasos": 0,
+            "sem_alvo": False, "pior_disparidade": None, "ultima_leitura": None, "trackers": [], "tem_trackers": False}
+    trks, agora = _sg_trk_curvas_dia(fonte, cfg, dia)
     if not trks:
         return base
+    base["tem_trackers"] = True
     out = _trk_analise_curvas(base, trks, pid, date, rotulo=lambda n: n)
     for t in out.get("trackers") or []:
-        if not trks.get(t["id"], {}).get("atual"):
-            # NCU sem leitura no dia (o gateway da Rio do Peixe fica fora de madrugada) é sem comunicação, não normal: a
-            # régua só marca o mudo que tem curva, e o chip saía verde sem dado nenhum (o caso do TRK44, 04/08)
+        a = agora.get(t["id"]) or {}
+        if not trks.get(t["id"], {}).get("atual") or a.get("sem_comunicacao"):
+            # sem leitura no dia, ou a fonte diz que ele não fala (sem_comunicacao/stale): sem comunicação, não normal —
+            # a régua só marca o mudo que tem curva, e o chip saía verde sem dado nenhum (o caso do TRK44, 04/08)
             t["sem_comunicacao"] = True
-        al = alarmes.get(t["id"]) or {}
-        t["alarmes"] = [k for k in _sg.ALARMES_NCU if al.get(k)]          # as falhas em 1 na última leitura boa
-        t["falhas_ncu"] = al
+        t["alarmes"] = list(a.get("alarmes") or [])
     return out
 
 
@@ -15950,15 +15990,15 @@ def _build_sg_trk_payload(fonte):
     """A aba Trackers da fonte: uma linha por usina com tracker (a lista do tempo real, as Fontes do tempo real
     decidem), uma usina por vez (regra da Automação). O drill sai do mesmo pacote (`por_pid`)."""
     rows, por_pid, falhou = [], {}, []
-    for cfg in _sg.usinas(fonte):
-        if not _sg.trackers(cfg) or not _cob_entra(fonte, cfg["id"]):
-            continue
+    for cfg, _nome in _sg_trk_grupos(fonte):
         try:
             a = _sg_trackers_analise(fonte, cfg)
         except Exception as e:                       # noqa: BLE001 — uma usina não derruba a aba
             print(f"[scadaGridco] trackers {cfg['id']}: {type(e).__name__}: {e}")
             falhou.append(cfg["id"])
             continue
+        if not a.get("tem_trackers"):
+            continue                                 # Demerval Lobão, Irecê 2: o supervisório não tem tracker delas
         por_pid[cfg["id"]] = a
         r = dict(a)
         r.pop("trackers", None)
@@ -15970,6 +16010,10 @@ def _build_sg_trk_payload(fonte):
         "parados": sum(_n(r, "parados") for r in rows), "medios": sum(_n(r, "medios") for r in rows),
         "atrasos": sum(_n(r, "atrasos") for r in rows)},
         "cache_ts": datetime.now().strftime("%H:%M:%S"), "dia": _sg.hoje(), "por_pid": por_pid, "falhou": falhou}
+
+
+def _build_gy_trk_payload():
+    return _build_sg_trk_payload("greenyellow")
 
 
 def _build_apo_trk_payload():
@@ -15994,14 +16038,14 @@ def _sg_parados_rows(fonte) -> list:
     return _trk_geo_annotate(rows)
 
 
-@app.route("/api/<any(apolo):fonte>/trackers")
+@app.route("/api/<any(greenyellow, apolo):fonte>/trackers")
 def api_sg_trackers(fonte):
     force = flask_request.args.get("force", "0") == "1"
     pl = _swr(_SG_TRK_CACHE[fonte], lambda: _build_sg_trk_payload(fonte), force) or {}
     return jsonify({k: v for k, v in pl.items() if k != "por_pid"})
 
 
-@app.route("/api/<any(apolo):fonte>/trackers/<pid>")
+@app.route("/api/<any(greenyellow, apolo):fonte>/trackers/<pid>")
 def api_sg_trackers_plant(fonte, pid):
     cfg = _sg.usina_cfg(fonte, pid)
     if not cfg:
@@ -16018,9 +16062,10 @@ def api_sg_trackers_plant(fonte, pid):
         return jsonify({"error": str(e), "trackers": []}), 503
 
 
-@app.route("/api/<any(apolo):fonte>/trackers/<pid>/chart")
+@app.route("/api/<any(greenyellow, apolo):fonte>/trackers/<pid>/chart")
 def api_sg_trackers_chart(fonte, pid):
-    """A curva da NCU (ângulo e alvo) de ?ini= a ?fim= (até 5 dias, até 45 dias atrás), no formato da 2C."""
+    """A curva de cada tracker (ângulo) e o alvo da usina de ?ini= a ?fim= (até 5 dias, até 45 dias atrás), no formato
+    da 2C: um `/historico` por dia (o de hoje com o ponto do agora)."""
     cfg = _sg.usina_cfg(fonte, pid)
     if not cfg:
         return jsonify({"error": "usina desconhecida", "trackers": []}), 404
@@ -16030,11 +16075,11 @@ def api_sg_trackers_chart(fonte, pid):
     for d in _trk_ev_dias(ini, fim):
         if d > hoje or (hoje - d).days > SG_HIST_DIAS:
             continue
-        for equip, nome in sorted(_sg.trackers(cfg).items()):
-            try:
-                c = _sg_trk_curvas.curva(fonte, cfg["id"], equip, d.strftime("%Y-%m-%d"))
-            except _sg.SemAcesso as e:
-                return jsonify({"error": str(e), "trackers": []}), 503
+        try:
+            curvas, _agora = _sg_trk_curvas_dia(fonte, cfg, d.strftime("%Y-%m-%d"))
+        except _sg.SemAcesso as e:
+            return jsonify({"error": str(e), "trackers": []}), 503
+        for nome, c in curvas.items():
             m = merged.setdefault(nome, {"atual": [], "alvo": []})
             m["atual"].extend(c.get("atual") or [])
             m["alvo"].extend(c.get("alvo") or [])
@@ -16043,14 +16088,15 @@ def api_sg_trackers_chart(fonte, pid):
     def _down(s):
         return s[::max(1, len(s) // _alvo_max)]
     out, alvo = [], None
-    for n in sorted(merged):
+    for n in sorted(merged, key=lambda n: _trk_num_tracker({"id": n})):
         s = _down(merged[n]["atual"])
         if s:
             out.append({"id": n, "x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]})
         sa = _down(merged[n]["alvo"])
         if sa and alvo is None:
             alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in sa], "y": [round(v, 2) for _, v in sa]}
-    payload = {"plant": cfg["usina"], "date": ini, "ini": ini, "fim": fim, "ndias": ndias, "trackers": out, "alvo": alvo}
+    payload = {"plant": _sg_trk_nome(fonte, cfg), "date": ini, "ini": ini, "fim": fim, "ndias": ndias, "trackers": out,
+               "alvo": alvo}
     g_full = {n: [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in merged[n]["atual"]]
               for n in merged if merged[n]["atual"]}
     _alvos = {n: merged[n]["alvo"][-1][1] for n in merged if merged[n]["alvo"]}
@@ -22399,11 +22445,13 @@ def _owen_trackers_analise(plant_id, date=None):
 
 
 def _trk_num_tracker(x):
-    """Ordem do "Tracker 2.10" (2, 10); nome sem número (a "NCU" da Apolo) vai para o fim, sem quebrar a ordem."""
+    """Ordem do "Tracker 2.10" (2, 10). O nome que o scadaGridco manda (03/11/2026) vai pelos números dele:
+    "tracker-ncu1-001" = (1, 1), depois do "tracker-ncu1-002" vem o "tracker-ncu2-001" — sem isto a Castelo do Piauí saía
+    na ordem da API, intercalada (ncu2-001, ncu1-001, ncu2-002...). Nome sem número vai para o fim, sem quebrar a ordem."""
     try:
         return [int(p) for p in x["id"].replace("Tracker ", "").split(".")]
     except ValueError:
-        return [9999]
+        return [int(n) for n in re.findall(r"\d+", str(x["id"]))] or [9999]
 
 
 def _trk_analise_curvas(base, trks, plant_id, date=None, rotulo=lambda n: f"Tracker {n}"):
@@ -25119,7 +25167,8 @@ def _prewarm_loop():
             ("GreenYellow",    _gy_cache,            _build_gy_payload),      # scadaGridco: 1 pedido por usina
             ("Sal Energia",    _sal_cache,           _build_sal_payload),
             ("Apolo",          _apo_cache,           _build_apo_payload),
-            ("Apolo trackers", _apo_trk_cache,       _build_apo_trk_payload),   # a NCU da Rio do Peixe (29/10/2026)
+            ("GreenYellow trk", _gy_trk_cache,       _build_gy_trk_payload),    # Castelo do Piauí e Cedro (03/11/2026)
+            ("Apolo trackers", _apo_trk_cache,       _build_apo_trk_payload),   # os 96 da Rio do Peixe (03/11/2026)
             ("PG ETM",         _pg_etm_cache,        _build_pg_etm_payload),
             ("PG ETM análise", _pg_analise_cache,    _build_pg_analise_payload),
             ("PG trackers",    _pg_trk_cache,        _pg_trackers_overview),
@@ -25248,6 +25297,7 @@ def _persist_registry():
         "sal":           _sal_cache,
         "apo":           _apo_cache,
         "apo_trk":       _apo_trk_cache,
+        "gy_trk":        _gy_trk_cache,
         "pg_etm":        _pg_etm_cache,
         "pg_analise":    _pg_analise_cache,
         "pg_trk":        _pg_trk_cache,

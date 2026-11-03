@@ -313,79 +313,138 @@ def test_apolo_nas_listas_das_outras_telas():
     assert re.search(r"_CURVA_FONTES=\[[^\]]*'apolo'", MON) and re.search(r"_POT_FONTES=\[[^\]]*'apolo'", MON)
 
 
-# ── a NCU da Rio do Peixe como tracker (29/10/2026, Levi: "traga a NCU como tracker também e nomeie como NCU") ──────
-def _ncu_regs(dia, angulo, flh_com=1):
-    """Um ponto a cada 5 min das 06h às 18h: `angulo(minuto)` = posat, o alvo 0,5° ao lado."""
-    out = []
-    for m in range(6 * 60, 18 * 60, 5):
-        a = angulo(m)
-        out.append({"communication_fault": 192, "data_hora": f"{dia} {m // 60:02d}:{m % 60:02d}:00", "ts": float(m),
-                    "equipamento": "1", "pontos": {"posat": a, "posal": a + 0.5, "flh_com": flh_com, "flh_leve": 0,
-                                                   "out_of_range": 0, "bot_emerg": 0, "manu_on": 0}})
-    return out
+# ── Trackers pela API de rastreadores (03/11/2026, Levi: "já adapta para a plataforma") ─────────────────────────────
+# Formato de `/api/trackers/<usina>` e `/historico` de 03/11/2026. Castelo do Piauí: "tracker-ncu1-NNN" e "-ncu2-NNN",
+# intercalados na resposta; Cedro (a Cedro 1 e a 2 juntas no supervisório): "tracker-ncu1-001" a "-068"; Rio do Peixe:
+# "1" a "96" (a NCU única de 29/10 virou os trackers do campo); Demerval Lobão e Irecê 2: total 0.
+from datetime import datetime  # noqa: E402
+
+_CEDRO = [{"id": "cedro_1", "scada": "cedro", "usina": "Cedro 1", "via": "mqtt", "descoberta": True, "inversores": None},
+          {"id": "cedro_2", "scada": "cedro", "usina": "Cedro 2", "via": "mqtt", "descoberta": True, "inversores": None}]
+_CASTELO = {"id": "castelo_do_piaui", "usina": "Castelo do Piauí", "via": "mqtt", "descoberta": True, "inversores": None}
+
+
+def _girando(m):
+    return -50.0 + 100.0 * (m - 360) / 720 if 360 <= m <= 1080 else -10.0
+
+
+def _hist(dia, angulos, ate=None):
+    """O `/historico` do dia (a resposta diz o passo dela, aqui 15): `angulos` = {equipamento: f(minuto) ou None}; nada depois de `ate` (minuto)."""
+    inst = [datetime.strptime(dia, "%Y-%m-%d").replace(tzinfo=sg.TZ).timestamp() + 900 * i for i in range(96)]
+    cabe = lambda i: ate is None or 15 * i <= ate                                # noqa: E731
+    return {"dia": dia, "passo_min": 15, "instantes": inst,
+            "alvo": [round(_girando(15 * i + 14), 2) if cabe(i) else None for i in range(96)],
+            "trackers": [{"equipamento": e, "posicao": [round(f(15 * i + 14), 2) if (f and cabe(i)) else None
+                                                        for i in range(96)]} for e, f in angulos.items()]}
+
+
+def _agora(angulos, stale=(), alarmes=None):
+    ts = time.time() - 30
+    return {"total": len(angulos), "trackers": [
+        {"equipamento": e, "posicao_atual": -20.0, "posicao_alvo": -20.5, "sem_comunicacao": False,
+         "stale": e in stale, "alarmes": list((alarmes or {}).get(e) or []), "ts": ts} for e in angulos]}
 
 
 @pytest.fixture
-def ncu(monkeypatch):
-    """A API falsa da NCU: o dia que o teste escolhe; conta os pedidos."""
-    estado = {"regs": [], "pedidos": []}
+def trk(monkeypatch):
+    """A API falsa dos rastreadores: `estado["usinas"]` = {id do supervisório: {equipamento: f(minuto)}}; conta os
+    pedidos. A Castelo do Piauí e a Cedro 1/2 entram como as descobertas (sg.EXTRAS), todas liberadas no tempo real."""
+    estado = {"usinas": {}, "pedidos": [], "stale": (), "alarmes": {}}
 
     def get(rota, params=None, timeout=None):
         estado["pedidos"].append((rota, dict(params or {})))
-        assert rota == "/api/telemetria" and params["tipo"] == "tracker_ncu"
-        return {"registros": list(estado["regs"]), "proximo_apos_ts": None}
+        m = re.match(r"^/api/trackers/([^/]+)(/historico)?$", rota)
+        assert m, rota
+        angs = estado["usinas"].get(m.group(1)) or {}
+        if m.group(2):
+            assert params["passo"] == 5
+            ate = None
+            if params["dia"] == sg.hoje():
+                agora = datetime.now(sg.TZ)
+                ate = agora.hour * 60 + agora.minute - 15
+            return _hist(params["dia"], angs, ate)
+        return _agora(angs, estado["stale"], estado["alarmes"])
     monkeypatch.setattr(sg, "get", get)
-    monkeypatch.setattr(app, "_sg_trk_curvas", sg.CurvasDoDia(ler=sg.curva_tracker, juntar=sg.junta_ncu))
+    monkeypatch.setattr(sg, "ATUALIZAR", None)
+    monkeypatch.setattr(sg, "EXTRAS", {"greenyellow": [_CASTELO] + _CEDRO})
+    monkeypatch.setattr(app, "_cob_entra", lambda fonte, chave: True)
+    monkeypatch.setattr(app, "_sg_trk_hist", sg.HistoricoTrackers())
     monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
-    monkeypatch.setitem(app._apo_trk_cache, "payload", None)
-    monkeypatch.setitem(app._apo_trk_cache, "ts", 0.0)
+    for c in (app._apo_trk_cache, app._gy_trk_cache):
+        monkeypatch.setitem(c, "payload", None)
+        monkeypatch.setitem(c, "ts", 0.0)
     app.app.config["TESTING"] = True
     return estado
 
 
-def test_ncu_girando_e_um_tracker_normal_com_as_falhas_dela(ncu):
-    ncu["regs"] = _ncu_regs("2026-10-28", lambda m: -50.0 + 100.0 * (m - 360) / 720)
-    a = app._sg_trackers_analise("apolo", app._sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-28")
-    assert a["total"] == 1 and a["parados"] == 0 and not a["sem_comunicacao"]
-    t = a["trackers"][0]
-    assert t["id"] == "NCU" and t["status"] == "normal" and t["amplitude"] > 90
-    assert t["alarmes"] == ["flh_com"] and t["falhas_ncu"]["flh_com"] == 1      # a falha vai como está, sem régua nova
-    assert ncu["pedidos"][0][1]["equipamento"] == "1"
+def test_trk_regua_da_2c_sobre_o_historico_girando_travado_e_mudo(trk):
+    """Dia passado (só o histórico, 1 pedido): girando = normal, ângulo fixo em 4,1° o dia todo = parado (a régua da
+    amplitude), sem leitura nenhuma = sem comunicação (não verde)."""
+    trk["usinas"]["rio_do_peixe_1_2"] = {"1": _girando, "2": _girando, "3": _girando, "4": lambda m: 4.1, "5": None}
+    a = app._sg_trackers_analise("apolo", sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-27")
+    assert trk["pedidos"] == [("/api/trackers/rio_do_peixe_1_2/historico", {"dia": "2026-10-27", "passo": 5})]
+    st = {t["id"]: t for t in a["trackers"]}
+    assert a["total"] == 5 and [t["id"] for t in a["trackers"]] == ["1", "2", "3", "4", "5"]
+    assert st["1"]["status"] == "normal" and st["1"]["amplitude"] > 90 and not st["1"]["sem_comunicacao"]
+    assert st["4"]["status"] == "parado" and st["5"]["sem_comunicacao"] and a["parados"] >= 1
 
 
-def test_ncu_travada_o_dia_todo_e_parada(ncu):
-    """O ângulo fixo em 4,1° o dia inteiro (dia passado, curva cobrindo 12 h): a régua da amplitude diz parado."""
-    ncu["regs"] = _ncu_regs("2026-10-27", lambda m: 4.1, flh_com=0)
-    a = app._sg_trackers_analise("apolo", app._sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-27")
-    assert a["parados"] == 1 and a["trackers"][0]["status"] == "parado" and a["trackers"][0]["alarmes"] == []
-
-
-def test_ncu_sem_leitura_e_sem_comunicacao_e_nao_verde(ncu):
-    ncu["regs"] = []
-    a = app._sg_trackers_analise("apolo", app._sg.usina_cfg("apolo", "rio_do_peixe_1_2"), "2026-10-27")
-    assert a["total"] == 1 and a["sem_comunicacao"] and a["trackers"][0]["sem_comunicacao"]
-
-
-def test_ncu_na_aba_trackers_no_drill_no_grafico_e_na_entrada(ncu, monkeypatch):
+def test_trk_greenyellow_aba_drill_grafico_e_entrada(trk):
+    """Hoje: o agora + o histórico. Castelo do Piauí na ordem dos números (ncu1 antes da ncu2, não a da API); a Cedro 1
+    e a Cedro 2 numa linha só, sem chutar a divisão; a Demerval e a Irecê (total 0) não ganham linha nem pedido de
+    histórico; stale do supervisório = sem comunicação; os alarmes vão como estão."""
+    trk["usinas"]["castelo_do_piaui"] = {"tracker-ncu2-001": _girando, "tracker-ncu1-001": _girando,
+                                         "tracker-ncu2-002": _girando, "tracker-ncu1-002": _girando}
+    trk["usinas"]["cedro"] = {f"tracker-ncu1-{i:03d}": _girando for i in range(1, 69)}
+    trk["stale"] = ("tracker-ncu1-002",)
+    trk["alarmes"] = {"tracker-ncu2-001": ["bat_crit"]}
     hoje = sg.hoje()
-    ncu["regs"] = _ncu_regs(hoje, lambda m: 4.1)
+    with app.app.test_client() as cli:
+        d = cli.get("/api/greenyellow/trackers?force=1").get_json()
+        assert sorted((r["usina"], r["plant_id"], r["total"]) for r in d["rows"]) == [
+            ("Castelo do Piauí", "castelo_do_piaui", 4), ("Cedro 1 e Cedro 2", "cedro_1", 68)]
+        assert d["summary"]["trackers"] == 72 and "por_pid" not in d
+        hist = [r for r, _p in trk["pedidos"] if r.endswith("/historico")]
+        assert sorted(hist) == ["/api/trackers/castelo_do_piaui/historico", "/api/trackers/cedro/historico"]
+        dr = cli.get("/api/greenyellow/trackers/castelo_do_piaui").get_json()
+        assert [t["id"] for t in dr["trackers"]] == ["tracker-ncu1-001", "tracker-ncu1-002", "tracker-ncu2-001",
+                                                     "tracker-ncu2-002"]
+        st = {t["id"]: t for t in dr["trackers"]}
+        assert st["tracker-ncu1-002"]["sem_comunicacao"] and not st["tracker-ncu1-001"]["sem_comunicacao"]
+        assert st["tracker-ncu2-001"]["alarmes"] == ["bat_crit"] and st["tracker-ncu1-001"]["alarmes"] == []
+        n = len(trk["pedidos"])
+        ch = cli.get(f"/api/greenyellow/trackers/cedro_2/chart?ini={hoje}&fim={hoje}").get_json()
+        assert ch["plant"] == "Cedro 1 e Cedro 2" and len(ch["trackers"]) == 68 and ch["alvo"]
+        assert [r for r, _p in trk["pedidos"][n:] if r.endswith("/historico")] == []    # o histórico guardado
+        assert cli.get("/api/greenyellow/trackers/nao_existe").status_code == 404
+    par = app._sg_parados_rows("greenyellow")                       # a Entrada: o mesmo pacote, sem ir ao supervisório
+    n = len(trk["pedidos"])
+    esperado = sorted((a["usina"], t["id"]) for a in app._gy_trk_cache["payload"]["por_pid"].values()
+                      for t in a["trackers"] if t["status"] == "parado")
+    assert sorted((r["usina"], r["tracker"]) for r in par) == esperado and len(trk["pedidos"]) == n
+    assert "greenyellow:'/api/greenyellow/trackers'" in MON                     # a aba Trackers do Monitoramento
+
+
+def test_trk_apolo_os_96_da_rio_do_peixe_com_o_nome_do_supervisorio(trk):
+    trk["usinas"]["rio_do_peixe_1_2"] = {str(i): _girando for i in range(1, 97)}
     with app.app.test_client() as cli:
         d = cli.get("/api/apolo/trackers?force=1").get_json()
-        assert [r["usina"] for r in d["rows"]] == ["Rio do Peixe I e II"] and "por_pid" not in d
-        assert d["rows"][0]["total"] == 1 and d["summary"]["trackers"] == 1
+        assert [(r["usina"], r["total"]) for r in d["rows"]] == [("Rio do Peixe I e II", 96)]
         dr = cli.get("/api/apolo/trackers/rio_do_peixe_1_2").get_json()
-        assert [t["id"] for t in dr["trackers"]] == ["NCU"]
-        ch = cli.get(f"/api/apolo/trackers/rio_do_peixe_1_2/chart?ini={hoje}&fim={hoje}").get_json()
-        assert [t["id"] for t in ch["trackers"]] == ["NCU"] and ch["alvo"] and ch["plant"] == "Rio do Peixe I e II"
-        assert cli.get("/api/apolo/trackers/nao_existe").status_code == 404
-    # a Entrada conta os parados do mesmo pacote (hoje o "parado" depende da hora: antes das 11h a frota "dorme")
-    par = app._sg_parados_rows("apolo")
-    esperado = [("Rio do Peixe I e II", "NCU")] if dr["trackers"][0]["status"] == "parado" else []
-    assert [(r["usina"], r["tracker"]) for r in par] == esperado
-    assert "apolo:'/api/apolo/trackers'" in MON                                 # a aba Trackers do Monitoramento
+    assert [t["id"] for t in dr["trackers"]][:3] == ["1", "2", "3"] and dr["trackers"][-1]["id"] == "96"
+    assert "NCU" not in {t["id"] for t in dr["trackers"]}
 
 
-def test_ncu_a_entrada_nao_conta_sem_o_pacote_de_hoje(ncu):
-    with pytest.raises(RuntimeError):
-        app._sg_parados_rows("apolo")
-    assert ncu["pedidos"] == []                                                 # SÓ cache: não vai ao supervisório
+def test_trk_a_entrada_nao_conta_sem_o_pacote_de_hoje(trk):
+    for f in ("greenyellow", "apolo"):
+        with pytest.raises(RuntimeError):
+            app._sg_parados_rows(f)
+    assert trk["pedidos"] == []                                                 # SÓ cache: não vai ao supervisório
+
+
+def test_trk_as_duas_fontes_na_entrada_e_no_worker():
+    import inspect
+    src = inspect.getsource(app)
+    assert 'fontes_trk["GreenYellow"] = lambda: _sg_parados_rows("greenyellow")' in src
+    assert '("GreenYellow trk", _gy_trk_cache,       _build_gy_trk_payload)' in src
+    assert app._persist_registry()["gy_trk"] is app._gy_trk_cache and app._SG_TRK_CACHE["greenyellow"] is app._gy_trk_cache

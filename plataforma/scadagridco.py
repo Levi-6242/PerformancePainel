@@ -16,6 +16,8 @@ Duas famílias de leitura (MQTT e Modbus), uma fonte por cliente:
   Modbus foi conferido na Boa Esperança do Sul, Modbus e lendo (`string_NN_i`, `active_power_w`, `daily_energy_kwh`).
 - **Apolo** (29/10/2026) chega pelo mesmo gateway MQTT da GreenYellow: a Rio do Peixe I e II, na lista abaixo com o
   de-para (o supervisório manda um inversor a mais, cópia de outro); usina nova do cliente entra pela descoberta.
+- **Trackers** (03/11/2026): `/api/trackers/<usina>` (o agora) e `/api/trackers/<usina>/historico` (a curva do dia), por
+  usina — ver a seção "Trackers" abaixo.
 
 Regras da Automação que este módulo segura: uma chamada por vez (o mesmo servidor opera as usinas, lendo relés e
 inversores em tempo real — `_LOCK`), busca incremental (`apos_ts`), `communication_fault` 192 = leitura boa, nulo não é
@@ -74,7 +76,7 @@ FONTES = {
     # Apolo (29/10/2026, Levi: "As API que tem as mesmas UFVs da GreenYellow também soltou Rio do Peixe 1 e 2 que é da
     # Apolo, traga para o tempo real"). Gateway MQTT como a GreenYellow; usina nova do cliente "Apolo" na Info Geral entra
     # pela descoberta. A Rio do Peixe I e II (rio_do_peixe_1_2) manda 21 equipamentos inversor ("1" a "21", 28 entradas
-    # string_N_current cada), 3 relés e 1 NCU de trackers, sem estação; o cadastro tem 20 inversores (1.1 a 1.10 na UG 01,
+    # string_N_current cada), 3 relés e (desde 03/11/2026) 96 trackers, sem estação; o cadastro tem 20 inversores (1.1 a 1.10 na UG 01,
     # 2.1 a 2.10 na UG 02, 20/18/20 strings) e ela fica AQUI, com o de-para, porque a ordem do cadastro erra: o
     # equipamento 15 é CÓPIA do 14 (em 28/10/2026, 315 dos 316 minutos com sol iguais em potência e em cada string; o 14
     # contra o 16, 0), e pela ordem o 15 virava o 2.5, o 18 (18 strings) o 2.8 (20 esperadas, −2 falso) e o 21 ficava sem
@@ -90,10 +92,7 @@ FONTES = {
                             **{str(e): f"Inversor 2.{n}" for n, e in enumerate((11, 12, 13, 14, 16, 17, 18, 19, 20, 21),
                                                                                start=1)}},
              "provisorio": "Rio do Peixe I e II: de-para pelo padrão das strings (20/18/20 por UG), sem dia em comum com "
-                           "o BD para fechar pelo valor; o equipamento 15 do supervisório é cópia do 14 e fica de fora",
-             # a NCU como UM tracker, chamado "NCU" (Levi, 29/10/2026: "traga a NCU como tracker também e nomeie como
-             # NCU"). Ela manda o ângulo (posat) e o alvo (posal) da central, não o de cada tracker do campo.
-             "trackers": {"1": "NCU"}},
+                           "o BD para fechar pelo valor; o equipamento 15 do supervisório é cópia do 14 e fica de fora"},
         ],
     },
 }
@@ -311,61 +310,120 @@ def hoje() -> str:
     return datetime.now(TZ).strftime("%Y-%m-%d")
 
 
-# ── Trackers: a NCU (Apolo, 29/10/2026) ───────────────────────────────────────────────────────────────────────────
-# A Rio do Peixe manda 1 equipamento `tracker_ncu`: o ângulo atual (posat) e o alvo (posal) da NCU, e as falhas dela em
-# 0/1. As falhas vão para a tela como estão (`alarmes`): a régua dos trackers das outras fontes é pelo ÂNGULO (parado,
-# desvio, atraso) e não tem regra para bandeira de falha; nenhuma regra nova foi inventada para elas.
-ALARMES_NCU = ("flh_com", "flh_leve", "flh_zigbee", "out_of_range", "bot_emerg", "manu_on",
-               "bat_crit", "bat_min", "bat_ins_al", "bat_ins_seg")
+# ── Trackers (03/11/2026) ───────────────────────────────────────────────────────────────────────────────────────────
+# Levi, 03/11/2026, com a doc nova da Automação para os rastreadores: "já adapta para a plataforma". Os rastreadores
+# chegam por MQTT, um equipamento por tracker (tipo `tracker`; o supervisório também aceita `tracker_ncu`, `tcu` e
+# `rsu`), e a API dá duas leituras prontas, por usina:
+# - `/api/trackers/<usina>`: o AGORA de cada um (posicao_atual, posicao_alvo, sem_comunicacao, stale, alarmes, ts). Usina
+#   sem tracker responde `total` 0 (Demerval Lobão, Irecê 2, as cinco da Sal Energia): 0,01 a 0,2 s.
+# - `/api/trackers/<usina>/historico?dia=&passo=`: o dia reamostrado, `instantes` (epoch), `alvo` (UM vetor da usina) e
+#   `posicao` de cada tracker, nulo onde não houve leitura. Uma chamada por usina e dia (medido em 03/11/2026, passo 15:
+#   Cedro 68 trackers 2,6 a 17 s, Ipixuna do Pará 122 em 11 s, Rio do Peixe 96 em 14 s, Castelo do Piauí 128 em 26 s; o
+#   passo 5 custa o mesmo: 20, 17 e 26 s).
+# PASSO DE 5 MIN, e não os 15 da curva da SunOp (TRK_CURVA_PERIODO do app.py): medido em 03/11/2026 às 09:50, a mesma régua
+# sobre o `/historico` de passo 1, 5 e 15 deu os MESMOS parados com 1 e 5 nas três usinas (Castelo 84, Cedro 0, Rio do
+# Peixe 1) e 96 na Castelo com 15 — o balde de 15 min guarda só a última leitura (não a média, como a SunOp), e 12
+# trackers que mexem pouco viravam "zero o dia todo" (o sensor morto da régua). O histórico de hoje é pedido de novo a
+# cada 15 min (`HistoricoTrackers.TTL_HOJE`); o que chega no meio vem pelo agora. O valor de cada instante é a ÚLTIMA
+# leitura do balde [instante, instante + passo): na Araputanga de 02/11/2026 (passo 15), contra a curva da API PV dos
+# mesmos 59 trackers (mesma ordem), a diferença média por tracker foi 3,56° com o rótulo da API e 0,57° com o ponto no
+# FIM do balde — é onde ele fica aqui (`curvas_historico`).
+# A NCU agregada da Rio do Peixe (29/10/2026: 1 `tracker_ncu` com o ângulo da central) não existe mais: o supervisório
+# manda os 96 trackers do campo, e o equipamento "1" agora é o tracker 1.
+TIPOS_TRACKER = ("tracker", "tracker_ncu", "tcu", "rsu")
+TRK_PASSO_MIN = 5
 
 
-def trackers(cfg) -> dict:
-    """{equipamento tracker_ncu do supervisório: nome do tracker na tela} da usina ({} = sem tracker)."""
-    return dict((cfg or {}).get("trackers") or {})
+def _dt_local(ts):
+    """epoch → datetime local SEM fuso (o formato das curvas de tracker das outras fontes)."""
+    return datetime.fromtimestamp(ts, TZ).replace(tzinfo=None)
 
 
-def curva_ncu(registros) -> dict:
-    """Registros de `/api/telemetria` (tipo tracker_ncu) de UMA NCU → {"atual": [(datetime local, °)], "alvo": [...],
-    "alarmes": {falha: 0/1} da última leitura boa, "ultimo_ts"}. Só leitura boa (192); nulo fica fora."""
-    atual, alvo, alarmes, ultimo = [], [], {}, None
-    for x in sorted(registros or [], key=lambda r: _num(r.get("ts")) or 0):
-        ts = _num(x.get("ts"))
-        if ts is not None:
-            ultimo = ts if ultimo is None else max(ultimo, ts)
-        if x.get("communication_fault") != COM_OK:
-            continue
-        try:
-            t = datetime.strptime(str(x.get("data_hora") or "")[:19], "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            continue
-        p = x.get("pontos") or {}
-        if _num(p.get("posat")) is not None:
-            atual.append((t, _num(p["posat"])))
-        if _num(p.get("posal")) is not None:
-            alvo.append((t, _num(p["posal"])))
-        al = {k: int(p[k]) for k in ALARMES_NCU if _num(p.get(k)) is not None}
-        if al:
-            alarmes = al
-    return {"atual": atual, "alvo": alvo, "alarmes": alarmes, "ultimo_ts": ultimo}
-
-
-def junta_ncu(antes, novo) -> dict:
-    """Curva da NCU guardada + o pedaço incremental (apos_ts); as falhas são as da leitura mais nova."""
-    if not antes:
-        return novo
-    ult = [t for t in (antes.get("ultimo_ts"), novo.get("ultimo_ts")) if t is not None]
-    return {"atual": list(antes.get("atual") or []) + list(novo.get("atual") or []),
-            "alvo": list(antes.get("alvo") or []) + list(novo.get("alvo") or []),
-            "alarmes": novo.get("alarmes") or antes.get("alarmes") or {},
-            "ultimo_ts": max(ult) if ult else None}
-
-
-def curva_tracker(fonte, pid, equip, dia, apos_ts=None, getter=None) -> dict:
-    """A curva de UMA NCU num dia (≤ 45 dias atrás), pelo nome do equipamento, como a do inversor."""
+def trackers_agora(fonte, pid, getter=None) -> list:
+    """O agora de cada tracker da usina (1 chamada): [{equip, atual, alvo, sem_comunicacao, alarmes, ts}]. O
+    `sem_comunicacao` junta o da API e o `stale` (leitura velha): os dois são "não sei onde ele está agora"."""
     getter = getter or get
-    regs = _paginas("/api/telemetria", {"usina": scada_id(fonte, pid), "desde": dia, "ate": dia, "tipo": "tracker_ncu",
-                                        "equipamento": str(equip), "apos_ts": apos_ts}, getter)
-    return curva_ncu([r for r in regs if str(r.get("equipamento")) == str(equip)])
+    d = getter(f"/api/trackers/{scada_id(fonte, pid)}") or {}
+    out = []
+    for t in d.get("trackers") or []:
+        out.append({"equip": str(t.get("equipamento") or t.get("indice")),
+                    "atual": _num(t.get("posicao_atual")), "alvo": _num(t.get("posicao_alvo")),
+                    "sem_comunicacao": bool(t.get("sem_comunicacao") or t.get("stale")),
+                    "alarmes": [str(a) for a in (t.get("alarmes") or [])], "ts": _num(t.get("ts"))})
+    return out
+
+
+def curvas_historico(d, passo=TRK_PASSO_MIN, ate=None) -> dict:
+    """A resposta do `/historico` → {equip: {"atual": [(datetime, °)], "alvo": [(datetime, °)]}}. O ponto vai no FIM do
+    balde (instante + passo), que é quando a leitura foi feita; o balde em curso não passa de `ate` (epoch, o agora), e o
+    último do dia fica em 23:59 do MESMO dia (no 00:00 do dia seguinte, o gráfico de vários dias, que classifica o último
+    dia, veria um dia novo de um ponto só). Nulo fica fora (nulo não é zero). O alvo é o da usina, o mesmo em todos."""
+    inst = list((d or {}).get("instantes") or [])
+    passo_s = 60 * int((d or {}).get("passo_min") or passo)
+
+    def quando(ts):
+        ini, fim = _dt_local(ts), _dt_local(min(ts + passo_s, ate) if ate is not None else ts + passo_s)
+        return fim if fim.date() == ini.date() else ini.replace(hour=23, minute=59, second=0, microsecond=0)
+    tempos = [quando(ts) if isinstance(ts, (int, float)) else None for ts in inst]
+    alvo = [(t, _num(v)) for t, v in zip(tempos, (d or {}).get("alvo") or []) if t is not None and _num(v) is not None]
+    out = {}
+    for x in (d or {}).get("trackers") or []:
+        eq = str(x.get("equipamento") or x.get("indice"))
+        atual = [(t, _num(v)) for t, v in zip(tempos, x.get("posicao") or []) if t is not None and _num(v) is not None]
+        out[eq] = {"atual": atual, "alvo": alvo}
+    return out
+
+
+def trackers_historico(fonte, pid, dia, getter=None, ate=None) -> dict:
+    """As curvas do dia (≤ 45 dias atrás) de todos os trackers da usina: 1 chamada."""
+    getter = getter or get
+    d = getter(f"/api/trackers/{scada_id(fonte, pid)}/historico", {"dia": dia, "passo": TRK_PASSO_MIN})
+    return curvas_historico(d, ate=ate)
+
+
+class HistoricoTrackers:
+    """O `/historico` de cada usina e dia guardado: o de hoje por 15 min (a Castelo leva 26 s na fila de uma chamada por
+    vez do supervisório; entre um e outro, o ponto novo vem pelo agora), o de dia passado por 6 h. Pela chave do
+    SUPERVISÓRIO: a Cedro 1 e a Cedro 2 são a mesma usina para ele, uma chamada só."""
+    TTL_HOJE = 15 * 60
+    TTL_PASSADO = 6 * 3600
+
+    def __init__(self):
+        self._d = {}
+        self._lock = threading.Lock()
+
+    def curvas(self, fonte, pid, dia, getter=None, agora=None):
+        agora = time.time() if agora is None else agora
+        k = (fonte, scada_id(fonte, pid), dia)
+        e_hoje = dia >= hoje()
+        with self._lock:
+            ent = self._d.get(k)
+        if ent and agora - ent["ts"] < (self.TTL_HOJE if e_hoje else self.TTL_PASSADO):
+            return ent["curvas"]
+        cur = trackers_historico(fonte, pid, dia, getter=getter, ate=agora if e_hoje else None)
+        with self._lock:
+            self._d[k] = {"ts": agora, "curvas": cur}
+            for kk in [kk for kk, v in self._d.items() if kk[2] != hoje() and agora - v["ts"] > self.TTL_PASSADO]:
+                self._d.pop(kk, None)
+        return cur
+
+
+def junta_agora(curvas, agora_lst) -> dict:
+    """As curvas do histórico + o ponto do agora de cada tracker que lê (o balde em curso do histórico só chega no passo
+    seguinte). O ponto entra no instante da leitura, e só se for depois do último do histórico; o tracker sem
+    comunicação não ganha ponto (o ângulo dele é velho). Tracker que o agora lista e o histórico não entra sem curva (a
+    análise o marca sem comunicação). Não muda `curvas`."""
+    out = {eq: {"atual": list(c.get("atual") or []), "alvo": list(c.get("alvo") or [])} for eq, c in (curvas or {}).items()}
+    for t in agora_lst or []:
+        c = out.setdefault(t["equip"], {"atual": [], "alvo": []})
+        if t.get("sem_comunicacao") or t.get("ts") is None or t.get("atual") is None:
+            continue
+        quando = _dt_local(t["ts"]).replace(second=0, microsecond=0)
+        if not c["atual"] or quando > c["atual"][-1][0]:
+            c["atual"].append((quando, t["atual"]))
+            if t.get("alvo") is not None and (not c["alvo"] or quando > c["alvo"][-1][0]):
+                c["alvo"] = c["alvo"] + [(quando, t["alvo"])]
+    return out
 
 
 # ── Curva do dia ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -456,9 +514,7 @@ class CurvasDoDia:
     TTL_HOJE = 300
     TTL_PASSADO = 6 * 3600
 
-    def __init__(self, ler=None, juntar=None):
-        # `ler`/`juntar`: a curva do inversor por padrão; a NCU (29/10/2026) passa curva_tracker/junta_ncu
-        self._ler, self._juntar = ler or curva_inversor, juntar or junta
+    def __init__(self):
         self._d = {}                                         # (fonte, pid, equip, dia) → {"ts", "curva"}
         self._lock = threading.Lock()
 
@@ -471,8 +527,8 @@ class CurvasDoDia:
         if ent and agora - ent["ts"] < (self.TTL_HOJE if e_hoje else self.TTL_PASSADO):
             return ent["curva"]
         apos = ent["curva"].get("ultimo_ts") if (ent and e_hoje) else None
-        novo = self._ler(fonte, pid, equip, dia, apos_ts=apos, getter=getter)
-        cur = self._juntar(ent["curva"], novo) if apos is not None else novo
+        novo = curva_inversor(fonte, pid, equip, dia, apos_ts=apos, getter=getter)
+        cur = junta(ent["curva"], novo) if apos is not None else novo
         with self._lock:
             self._d[k] = {"ts": agora, "curva": cur}
             for kk in [kk for kk, v in self._d.items() if kk[3] != hoje() and agora - v["ts"] > self.TTL_PASSADO]:

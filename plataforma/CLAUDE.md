@@ -1700,8 +1700,9 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
 `scadagridco.py` (puro, menos o `get()`); o `app.py` tem a linha, o drill e a curva no bloco "scadaGridco".
 
 - **Duas fontes, dois cards na Entrada** (`greenyellow`, `salenergia`; cliente da Info Geral "Greenyellow" e "Sal
-  Energia"). Tabela, drill, Curva das strings (hoje e até 45 dias), CSV, rollup do macro e a aba de Falhas. Sem ETM nem
-  trackers (as usinas não mandam), sem sino e sem Ocorrências (como a RenoGrid). A Apolo (abaixo) é a 3ª, com a NCU.
+  Energia"). Tabela, drill, Curva das strings (hoje e até 45 dias), CSV, rollup do macro e a aba de Falhas. Trackers da
+  Castelo do Piauí e da Cedro desde 03/11/2026 (abaixo). Sem ETM (a Castelo do Piauí manda 1 `weather` e a Cedro 4, que
+  ainda não entram), sem sino e sem Ocorrências (como a RenoGrid). A Apolo (abaixo) é a 3ª.
 - **GreenYellow = gateway MQTT**: tabela/drill por `/api/mqtt/<usina>` (1 pedido, 0,1 s); curva por `/api/telemetria`
   **um inversor por pedido** (`indice=N`: 2,5 MB e 0,5 s; a usina inteira de uma vez são 19 MB e 22 s), 1 ponto por
   minuto. A de hoje vem aos pedaços (`apos_ts`, `CurvasDoDia`), a de dia passado fica 6 h. O histórico é pedido pelo
@@ -1744,7 +1745,7 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   migração): a Rio do Peixe entra direto; para controlar pela tela, tirar a "foto de hoje" da fonte.
 - **Rio do Peixe I e II (`rio_do_peixe_1_2`)**: 21 equipamentos `inverter` ("1" a "21", 28 entradas `string_N_current`,
   `active_power` em kW, `daily_active_energy`, temperatura em `temperature_internal`), 3 `relay` (proteção/disjuntor) e
-  1 `tracker_ncu`. **Sem estação** (sem POA/GHI). O cadastro (aba Equipamentos, sem "Usina Supervisório", liga pelo nome
+  96 `tracker_ncu` (desde 03/11/2026; em 29/10 era 1, a NCU). **Sem estação** (sem POA/GHI). O cadastro (aba Equipamentos, sem "Usina Supervisório", liga pelo nome
   de exibição) tem **20** inversores: 1.1–1.10 (UG 01) e 2.1–2.10 (UG 02), com 20/20/20/18/18/18/18/20/20/20 strings
   (384). O **15 é cópia do 14** (28/10: 315 de 316 minutos com sol iguais em potência e em cada string; 14 × 16, 0). Por
   isso ela fica na **lista fixa** do `scadagridco.FONTES["apolo"]` com o de-para (1–10 = 1.1–1.10, 11–14 = 2.1–2.4, 16–21
@@ -1755,18 +1756,52 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   entradas vivas ficam espalhadas pelas 28 (no inversor 1: 2–4, 6–12, 16–18, 21–23, 25–28): as mortas aparecem no drill
   como sem corrente até alguém trancá-las; a conta da linha fecha (ativas × esperadas). O gateway fica **fora de madrugada**
   (29/10 01:10: `online` false, todos `stale` desde 21:48): a linha sai "sem comunicação" à noite.
-- **A NCU como tracker** (29/10/2026, Levi: "traga a NCU como tracker também e nomeie como NCU"): `trackers: {"1": "NCU"}`
-  na usina; a aba Trackers da Apolo (`/api/apolo/trackers`, o drill `/<pid>` e o gráfico `/<pid>/chart`, montada pelo
-  worker, `_apo_trk_cache`) mostra UM tracker "NCU" com o ângulo (`posat`) e o alvo (`posal`) da telemetria
-  (`tipo=tracker_ncu`, 1 ponto por minuto, `_sg_trk_curvas`). Régua = a da 2C (`_trk_analise_curvas`, o corpo antigo do
-  `_owen_trackers_analise`): parado pela amplitude do dia, depois a freeze-based e o alvo pela mediana capada em ±55°.
-  Com um tracker só, a mediana da usina é ele mesmo: **desvio e atraso relativos nunca acendem**; vale o parado e a
-  disparidade contra o alvo. As **falhas da NCU** (flh_com, flh_leve, flh_zigbee, out_of_range, bot_emerg, manu_on,
-  bat_*) vão no tracker como estão (`alarmes` = as em 1, `falhas_ncu` = todas; no título do chip): a régua é pelo ângulo
-  e não tem regra para bandeira — nenhuma foi inventada. Em 28/10 o `flh_com` ficou em 1 o dia todo, com a NCU girando
-  (amplitude 66°). NCU sem leitura no dia = sem comunicação (não verde). A Entrada conta os parados SÓ do pacote do worker
-  (`_sg_parados_rows`), e só onde há o token. Fora da subaba Parados/Ocorrências (`_TRK_SUB_FONTES`, como SEMP e 2C-API)
-  e do registro de ocorrências (`trk_eventos`, `FONTES_TRK`). **Relés e ETM não entram.**
+- **Trackers pela API de rastreadores** (03/11/2026, Levi colou a doc nova da Automação: "já adapta para a plataforma").
+  Substitui a NCU única de 29/10 ("traga a NCU como tracker e nomeie como NCU", `trackers: {"1": "NCU"}`): a Rio do Peixe
+  passou a mandar os **96 trackers do campo** (`tracker_ncu` "1" a "96"), sem NCU agregada — o "1" agora é o tracker 1, e a
+  NCU saiu da configuração. Duas leituras por usina (`scadagridco.py`, seção "Trackers"):
+  - `/api/trackers/<usina>` = o **agora** (posicao_atual/alvo, `sem_comunicacao`, `stale`, `alarmes`, `ts`): 0,01–0,2 s,
+    pedido a cada montagem. Usina sem tracker dá `total` 0 e não pede o histórico (Demerval Lobão, Irecê 2; a Sal Energia
+    é Modbus e nem é perguntada).
+  - `/api/trackers/<usina>/historico?dia=&passo=5` = a **curva** (`instantes`, UM `alvo` da usina, `posicao` por
+    tracker): uma chamada por usina do supervisório e dia (`HistoricoTrackers`: hoje por 15 min, dia passado por 6 h).
+    **Passo 5, não os 15 da SunOp** (`TRK_CURVA_PERIODO`): em 03/11 às 09:50, a mesma régua sobre o passo 1, 5 e 15 deu
+    os MESMOS parados com 1 e 5 (Castelo 84, Cedro 0, Rio do Peixe 1) e 96 na Castelo com 15 — o balde guarda a ÚLTIMA
+    leitura, não a média da SunOp, e 12 trackers que mexem pouco viravam "zero o dia todo". Custo igual (Castelo 26 s nos
+    dois, Cedro 17–20 s, Rio do Peixe 13–17 s, Ipixuna 11 s). O ponto vai no FIM do balde [instante, instante + passo)
+    (o último do dia em 23:59 do mesmo dia; o em curso no agora). Prova: Araputanga 02/11 (passo 15), os 59 trackers
+    contra a API PV, diferença média 3,56° no rótulo da API e 0,57° no fim do balde.
+  - Régua = a da 2C (`_trk_analise_curvas`), **sem limite novo**; do agora vêm o ponto mais novo (`junta_agora`), o
+    `sem_comunicacao` (o da fonte OU `stale` = sem comunicação, não verde; sem curva no dia também) e os `alarmes`, que vão
+    no tracker como estão (título do chip "alarmes do supervisório"; a régua não tem regra para eles). Em 03/11 nenhum
+    tracker tinha alarme; o `flh_com` está em 1 em todos os que leem, nas cinco usinas, girando ou não (no `/api/mqtt`).
+  - Nome = o do supervisório ("tracker-ncu1-001" na GreenYellow, "1" a "96" na Rio do Peixe), na ordem dos números
+    (`_trk_num_tracker`: ncu1-001, ncu1-002… antes da ncu2-001; a API manda intercalado).
+  - **Castelo do Piauí**: 128 (`tracker-ncu1-` 66 e `-ncu2-` 62). **Cedro**: 68, todos `tracker-ncu1-001` a `-068`, numa
+    linha só, **"Cedro 1 e Cedro 2"** pela chave da Cedro 1 (`_sg_trk_grupos`): o supervisório não separa, o cadastro não
+    tem a quantidade de trackers delas (Info Geral sem "Qnt. Trackers", sem aba de trackers) — sem prova, não se divide
+    (34+34 seria chute). Quem trouxer a separação (quais NNN são da Cedro 2) liga aqui. A linha entra se uma das duas está
+    no tempo real. Entrada: os parados contam pela chave, no card da Cedro 1.
+  - Abas: `/api/greenyellow/trackers` e `/api/apolo/trackers` (+ drill `/<pid>` e gráfico `/<pid>/chart`), montadas pelo
+    worker (`_gy_trk_cache`, `_apo_trk_cache`, no snapshot `gy_trk`/`apo_trk`); a Entrada conta os parados SÓ do pacote
+    (`_sg_parados_rows`), e só onde há o token. Fora da subaba Parados/Ocorrências (`_TRK_SUB_FONTES`) e do registro de
+    ocorrências (`trk_eventos`, `FONTES_TRK`), como antes. **Relés e ETM não entram.**
+  - Custo no `_LOCK` (uma chamada por vez): a cada 15 min ~55 s de histórico (Castelo + Cedro + Rio do Peixe) na fila do
+    supervisório, junto das strings; entre um e outro, só o agora (0,01–0,2 s por usina).
+  - **O que o dado real deu (03/11, 10:03, passo 5)**: Castelo 128, **102 parados, todos "sem comunicação"**: 103 dos 128
+    leem 0,00° o dia inteiro no supervisório (e o `alvo` da usina vem 0,0 o dia todo), que a régua chama de sensor morto
+    (o caso TIM100: > 90% das leituras em 0,00 na janela 06–18 h) e conta como parado. O `/api/trackers` diz
+    `sem_comunicacao` 0 para eles: é a régua da plataforma, não a fonte, que os marca. Cedro 68, 0 parados, 46 "leve"
+    (desvio leve da régua freeze-based; 44 com o passo 1). Rio do Peixe 96, 1 parado (o 76, "sem comunicação" pela
+    fonte).
+- **2C fica pela API PV** (03/11/2026), embora o supervisório tenha os trackers dela: **Ipixuna do Pará** (122
+  `tracker_ncu`) e **Araputanga** (59 `tracker_ncu` + 10 inversores). Comparado com a curva da API PV (a mesma da aba da
+  2C, `_2C_TRK_FAIXAS`): na Araputanga são os mesmos 59 na mesma ordem (1–59 = Tracker 1.1–1.59, 0,57° de diferença média),
+  mas o gateway dela está **fora desde 01/11 03:19** e a última leitura é de **02/11 15:42** (inversores 15:53, `stale`),
+  e a API PV leu às 08:45 de 03/11. Na Ipixuna os 49 primeiros batem com a API PV, e os **73 da UG 2 (50 a 122) vêm em 0,0°
+  com alvo 0,0 e `auto_on` 0** o dia todo no supervisório, enquanto a API PV mostra os 2.1–2.73 girando (48,8°). Fonte
+  única = a API PV, a mais completa e a mais fresca; o supervisório não duplica nenhuma das duas. Rever quando o gateway da
+  Araputanga voltar e a UG 2 da Ipixuna ler.
 - O **Modo de-para do Tempo real** (`_DP_FONTES`, `depara_tabela.js`) não cobre nenhuma fonte do scadaGridco (lê o
   `inv_resumo` das linhas da API PV); o de-para dos inversores delas é o da Base · De-para de equipamentos
   (`/admin/de-para`, `_DP_SG`), onde a Apolo está.

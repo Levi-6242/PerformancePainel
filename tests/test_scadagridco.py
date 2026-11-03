@@ -151,29 +151,91 @@ def test_temperatura_interna_do_gateway_da_apolo():
     assert sg.leitura_mqtt(_eq_mqtt(3))["temp"] == 48.5                 # a da GreenYellow segue valendo
 
 
-def test_curva_da_ncu_angulo_alvo_e_falhas():
-    """A NCU da Rio do Peixe (29/10/2026, Levi: "traga a NCU como tracker também e nomeie como NCU"): posat = ângulo,
-    posal = alvo, as falhas em 0/1 da última leitura boa. Leitura ruim fica fora (lacuna não é zero)."""
-    regs = [{"communication_fault": 192, "data_hora": "2026-10-28 12:07:30", "ts": 2.0, "equipamento": "1",
-             "pontos": {"posat": 12.05, "posal": 12.17, "flh_com": 1, "flh_leve": 0, "out_of_range": 0}},
-            {"communication_fault": 28, "data_hora": "2026-10-28 12:08:30", "ts": 3.0, "equipamento": "1",
-             "pontos": {"posat": 0.0, "posal": 0.0, "flh_com": 0}},
-            {"communication_fault": 192, "data_hora": "2026-10-28 12:06:30", "ts": 1.0, "equipamento": "1",
-             "pontos": {"posat": 11.8, "posal": None, "flh_com": 0}}]
-    c = sg.curva_ncu(regs)
-    assert [round(v, 2) for _t, v in c["atual"]] == [11.8, 12.05] and [v for _t, v in c["alvo"]] == [12.17]
-    assert c["atual"][0][0].strftime("%H:%M") == "12:06" and c["ultimo_ts"] == 3.0
-    assert c["alarmes"] == {"flh_com": 1, "flh_leve": 0, "out_of_range": 0}        # a da 12:07 (a 12:08 é ruim)
-    assert sg.trackers(sg.usina_cfg("apolo", "rio_do_peixe_1_2")) == {"1": "NCU"}
-    assert sg.trackers(sg.usina_cfg("greenyellow", "irece_2")) == {}
+# ── Trackers pela API de rastreadores (03/11/2026, Levi: "já adapta para a plataforma") ─────────────────────────────
+# Os pacotes têm o formato que `/api/trackers/<usina>` e `/api/trackers/<usina>/historico` devolveram em 03/11/2026.
+from datetime import datetime  # noqa: E402
 
 
-def test_curva_da_ncu_pede_o_tipo_tracker_ncu_pelo_nome():
+def _epoch(dia, hhmm):
+    return datetime.strptime(f"{dia} {hhmm}", "%Y-%m-%d %H:%M").replace(tzinfo=sg.TZ).timestamp()
+
+
+def test_historico_vira_curva_com_o_ponto_no_fim_do_balde():
+    """O valor do instante é a última leitura do balde [instante, instante + 15 min): conferido contra a API PV na
+    Araputanga (02/11/2026), 3,56° de diferença média com o rótulo da API e 0,57° no fim do balde. Nulo fica fora; o
+    último balde do dia fica em 23:59 do mesmo dia; o balde em curso não passa do agora."""
+    d = {"dia": "2026-11-02", "passo_min": 15,
+         "instantes": [_epoch("2026-11-02", h) for h in ("06:00", "06:15", "06:30", "23:45")],
+         "alvo": [-50.0, None, -45.0, 0.0],
+         "trackers": [{"equipamento": "1", "posicao": [-49.5, -47.0, None, 0.0]},
+                      {"equipamento": "2", "posicao": [None, None, None, None]}]}
+    c = sg.curvas_historico(d)
+    assert [(t.strftime("%H:%M"), v) for t, v in c["1"]["atual"]] == [("06:15", -49.5), ("06:30", -47.0),
+                                                                      ("23:59", 0.0)]
+    assert c["1"]["atual"][-1][0].strftime("%Y-%m-%d") == "2026-11-02"
+    assert [(t.strftime("%H:%M"), v) for t, v in c["1"]["alvo"]] == [("06:15", -50.0), ("06:45", -45.0), ("23:59", 0.0)]
+    assert c["2"]["atual"] == [] and c["2"]["alvo"] == c["1"]["alvo"]            # o alvo é UM, o da usina
+    c = sg.curvas_historico(d, ate=_epoch("2026-11-02", "06:20"))
+    assert [t.strftime("%H:%M") for t, _v in c["1"]["atual"][:2]] == ["06:15", "06:20"]
+
+
+def test_agora_le_o_supervisorio_e_stale_e_sem_comunicacao():
+    pedidos = []
+    pacote = {"total": 3, "trackers": [
+        {"equipamento": "tracker-ncu1-001", "posicao_atual": -37.97, "posicao_alvo": -37.71, "sem_comunicacao": False,
+         "stale": False, "alarmes": [], "ts": 1793706955.0},
+        {"equipamento": "tracker-ncu1-002", "posicao_atual": 0.0, "posicao_alvo": 0.0, "sem_comunicacao": False,
+         "stale": True, "alarmes": ["bat_crit"], "ts": 1793644959.0},
+        {"equipamento": "tracker-ncu1-003", "posicao_atual": None, "posicao_alvo": None, "sem_comunicacao": True,
+         "stale": False, "alarmes": [], "ts": None}]}
+
+    def getter(rota, p=None):
+        pedidos.append((rota, p))
+        return pacote
+    ag = sg.trackers_agora("apolo", "rio_do_peixe_1_2", getter=getter)
+    assert pedidos == [("/api/trackers/rio_do_peixe_1_2", None)]
+    assert [(t["equip"], t["atual"], t["sem_comunicacao"], t["alarmes"]) for t in ag] == [
+        ("tracker-ncu1-001", -37.97, False, []), ("tracker-ncu1-002", 0.0, True, ["bat_crit"]),
+        ("tracker-ncu1-003", None, True, [])]
+
+
+def test_historico_pede_passo_5_pela_chave_do_supervisorio_e_guarda(monkeypatch):
+    """Uma chamada por usina do SUPERVISÓRIO e dia: a Cedro 1 e a Cedro 2 são a "cedro", e o de hoje vale 15 min. Passo 5:
+    em 03/11/2026 o de 15 dava 96 parados na Castelo do Piauí, contra 84 com o de 5 e o de 1 (os mesmos)."""
+    monkeypatch.setattr(sg, "ATUALIZAR", None)
+    monkeypatch.setattr(sg, "EXTRAS", {"greenyellow": [
+        {"id": "cedro_1", "scada": "cedro", "usina": "Cedro 1", "via": "mqtt"},
+        {"id": "cedro_2", "scada": "cedro", "usina": "Cedro 2", "via": "mqtt"}]})
     pedidos = []
 
-    def getter(rota, p):
-        pedidos.append((rota, dict(p)))
-        return {"registros": [], "proximo_apos_ts": None}
-    sg.curva_tracker("apolo", "rio_do_peixe_1_2", "1", "2026-10-28", getter=getter)
-    assert pedidos == [("/api/telemetria", {"usina": "rio_do_peixe_1_2", "desde": "2026-10-28", "ate": "2026-10-28",
-                                            "tipo": "tracker_ncu", "equipamento": "1", "limit": sg.LIMITE})]
+    def getter(rota, p=None):
+        pedidos.append((rota, dict(p or {})))
+        return {"instantes": [], "alvo": [], "trackers": []}
+    h, t0 = sg.HistoricoTrackers(), 1_000_000.0
+    hoje = sg.hoje()
+    h.curvas("greenyellow", "cedro_1", hoje, getter=getter, agora=t0)
+    h.curvas("greenyellow", "cedro_2", hoje, getter=getter, agora=t0 + 60)
+    assert pedidos == [("/api/trackers/cedro/historico", {"dia": hoje, "passo": 5})]
+    h.curvas("greenyellow", "cedro_1", hoje, getter=getter, agora=t0 + 14 * 60)
+    assert len(pedidos) == 1
+    h.curvas("greenyellow", "cedro_1", hoje, getter=getter, agora=t0 + 15 * 60)    # passaram os 15 min: pede de novo
+    assert len(pedidos) == 2 and sg.TRK_PASSO_MIN == 5
+
+
+def test_junta_agora_poe_o_ponto_novo_so_de_quem_le():
+    t = lambda h: datetime.strptime(f"2026-11-03 {h}", "%Y-%m-%d %H:%M")      # noqa: E731
+    curvas = {"1": {"atual": [(t("08:45"), -40.0)], "alvo": [(t("08:45"), -40.5)]}}
+    agora = [{"equip": "1", "atual": -38.0, "alvo": -38.4, "sem_comunicacao": False, "ts": _epoch("2026-11-03", "08:57")},
+             {"equip": "2", "atual": 0.0, "alvo": 0.0, "sem_comunicacao": True, "ts": _epoch("2026-11-02", "15:42")}]
+    j = sg.junta_agora(curvas, agora)
+    assert j["1"]["atual"] == [(t("08:45"), -40.0), (t("08:57"), -38.0)] and j["1"]["alvo"][-1] == (t("08:57"), -38.4)
+    assert j["2"] == {"atual": [], "alvo": []}                                  # sem comunicação: entra, sem ponto velho
+    assert curvas["1"]["atual"] == [(t("08:45"), -40.0)]                        # não mexe no guardado
+    j = sg.junta_agora(curvas, [dict(agora[0], ts=_epoch("2026-11-03", "08:40"))])
+    assert j["1"]["atual"] == [(t("08:45"), -40.0)]                             # mais velho que o histórico: fica fora
+
+
+def test_rio_do_peixe_sem_a_ncu_unica_de_29_10():
+    """Desde 03/11/2026 o supervisório manda os 96 trackers do campo: a NCU única ("1" = "NCU") saiu da configuração."""
+    assert "trackers" not in sg.usina_cfg("apolo", "rio_do_peixe_1_2")
+    assert not hasattr(sg, "curva_ncu") and set(sg.TIPOS_TRACKER) == {"tracker", "tracker_ncu", "tcu", "rsu"}
