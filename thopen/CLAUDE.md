@@ -334,9 +334,18 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
   1 e 2 dividem um site no Fracttal ("1 e 2 - MS") e, pelo site, as duas davam 87,53. O mês (`disponibilidade`) é a
   média dos dias, 2 casas. Conferido em 09/10 nas 100 usinas: 80 com valor, iguais ao Gerencial menos Araçoiaba da
   Serra 1 (94,19 × 94,18); 7 casam só pelo Fracttal (Córrego do Sapucaia, Marajoara 1, Nova Londrina, Piracicaba 1,
-  Primavera, Santo Antonio da Platina, Vargem Grande 1); 20 fora do catálogo do Gerencial (Ouro Branco I a V, Coração
-  2, Lyon, Pharma II a IV, AP. do Taboado...) ficam "—" — o modelo anterior também não tinha valor para elas em
-  outubro (só Nova Iguaçu 100% e dois 0%).
+  Primavera, Santo Antonio da Platina, Vargem Grande 1); 20 fora do catálogo do Gerencial (Coração 2, Lyon, Pharma II
+  a IV, AP. do Taboado...) ficam "—" — o modelo anterior também não tinha valor para elas em outubro (só Nova Iguaçu
+  100% e dois 0%).
+- **As PARTES de uma usina do Gerencial (04/11/2026**, Levi: "Sim, liga"): a Ouro Branco é uma usina na régua (o site
+  "Ouro Branco 1 - AL", com as UG 01 a 05 na aba Equipamentos) e cinco no 5080 (I a V), e ficava "—", sem ocorrência
+  nem comentário: em 11, 13 e 27/10 a QGBT 4, o SKID 4 e a cabine 4 pararam e só a IV perdeu geração. `operacao_mes.
+  PARTES` declara cada uma como a UG n do site; a parte pega a parada da usina inteira e o que leva o número dela
+  (cabine, UG, SKID, QGBT n inteira; o inversor n.x pelo kWp dele sobre o da parte, o do registro do 5080), em 12 h por
+  dia, sem contar duas vezes a hora em que duas OS se cruzam; o "Inversor ?" não é de parte nenhuma. Conferido no dado
+  real: a IV com 63,2%, 88,2% e 81,5% nos três dias (a geração deu 62%, 94% e 85% da possível). A UG 04 tem 1.016,6
+  kWp na aba Equipamentos e a Ouro Branco IV, 0,6 MWp no registro do 5080 (a diferença pesa na conta do site). Prova:
+  `tests/test_thopen_partes.py`.
 - **De 10/2026 em diante, comentário e disponibilidade são SÓ das OS do Fracttal** (Levi, 14/10/2026, noite: "A partir
   de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade! Antes deixe como estava!"). **Por
   quê** (a causa dos erros de 13 e 14/10): a tabela juntava duas contas que não se conversam — o comentário da equipe no

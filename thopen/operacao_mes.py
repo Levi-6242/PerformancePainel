@@ -32,11 +32,23 @@ REGUA = {
 
 # Nome nas falhas (o canônico da plataforma) → nome do 5080 (a coluna Usina do BD_Thopen). Medido em 08/10 contra o
 # workbook falhas_performance: só estes não casavam pelo nome sem acento (o "Corrego do Sapucaia" casa pela chave sem
-# acento). A Ouro Branco (um nome nas falhas, I a V no 5080) fica de fora até haver de-para por plant_id.
+# acento). A Ouro Branco (um nome nas falhas, I a V no 5080) fica de fora até haver de-para por plant_id; a
+# disponibilidade e as OS dela vão pelas PARTES, abaixo.
 ALIAS_FALHAS = {"Marajoara I": "Marajoara 1", "Piracicaba I": "Piracicaba 1",
                 "Nova Londrina 1": "Nova Londrina", "Nova Londrina 2": "Nova Londrina",
                 "Primavera 1": "Primavera", "Primavera 2": "Primavera",
                 "Santo Antonio do Platina": "Santo Antonio da Platina"}
+
+# As usinas do 5080 que são PARTES de uma usina do Gerencial (Levi, 04/11/2026: "Sim, liga"). A Ouro Branco é UMA usina
+# na régua (o site "Thopen - Ouro Branco 1 - AL", 4.450,6 kWp) e cinco no 5080; a aba Equipamentos tem as cinco como
+# UG 01 a 05 ("Ouro Branco 4 (773)" é a UG 04), e a Ronda COS leva o número no equipamento (QGBT4, SKID4, CABN4,
+# INVR4.x). Sem a ligação, a Ouro Branco IV não tinha ocorrência nem comentário: em 11, 13 e 27/10 a QGBT 4, o SKID 4 e a
+# cabine 4 pararam e só ela perdeu geração (62%, 94% e 85% da possível; as outras quatro, ~100%). Cada parte pega do
+# site a parada da usina inteira e o que leva o número dela (`parte`, `_da_parte`)
+PARTES = {"Ouro Branco I": ("Ouro Branco", 1), "Ouro Branco II": ("Ouro Branco", 2),
+          "Ouro Branco III": ("Ouro Branco", 3), "Ouro Branco IV": ("Ouro Branco", 4),
+          "Ouro Branco V": ("Ouro Branco", 5)}
+_NUM_ESCOPO = re.compile(r"(cabine|ug|skid|qgbt|inversor)\s*0*(\d+)")
 
 # O que a rota devolve — e NADA além disto (o 5080 é público, sem senha). Rodada 2 (08/10, tarde): `por_dia` (a
 # tabela do Diário, uma linha por dia) e `avisos` (textos curtos para a nota do card) — nunca número de OS nem texto
@@ -184,6 +196,93 @@ def _nomes(nome):
     return {alvo} | {chave(a) for a, b in ALIAS_FALHAS.items() if chave(b) == alvo}
 
 
+def parte(nome):
+    """(nomes da usina do Gerencial, número da parte) da usina do 5080 que é parte de outra (PARTES), ou None."""
+    p = next((v for k, v in PARTES.items() if chave(k) == chave(nome)), None)
+    return (_nomes(p[0]), p[1]) if p else None
+
+
+def _itens_da_parte(o, n):
+    """(inteira, inversores da parte, itens de outras partes) da linha da OS do site: inteira = a usina inteira ou a
+    cabine (UG, SKID, QGBT) n; o "Inversor ?" e a "Cabine ?" (sem a tag) não são de parte nenhuma."""
+    if _usina_inteira(o):
+        return True, 0, 0
+    inv = outros = 0
+    for e in (x.strip() for x in str(o.get("escopo") or "").split(";") if x.strip()):
+        m = _NUM_ESCOPO.match(chave(e))
+        if not m or int(m.group(2)) != n:
+            outros += 1
+        elif m.group(1) == "inversor":
+            inv += 1
+        else:
+            return True, 0, 0
+    return False, inv, outros
+
+
+def _da_parte(o, n):
+    inteira, inv, _ = _itens_da_parte(o, n)
+    return inteira or inv > 0
+
+
+def _fracao_da_parte(o, n, pot_parte):
+    """Quanto da parte n a linha parou: 1 inteira; o inversor dela pela potência dele (a da linha, repartida entre os
+    itens) sobre a da parte; 0 o que é de outra parte, ou o inversor sem a potência da parte."""
+    inteira, inv, outros = _itens_da_parte(o, n)
+    if inteira:
+        return 1.0
+    try:
+        kwp = float(o.get("kwp")) * inv / (inv + outros) if inv else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+    return min(1.0, kwp / pot_parte) if kwp and pot_parte else 0.0
+
+
+def _horas_fora(intervalos, cobertos):
+    """Horas dos intervalos fora dos cobertos (os cobertos já unidos)."""
+    h = 0.0
+    for a, b in intervalos:
+        dentro = sum(max(0.0, (min(b, y) - max(a, x)).total_seconds()) for x, y in cobertos)
+        h += max(0.0, (b - a).total_seconds() - dentro) / 3600
+    return h
+
+
+def _unir(intervalos):
+    out = []
+    for a, b in sorted(intervalos):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def _disp_da_parte(dados, nome, ano, mes, pot_parte):
+    """{dia: disponibilidade %} da parte: os dias que o Gerencial publicou para a usina do site, menos as horas da parte
+    (a parada inteira pelos trechos, sem contar duas vezes a hora em que duas OS se cruzam; o inversor dela pela fração,
+    fora das horas em que ela já estava inteira parada), em 12 h por dia, como a régua."""
+    nomes, n = parte(nome)
+    m = f"{ano}-{mes:02d}"
+    dias = {d for d in (_no_mes(r.get("dia"), ano, mes) for r in dados.get("disponibilidade_dia") or []
+                        if chave(r.get("usina")) in nomes) if d}
+    inteiras, parciais = defaultdict(list), defaultdict(list)
+    for o in dados.get("disponibilidade_os_dia") or []:
+        d = _data(o.get("dia"))
+        if str(o.get("mes")) != m or not d or d not in dias or chave(o.get("usina")) not in nomes:
+            continue
+        f = _fracao_da_parte(o, n, pot_parte)
+        if f >= 1.0:
+            inteiras[d] += _trechos(o.get("trechos"), d)
+        elif f > 0:
+            parciais[d].append((f, _trechos(o.get("trechos"), d)))
+    out = {}
+    for d in dias:
+        cob = _unir(inteiras[d])
+        h = sum((b - a).total_seconds() for a, b in cob) / 3600
+        h += sum(f * _horas_fora(t, cob) for f, t in parciais[d])
+        out[d] = 100.0 * (1 - min(12.0, h) / 12.0)
+    return out
+
+
 def ids_da_usina(de_para, nome):
     """usina_id(s) do nome do 5080 pelo de-para do cadastro do Nexus (sistema "BD_Thopen · Dados Gerais Usinas").
     N:N: Primavera e Nova Londrina têm dois ids; Coração 1 e 2 dividem um. Sem ligação = vazio (nunca chutar ID)."""
@@ -279,7 +378,7 @@ def _conta_strings(oss):
     return len(distintas) + soma if alguma else None
 
 
-def disp_por_dia(dados, nome, ano, mes):
+def disp_por_dia(dados, nome, ano, mes, pot_kwp=None):
     """{dia: disponibilidade %} da usina no mês (rodada 4, Levi 09/10/2026: "calculada pelo Fracttal, da mesma forma
     que calculamos pelo gerencial da plataforma") — a aba disponibilidade_dia que a plataforma publica, um valor por dia
     fechado (o 100 do dia sem OS vem escrito). Liga pelos usina_ids que a leitura achou pelo nome do Fracttal no de-para
@@ -289,7 +388,10 @@ def disp_por_dia(dados, nome, ano, mes):
     O NOME vence o site: Aparecida do Taboado 1 e 2, Santarém 1 e 2 e Rodrigues 1 e 2 dividem um site no Fracttal, e
     pelo id as duas recebiam a média das duas (Taboado: 87,53% cada, com o Gerencial dizendo 100% e 78,84%). O valor do
     dia vem das horas perdidas (3 casas), não do % arredondado em 1 casa: a média de dias arredondados errava o mês do
-    Gerencial em 0,01–0,02 p.p. Devolve sem arredondar — quem mostra arredonda."""
+    Gerencial em 0,01–0,02 p.p. Devolve sem arredondar — quem mostra arredonda. A PARTE de uma usina do Gerencial (a
+    Ouro Branco IV, 04/11/2026) pela conta dela, com a potência dela (`pot_kwp`, a do registro do 5080)."""
+    if parte(nome):
+        return _disp_da_parte(dados, nome, ano, mes, pot_kwp)
     ids, nomes = ids_da_usina(dados.get("de_para"), nome), _nomes(nome)
     linhas = [(r, _no_mes(r.get("dia"), ano, mes)) for r in dados.get("disponibilidade_dia") or []]
     linhas = [(r, d) for r, d in linhas if d]
@@ -433,13 +535,24 @@ def _frase_os(o, dia, pot_usina, trip=None):
     return "Desligamento %s%s; %sOS %s" % (alvo, quando, tipo + ", " if tipo else "", n or "do Fracttal")
 
 
-def _os_da_usina(dados, nome, ano, mes):
+def _os_da_usina(dados, nome, ano, mes, pot_kwp=None):
     """({dia: [linha da disponibilidade_os_dia]}, potência da usina) das OS da usina no mês, ou None antes de a aba
-    ser publicada no mês. A mesma ligação da disponibilidade (o nome vence o site compartilhado)."""
+    ser publicada no mês. A mesma ligação da disponibilidade (o nome vence o site compartilhado); a PARTE (a Ouro Branco
+    IV) com as linhas do site que são dela e a potência dela."""
     m = f"{ano}-{mes:02d}"
     a = next((x for x in dados.get("atualizacao") or [] if str(x.get("mes")) == m), None)
     if not a or _int(a.get("disponibilidade_os_dia")) is None:
         return None
+    da_parte = parte(nome)
+    if da_parte:
+        nomes, n = da_parte
+        dias = defaultdict(list)
+        for o in dados.get("disponibilidade_os_dia") or []:
+            d = _data(o.get("dia"))
+            if (str(o.get("mes")) == m and d and (d.year, d.month) == (ano, mes) and chave(o.get("usina")) in nomes
+                    and _da_parte(o, n)):
+                dias[d].append(o)
+        return dias, pot_kwp
     ids, nomes = ids_da_usina(dados.get("de_para"), nome), _nomes(nome)
     por_nome = _gerencial_por_nome(dados, nome, ano, mes)
     pot = {}
@@ -473,7 +586,7 @@ def os_desligamento_do_mes(dados, nome, ano, mes):
     return out
 
 
-def os_por_dia(dados, nome, ano, mes, trips=None):
+def os_por_dia(dados, nome, ano, mes, trips=None, pot_kwp=None):
     """{dia: [frase da OS]} — o comentário de cada dia, só das OS do Fracttal que formaram a disponibilidade dele (Levi,
     14/10/2026: "A partir de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade!"). Vem da
     aba disponibilidade_os_dia, a parcela de cada OS no dia na MESMA conta da disponibilidade_dia: o texto e o número
@@ -482,7 +595,7 @@ def os_por_dia(dados, nome, ano, mes, trips=None):
     (o nome vence o site compartilhado); a parte da potência é o kWp da OS sobre a das usinas do Gerencial que a usina
     do 5080 junta (Primavera 1 e 2 somam). None = a aba ainda não foi publicada no mês (a tela diz isso; nunca um dia
     "sem OS" que só não chegou). `trips`: {nº da OS: "27/86"} do trip_os (23/10/2026)."""
-    ok = _os_da_usina(dados, nome, ano, mes)
+    ok = _os_da_usina(dados, nome, ano, mes, pot_kwp)
     if ok is None:
         return None
     dias, pot_usina = ok
@@ -645,9 +758,10 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None):
+def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
-    {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026)."""
+    {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026). `pot_kwp`: a
+    potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026)."""
     r = dict.fromkeys(CHAVES)
     r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
@@ -682,9 +796,9 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None):
         r["zeladoria"] = dict(SEM_CADASTRO)
     # rodada 4: Disp (%) e a ronda do dia na tabela; a disponibilidade do mês é a média dos dias — a mesma conta do
     # Gerencial (12 h por dia: 100·(1 − Σh/12n) é a média dos dias)
-    dsp = disp_por_dia(dados, nome, ano, mes) if bd is None else bd[0]
+    dsp = disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
-                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips) if bd is None else bd[1])
+                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips, pot_kwp) if bd is None else bd[1])
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
     if bd is not None:
         # o comentário da equipe vai também no dia que ficou em 100% (a falha de comunicação, que não conta)

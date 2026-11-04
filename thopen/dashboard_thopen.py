@@ -1485,7 +1485,15 @@ def _disp_dias(usina, ano, mes):
     if _pelo_bd(usina, ano, mes):
         return _disp_bd(usina, ano, mes)[0] or None
     dados = _op_dados()
-    return (operacao_mes.disp_por_dia(dados, usina, ano, mes) or None) if dados else None
+    return (operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina)) or None) if dados else None
+
+
+def _da_parte(usina):
+    """{"pot_kwp": a potência da usina no registro do 5080} só para a PARTE de uma usina do Gerencial (a Ouro Branco IV,
+    operacao_mes.PARTES, 04/11/2026: o inversor dela pesa sobre a potência dela); as outras seguem como sempre."""
+    if not operacao_mes.parte(usina):
+        return {}
+    return {"pot_kwp": ((_registro().get(usina) or {}).get("pot_mwp") or 0) * 1000 or None}
 
 
 def _resumo_usina(usina, ano, mes, ate=None):
@@ -1863,7 +1871,7 @@ def api_operacao():
     dados = _op_dados()
     bd = _disp_bd(usina, ano, mes) if _pelo_bd(usina, ano, mes) else None
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
-    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd)
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None
