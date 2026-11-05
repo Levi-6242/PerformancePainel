@@ -5924,10 +5924,20 @@ def _entrada_tempo_real_build() -> dict:
     # e util; traco no lugar de 148 trackers parados nao e.
     anterior = {(gg.get("cliente"), gg.get("fonte")): gg
                 for gg in ((_ENTRADA_TR_CACHE.get("data") or {}).get("grupos") or [])}
+    # a LISTA dos parados de cada usina, para o App de Campo (/api/campo/parados, 05/11/2026): montada aqui, junto da
+    # contagem, para a ronda do técnico e o card da Entrada dizerem o mesmo número; nenhuma chamada a mais às fontes
+    listas: dict = {}
+    lidas_em: dict = {}
     for fonte in fontes_trk:
         trows = colhido.get(fonte)
         if trows is None:
             print(f"[ENTRADA] {fonte}: trackers parados nao vieram em {_ENTRADA_TRK_PRAZO_S}s — usando a contagem anterior")
+            # a lista da última montagem boa segue, rotulada com a hora dela (como a contagem); sem ela, a usina sai como
+            # "falhou" no /api/campo/parados, nunca como zero
+            ant_campo = _CAMPO_PARADOS.get("por_fonte", {}).get(fonte)
+            if ant_campo and time.time() - ant_campo["ts"] <= _ENTRADA_TRK_ULTIMO_MAX_S:
+                listas.update(ant_campo["listas"])
+                lidas_em[fonte] = (ant_campo["lido_em"], True)
             for x in grupos.values():
                 if x["fonte"] != fonte:
                     continue
@@ -5947,6 +5957,7 @@ def _entrada_tempo_real_build() -> dict:
                         uu["trk_com_os"] = a.get("trk_com_os") or 0
             continue
         _lido_hm = datetime.now().strftime("%H:%M")
+        lidas_em[fonte] = (datetime.now().isoformat(timespec="seconds"), False)
         for x in grupos.values():
             if x["fonte"] == fonte:
                 x["trk_fonte_ok"] = True
@@ -5963,11 +5974,19 @@ def _entrada_tempo_real_build() -> dict:
             x["trk_parados"] += 1
             if r.get("ticket_status"):
                 x["trk_com_os"] += 1
+            casou = None
             for uu in x["usinas"].values():
                 if _nrm(_macro_usina_nome(uu["usina"])) == nome_n or (_pid and str(uu.get("plant_id")) == _pid):
                     uu["trk_parados"] += 1
                     if r.get("ticket_status"):
                         uu["trk_com_os"] += 1
+                    casou = casou or uu["usina"]
+            nome_lista = casou or _macro_usina_nome(r.get("usina") or "") or str(r.get("usina") or "")
+            listas.setdefault((x["cliente"], x["fonte"], nome_lista), []).append(_campo_trk_linha(r))
+    try:
+        _campo_parados_guardar(grupos, fontes_trk, listas, lidas_em)
+    except Exception as e:                                    # noqa: BLE001 — o App fica com a lista anterior; a Entrada segue
+        print(f"[ENTRADA] lista dos parados para o App de Campo: {e}")
     ordem_fixa = {(c, f): i for i, (c, f, _fid) in enumerate(_ENTRADA_GRUPOS)}
     _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "desligada": 3, "ok": 4}
     saida = []
@@ -34469,6 +34488,79 @@ def api_campo_usinas():
     grupos = sorted(({"nome": g["nome"], "subusinas": sorted(g["subusinas"])}
                      for g in (_campo_idx.get("amb") or {}).values()), key=lambda g: g["nome"])
     return jsonify({"usinas": nomes, "total": len(nomes), "grupos": grupos})
+
+
+# ── Trackers parados de todas as usinas, para a ronda do App de Campo (05/11/2026) ──────────────────────────────────
+# Levi, pela sessão do App de Campo: "A ideia é o técnico ver todos os trackers parados das UFVs que estão para eles".
+# Uma chamada devolve todas as usinas das fontes de trackers, com a lista dos parados de cada uma. A lista é a da
+# Entrada do tempo real (_entrada_tempo_real_build): a mesma régua e a mesma hora do card dos trackers parados, sem
+# chamada a mais às fontes (a SunOp é paga). A Entrada se refaz de 30 em 30 min (5 min quando uma fonte atrasou).
+# Regra de dado: a usina cuja fonte não respondeu sai com "falhou": true e SEM a lista; nunca "0 parados" no lugar de
+# "não li" (0 não cobre dado).
+_CAMPO_PARADOS: dict = {"data": None, "por_fonte": {}}
+
+
+def _campo_trk_linha(r: dict) -> dict:
+    """Um tracker parado como o técnico precisa: o nº (como no /api/campo/ronda), o status, desde quando, o ângulo e o
+    inversor (onde achar o tracker na usina)."""
+    sc = bool(r.get("sem_comunicacao"))
+    return {"tracker": _pv_trk_num(r.get("tracker")), "nome": str(r.get("tracker") or ""),
+            "status": "sem_comunicacao" if sc else "parado", "desde": r.get("parado_desde"),
+            "atual": r.get("atual"), "alvo": r.get("alvo"), "disparidade": r.get("disparidade"),
+            "inversor": r.get("inversor") or "", "com_os": bool(r.get("ticket_status"))}
+
+
+def _campo_parados_guardar(grupos: dict, fontes_trk, listas: dict, lidas_em: dict) -> None:
+    """Monta a resposta do /api/campo/parados a partir da montagem da Entrada: uma linha por usina das fontes de
+    trackers (as do card, com ou sem parado) e as que só aparecem nos parados. Guarda a lista de cada fonte lida, para
+    a montagem seguinte usar se a fonte atrasar."""
+    agora = time.time()
+    usinas, vistas = [], set()
+    for x in grupos.values():
+        if x["fonte"] not in fontes_trk:
+            continue
+        lido = lidas_em.get(x["fonte"])
+        nomes = [uu["usina"] for uu in x["usinas"].values()]
+        nomes += [n for (c, f, n) in listas if (c, f) == (x["cliente"], x["fonte"]) and n not in nomes]
+        for nome in nomes:
+            k = (x["cliente"], x["fonte"], nome)
+            if k in vistas:
+                continue
+            vistas.add(k)
+            u = {"usina": nome, "cliente": x["cliente"], "fonte": x["fonte"]}
+            if lido is None:
+                u.update(falhou=True)
+            else:
+                parados = sorted(listas.get(k) or [], key=lambda t: (not isinstance(t["tracker"], int),
+                                                                     t["tracker"] if isinstance(t["tracker"], int) else 0,
+                                                                     t["nome"]))
+                u.update(falhou=False, atualizado=lido[0], atrasado=lido[1], n_parados=len(parados), parados=parados)
+            usinas.append(u)
+    usinas.sort(key=lambda u: (u["fonte"], _nrm(u["usina"])))
+    _CAMPO_PARADOS["data"] = {"atualizado": datetime.now().isoformat(timespec="seconds"),
+                              "fontes": [{"fonte": f, "lida": f in lidas_em,
+                                          "atualizado": (lidas_em.get(f) or (None,))[0],
+                                          "atrasado": bool((lidas_em.get(f) or (None, False))[1])} for f in fontes_trk],
+                              "usinas": usinas}
+    for f, (iso, atrasado) in lidas_em.items():
+        if not atrasado:
+            _CAMPO_PARADOS["por_fonte"][f] = {"ts": agora, "lido_em": iso,
+                                              "listas": {k: v for k, v in listas.items() if k[1] == f}}
+
+
+@app.route("/api/campo/parados")
+def api_campo_parados():
+    """Os trackers parados de todas as usinas, de uma vez (ver _CAMPO_PARADOS). Antes da 1ª montagem da Entrada no
+    processo (o servidor acabou de subir), 503 com "aquecendo": o App tenta de novo, sem ler isso como zero."""
+    if not _campo_key_ok():
+        return jsonify({"error": "x-api-key ausente ou inválida"}), 401
+    _entrada_tr_disparar()
+    d = _CAMPO_PARADOS.get("data")
+    if d is None:
+        return jsonify({"aquecendo": True, "usinas": [],
+                        "error": "a lista ainda está sendo montada; tente de novo em alguns minutos"}), 503
+    c = _ENTRADA_TR_CACHE
+    return jsonify(dict(d, proxima_em_s=max(0, int(_entrada_tr_ttl() - (time.time() - c["ts"])))))
 
 
 @app.route("/api/campo/ronda")

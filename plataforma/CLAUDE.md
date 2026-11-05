@@ -2340,6 +2340,27 @@ Medido às 08:36 de 29/09, nas mesmas curvas (régua de produção sem piso / s�
 11 — os falsos da manhã continuam fora); Banco 284 / 94 / 161 (Aparecida 3 66 / 17 / 64); Athon 72 nas três.
 Testes: `tests/test_trackers_cobertura_curva.py` e `tests/test_trackers_piso_dia_anterior.py` (as duas réguas).
 
+## API de campo: os trackers parados de todas as usinas (`/api/campo/parados`, 05/11/2026)
+
+Para a ronda do App de Campo (Levi, pela sessão do App: "a ideia é o técnico ver todos os trackers parados das UFVs que
+estão para eles"). `GET /api/campo/parados` com a `x-api-key` (`CAMPO_API_KEY`, a mesma do `/api/campo/ronda`), pelo
+endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já manda `/api/campo/` à plataforma).
+
+- **De onde vem:** da montagem da Entrada do tempo real (`_entrada_tempo_real_build` → `_campo_parados_guardar`), a mesma
+  lista que dá o número do card de trackers parados. Nenhuma chamada a mais às fontes (a SunOp é paga). A Entrada se
+  refaz de 30 em 30 min (5 min quando uma fonte atrasou); `proxima_em_s` diz quando. Chamar mais vezes não traz dado novo.
+- **Formato:** `{"atualizado", "proxima_em_s", "fontes": [{"fonte", "lida", "atualizado", "atrasado"}], "usinas": [{"usina",
+  "cliente", "fonte", "falhou", "atualizado", "atrasado", "n_parados", "parados": [{"tracker" (nº), "nome", "status"
+  ("parado" | "sem_comunicacao"), "desde", "atual", "alvo", "disparidade", "inversor", "com_os"}]}]}`. A usina é o nome da
+  Entrada (o do Monitoramento), uma linha por usina das fontes de trackers, com ou sem parado.
+- **Regra de dado:** fonte que não respondeu = a usina sai com `"falhou": true`, SEM `parados` e sem `n_parados`; nunca
+  zero no lugar de "não li". Fonte que atrasou usa a lista da última montagem boa com a hora dela (`atrasado: true`), até
+  3 h (`_ENTRADA_TRK_ULTIMO_MAX_S`, o mesmo teto da contagem do card). Processo recém-subido, antes da 1ª montagem: 503
+  com `"aquecendo": true`.
+- **Usina sem tracker** aparece com 0: o "0" diz só que a fonte respondeu e não há parado; quem decide se a UFV tem
+  tracker é o catálogo do App.
+- Prova: `python -m pytest -q tests/test_campo_parados.py`.
+
 ## Tokens
 
 **Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado
