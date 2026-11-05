@@ -2368,6 +2368,17 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   tracker é o catálogo do App.
 - Prova: `python -m pytest -q tests/test_campo_parados.py`.
 
+## SunOp: a lista de usinas quando o catálogo não vem (05/11/2026)
+
+Levi: "a API do SunOp não está comunicando??". O catálogo inteiro do serviço de dados (`/data/v2/metadata` sem usina, a
+lista das usinas da Athon) passou a voltar **504 da própria SunOp depois de ~90 s**; a consulta por usina seguia 200 e o
+token de API vale até 06/2027. A cópia de 24 h da lista (`sunop_plants_cache.json`) venceu às 00:44 e a Athon ficou com
+ZERO usinas no tempo real até a correção; cada ciclo tentava o catálogo de novo (265 "metadata" no contador até as 10:47).
+Agora `_sunop_plants_do_dados`: catálogo que falhou → a última lista boa do disco, de qualquer idade (a lista muda uma vez
+por ano); sem o disco, o inventário das Fontes do tempo real (o que a SunOp devolveu da última vez); sem os dois, vazio
+(nunca inventa usina). Depois de uma falha, 30 min sem pedir o catálogo (`SUNOP_CATALOGO_ESPERA_S`). Prova:
+`tests/test_sunop_catalogo_504.py`.
+
 ## Tokens
 
 **Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado

@@ -7898,6 +7898,12 @@ _sunop_plants_lista = {}   # inst -> {"nomes": [...], "ts": float} — lista de 
 
 
 _SUNOP_PLANTS_ARQ = os.path.join(_AQUI, "sunop_plants_cache.json")
+# O catálogo do serviço de dados (a lista de usinas) que FALHOU há pouco não é pedido de novo por 30 min: a lista velha do
+# disco vale nesse meio-tempo. 05/11/2026: o catálogo inteiro passou a voltar 504 da própria SunOp depois de ~90 s (a
+# consulta por usina segue 200); a cópia de 24 h venceu às 00:44 e a Athon ficou com ZERO usinas, e cada ciclo gastava
+# mais 90 s e uma requisição da cota tentando de novo (265 "metadata" até as 10:47).
+_SUNOP_CATALOGO_FALHOU: dict = {}
+SUNOP_CATALOGO_ESPERA_S = 1800
 
 
 def _sunop_plants_do_dados(inst: str = "gridco") -> list:
@@ -7909,6 +7915,7 @@ def _sunop_plants_do_dados(inst: str = "gridco") -> list:
     47.874 itens, as 10 usinas. Fica em disco por 24 h porque custa ~20 s e a lista muda uma vez por ano.
     A Axis não tem token de API: lá o `_sunop_data_headers` devolve o header web e isto falha igual — de propósito,
     para não inventar dado; ela continua dependendo do login até a SunOp emitir um token de API para a 2ª instância."""
+    ent: dict = {}
     try:
         with open(_SUNOP_PLANTS_ARQ, encoding="utf-8") as fh:
             disco = json.load(fh)
@@ -7917,6 +7924,8 @@ def _sunop_plants_do_dados(inst: str = "gridco") -> list:
             return list(ent["nomes"])
     except Exception:
         disco = {}
+    if ent.get("nomes") and time.time() - _SUNOP_CATALOGO_FALHOU.get(inst, 0) < SUNOP_CATALOGO_ESPERA_S:
+        return list(ent["nomes"])          # o catálogo falhou há pouco: a lista velha, sem pedir de novo
     nomes, pagina = set(), 1
     while pagina <= 12:                     # teto de segurança: hoje o catálogo inteiro cabe em 1 página
         r = _sunop_req("GET", f"{_si(inst)['data']}/v2/metadata", inst,
@@ -7935,8 +7944,25 @@ def _sunop_plants_do_dados(inst: str = "gridco") -> list:
             break
         pagina += 1
     if not nomes:
+        _SUNOP_CATALOGO_FALHOU[inst] = time.time()
+        if ent.get("nomes"):
+            # a lista muda uma vez por ano: a última boa, de qualquer idade, vale mais que zero usinas (a usina que saiu
+            # da SunOp vira "sem dados", e a nova entra quando o catálogo voltar)
+            quando = datetime.fromtimestamp(ent.get("ts", 0)).strftime("%d/%m %H:%M")
+            print(f"[SUNOP:{inst}] catálogo do serviço de dados não veio: usando a lista de {quando} "
+                  f"({len(ent['nomes'])} usinas); nova tentativa em {SUNOP_CATALOGO_ESPERA_S // 60} min")
+            return list(ent["nomes"])
+        # sem a cópia em disco (servidor novo): o inventário das Fontes do tempo real, o que a SunOp devolveu da última vez
+        try:
+            inv = sorted((_COB_INV.ler()["fontes"].get(_sunop_fonte(inst)) or {}))
+        except Exception:                   # noqa: BLE001 — sem inventário, sem lista
+            inv = []
+        if inv:
+            print(f"[SUNOP:{inst}] catálogo do serviço de dados não veio: usando o inventário das Fontes ({len(inv)} usinas)")
+            return inv
         print(f"[SUNOP:{inst}] catálogo do serviço de dados não veio: sem lista de usinas")
         return []
+    _SUNOP_CATALOGO_FALHOU.pop(inst, None)
     saida = sorted(nomes)
     try:
         disco = disco if isinstance(disco, dict) else {}
