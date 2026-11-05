@@ -325,8 +325,13 @@ do próprio processo (o que o alocador guarda depois de liberado). Duas correç�
   passada do faxineiro): no máximo 2 arenas de malloc (sem limite, as ~30 threads abrem até 8 por núcleo e a sobra fica
   espalhada) e `malloc_trim(0)`. Só no Linux (no PC nada muda); o efeito se mede no servidor, pelo Raio-X do Nexus
   (seção "Quem ocupa a memória da máquina"). Teste: `tests/test_worker_devolve_memoria.py`.
-O maior ganho que sobra é o dia de hoje dos trackers em formato compacto (~400–570 MB no fim do dia), que mexe em todos
-os leitores da curva e nas respostas das telas: Levi, 20/10, "não mexa nos trackers agora".
+- **O worker sobe com o malloc da glibc** (02/11/2026, auditoria do worker, achado 8; `_alocador_do_sistema` no topo do
+  `worker.py`): o limite de arenas e o trim só valem para a glibc, e objeto de até 512 B (quase todo ponto de curva) vem
+  do pymalloc, cujos blocos de 1 MiB só voltam ao sistema 100% vazios (a sobra de ~1,3 GB acima). No Linux o worker se
+  reinicia pelo exec com `PYTHONMALLOC=malloc`, antes do `import app`; a volta é `GRIDCO_PYMALLOC=1` no ambiente do
+  serviço. O efeito se mede no RSS de 12 h do Raio-X. Teste: `tests/test_worker_alocador.py`.
+O dia de hoje dos trackers em formato compacto (o "não mexa nos trackers agora" de 20/10) saiu em 02/11/2026: ver "O dia
+de trackers compacto", acima; as respostas das telas não mudam.
 **O relatório de memória do worker, que o Raio-X do Nexus mostra (20/10/2026, à noite).** No servidor o worker foi de
 3,7 para 5,0 GB (com o swap) entre 16:12 e 16:38 de 20/10, rápido demais para o que se mediu no PC: um backfill que só
 roda lá, e a medição de dentro (`sys.remote_exec`) só dava no PC. A cada passada do faxineiro, depois de devolver a

@@ -24,7 +24,26 @@ import sys
 import time
 from datetime import datetime
 
-import app
+
+def _alocador_do_sistema(environ=os.environ, plataforma=sys.platform, executar=os.execv) -> None:
+    """No Linux, o worker se reinicia (o mesmo processo, pelo exec) com PYTHONMALLOC=malloc, antes do `import app`.
+
+    Auditoria do worker, 02/11/2026, achado 8: o limite de 2 arenas e o `malloc_trim` a cada passada do faxineiro só
+    valem para a glibc, e objeto de até 512 B (quase todo ponto de curva) vem do pymalloc, cujos blocos de 1 MiB só
+    voltam ao sistema 100% vazios. No PC, em 20/10, ~1,3 GB dos 4,4 GB do worker eram essa sobra. A volta, sem deploy
+    de código: GRIDCO_PYMALLOC=1 no ambiente do serviço. Fora do Linux (o PC) nada muda."""
+    if not plataforma.startswith("linux") or "PYTHONMALLOC" in environ or environ.get("GRIDCO_PYMALLOC") == "1":
+        return
+    environ["PYTHONMALLOC"] = "malloc"
+    if sys.stdout:
+        sys.stdout.flush()
+    executar(sys.executable, getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv)
+
+
+if __name__ == "__main__":
+    _alocador_do_sistema()
+
+import app  # noqa: E402 — depois do exec do alocador: o import pesado não roda duas vezes
 
 
 # Válvula de segurança: o residente do worker cresce ao longo do dia (medido 281 MB -> 4,1 GB
