@@ -107,7 +107,10 @@ def test_visao_geral_de_outubro_com_as_10_colunas_e_o_total_do_servidor():
     for cab in ("Geração Possível", "Dif. Possível", "Possível c/ Expurgos", "Dif. c/ Expurgos"):
         assert cab not in h, cab
     assert "r.possivel" not in g and "T.possivel" not in g and "_GERAL_CAB_POSSIVEL" not in h
-    assert "sem ETM" in g and "dias sem dado" in g and "medição de irradiação em" in g
+    assert "sem ETM" in g and "medição de irradiação em" in g
+    # o aviso "N dias sem dado" ao lado da usina saiu (Levi, 05/11/2026: "Tira esse aviso de sem dados"); o dia sem
+    # dado segue fora da conta, pelo servidor
+    assert "const furo=" not in h and "dias sem dado'" not in h and 'class="furo"' not in h
     assert 'id="geralHead"' in _html()
     # antes de outubro, o cabeçalho e o Total de antes (somado no navegador)
     assert "Diferença Irradiação (%)" in g and "const sMeta=" in g
