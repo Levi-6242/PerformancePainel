@@ -403,7 +403,7 @@ que conta a menos, falta é string parada — uma não paga a outra".
 | # | Condição | Texto | Cor |
 |---|---|---|---|
 | 1 | `desligada` (com motivo) | Usina desligada | vermelho |
-| 2 | última leitura > 120 min ou `falha_comunicacao` | Usina sem comunicação | violeta |
+| 2 | última leitura > 120 min ou `falha_comunicacao`, menos quem tem `calou_com_o_sol` (05/11/2026: calou até 2 h antes de o sol baixar; cai no 6, "Sem sol") | Usina sem comunicação | violeta |
 | 3 | `rampa` (pouca luz ou String Box em rampa) | "Inversor desligado" se há inversor desligado; senão "Baixa irradiância" | âmbar |
 | 4 | `sem_visao` com padrão crítico / atenção | Inversor fora do padrão / abaixo do padrão | vermelho / âmbar |
 | 5 | `sem_visao` | Sem visão de strings | neutro |

@@ -938,7 +938,7 @@ function buildInversores(pid,usinaDaLinha){
     const semList=(inv.strings||[]).filter(sx=>!sx.trancada&&(sx.status||'')==='sem_corrente').map(sx=>sx.id), nSem=semList.length;
     const temBaixa=(inv.strings||[]).some(sx=>!sx.trancada&&(sx.status||'')==='baixa_perf');
     const nTrc=(inv.strings||[]).filter(sx=>sx.trancada).length;   // p/ o botão de destrancar em lote
-    return { id:iid, pid, usina:_un, invId:inv.id, nSem, semList, tks, tkSemN:(_semSolU?0:cob.semTicket), semSolU:_semSolU, semComU:!!(_urow&&_urow.falha_comunicacao), temBaixa, nTrc, semVisao:!!inv.sem_visao, rampa:!!inv.rampa,
+    return { id:iid, pid, usina:_un, invId:inv.id, nSem, semList, tks, tkSemN:(_semSolU?0:cob.semTicket), semSolU:_semSolU, semComU:!!(_urow&&_urow.falha_comunicacao&&!_urow.calou_com_o_sol), temBaixa, nTrc, semVisao:!!inv.sem_visao, rampa:!!inv.rampa,
       /* rampa (correntes reais porém baixas, amanhecer/anoitecer) NÃO é "sem geração": as strings existem e aparecem, só não entram na contagem */
       semGer:(!inv.sem_visao&&!inv.rampa&&Number(inv.strings_ativas)===0), atrib:(RD.osAtrib||{})[pid+'|'+inv.id]||null, name:inv.nome,
       /* o Modo de-para (20/10/2026): o nome do Fracttal pelo código gravado e a cabine do cadastro (UG NN → "Cabine N"), quando
@@ -1744,7 +1744,10 @@ window.gcUsinaReligada=async pid=>{
   render();
 };
 function _strStatus(r,velho){
-  const semSol=r.sol_baixo===true, semCom=velho||!!r.falha_comunicacao, temD=!r.sem_dados;
+  // CALOU COM O SOL (05/11/2026): a usina calada que mandou dado até 2 h antes de o sol baixar no estado dela não é
+  // "sem comunicação", é "Sem sol" — a marca `calou_com_o_sol` vem do backend (`_servir_com_sol`), a régua da Entrada.
+  // Às 18:45 de 05/11 eram 44 usinas da Thopen "sem comunicação" com a última leitura entre 17h e 18h.
+  const semSol=r.sol_baixo===true, semCom=(velho||!!r.falha_comunicacao)&&!r.calou_com_o_sol, temD=!r.sem_dados;
   const dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
   let stt,ps;
   // USINA SEM COMUNICAÇÃO vem antes de tudo (Levi, 23/09/2026: "Usinas sem comunicação ou desligadas tem que aparecer
@@ -2210,7 +2213,7 @@ function computeVals(){
       // Sem comunicação (23/09/2026): mesma coisa — com o dado parado, ativas e diferença saem em '—'. (A coluna de
       // disponibilidade, ativas ÷ esperadas em %, saiu da tabela em 25/09/2026, a pedido do Levi.)
       // Pouca luz (29/09/2026) também: a coluna já dizia '—', mas o −80 de base seguia pintando a linha de vermelho e pulsando.
-      const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao||!!r.desligada, dif=(semSol||semCom||r.rampa)?null:r.diferenca, difN=dif!=null&&dif<0;
+      const semSol=r.sol_baixo===true, semCom=((_velho||!!r.falha_comunicacao)&&!r.calou_com_o_sol)||!!r.desligada, dif=(semSol||semCom||r.rampa)?null:r.diferenca, difN=dif!=null&&dif<0;
       const [stt,ps]=_strStatus(r,_velho);
       const leit=r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—';
       // "Bate com o acompanhamento" = o déficit é exatamente o que você já está acompanhando (dif === -acomp).
@@ -2234,7 +2237,7 @@ function computeVals(){
         // pouca luz (29/09/2026): a mesma linha de baixo diz a prova de que a usina gera — "estação a 3,5 W/m²"
         deslNote:r.desligada?{txt:_deslTxt(r.desligada),tit:_deslTit(r.desligada)}
           :(r.rampa&&r.pouca_luz&&r.pouca_luz.texto)?{txt:r.pouca_luz.texto,tit:'Nenhuma string passou da régua de corrente, mas a usina está gerando: é pouca luz (manhã, fim de tarde, céu fechado), não usina desligada. Ativas e esperadas ficam neutras até a luz voltar.'}:null,
-        desl:r.desligada||null,calada:(_velho||!!r.falha_comunicacao||!!r.sem_dados),lastRaw:r.ultima_leitura||null,
+        desl:r.desligada||null,calada:((_velho||!!r.falha_comunicacao)&&!r.calou_com_o_sol)||!!r.sem_dados,lastRaw:r.ultima_leitura||null,
         diff:(r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif)),
         diffColor:bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)'),
         // a diferença é a soma das FALTAS de cada inversor (29/09/2026, Rodrigues 2.1): com 43/43 e −1 a tela diz por quê

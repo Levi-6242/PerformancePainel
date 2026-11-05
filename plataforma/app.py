@@ -17228,18 +17228,28 @@ def _servir_com_sol(payload, conta, agora=None):
     em cache é do worker: aqui só se mexe em CÓPIAS, a mesma regra do `inv_padrao` no /api/data.
 
     `conta(r)` é o critério do card "Sem geração" DA FONTE (cada builder tem o seu). Só quem ele tinha
-    contado e está sem sol sai do card. Sem ninguém sem sol, o resumo sai idêntico ao do builder."""
+    contado e está sem sol sai do card. Sem ninguém sem sol, o resumo sai idêntico ao do builder.
+
+    Desde 05/11/2026 marca também `calou_com_o_sol` (`_calou_com_o_sol`, a régua da Entrada): a linha calada que mandou
+    dado até 2 h antes de o sol baixar diz "Sem sol" na tela, e sai do card "Usinas sem comunicação" (`alertas_comm`,
+    que o builder conta pelas linhas com `sem_dados` ou `falha_comunicacao`)."""
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not rows:
         return payload
     agora = agora or datetime.now()
-    marcadas = [dict(r, sol_baixo=_macro_sol_baixo(r, agora)) for r in rows]
+    marcadas = []
+    for r in rows:
+        sb = _macro_sol_baixo(r, agora)
+        marcadas.append(dict(r, sol_baixo=sb, calou_com_o_sol=bool(sb and _calou_com_o_sol(r, agora))))
     out = dict(payload, rows=marcadas)
     sem_sol = [r for r in marcadas if r["sol_baixo"]]
     if not sem_sol:
         return out
     sm = dict(out.get("summary") or {})
     sm["sem_sol"] = len(sem_sol)
+    if isinstance(sm.get("alertas_comm"), (int, float)):
+        sm["alertas_comm"] = max(0, sm["alertas_comm"] - sum(
+            1 for r in marcadas if r["calou_com_o_sol"] and (r.get("sem_dados") or r.get("falha_comunicacao"))))
     if isinstance(sm.get("alertas_strings"), (int, float)):
         sm["alertas_strings"] = max(0, sm["alertas_strings"] - sum(1 for r in sem_sol if conta(r)))
     out["summary"] = sm

@@ -88,7 +88,8 @@ def test_sem_comunicacao_nao_julga_as_colunas():
     coluna de disponibilidade saiu da tabela em 25/09/2026 — tests/test_strings_sem_coluna_disponibilidade.py.)"""
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
-    assert re.search(r"semCom=_velho\|\|!!r\.falha_comunicacao", m)
+    # desde 05/11/2026 a usina que calou com o sol sai da conta (test_calou_com_o_sol_tabelas.py): o resto da régua é o mesmo
+    assert re.search(r"semCom=\(\(_velho\|\|!!r\.falha_comunicacao\)&&!r\.calou_com_o_sol\)", m)
     assert re.search(r"dif=\(semSol\|\|semCom(\|\|[\w.!]+)*\)\?null:r\.diferenca", m)
     assert re.search(r"active:\(r\.rampa\|\|r\.sem_visao\|\|semCom\)\?'—'", m)
     assert re.search(r"_tkStrCel\(r,[^)]*semCom", m), "a coluna Tickets também não julga déficit sem comunicação"

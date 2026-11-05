@@ -2317,9 +2317,14 @@ sol baixar no estado dela (`_sol_baixou_em`: quando a régua do `_macro_sol_baix
 (`_calou_com_o_sol`): no `_macro_status`, no `_macro_item` (a severidade é a de quem está sem sol) e no guarda da
 telemetria parada (`_guarda_telemetria_parada`, que à noite pegaria a que parou às 17:40 assim que passasse de 2 h). A
 que calou de dia, a sem leitura há dias e a que não manda nada seguem "Sem comunicação" (às 19:05: uma da GreenYellow
-calada desde 11:05, uma da API PV sem leitura há 17 dias, as 5 da Sal Energia sem nenhuma). A régua vale para o macro
-(a Entrada e o `/api/entrada/tempo-real`, que o Nexus lê); as tabelas de strings de cada fonte seguem com o card de
-comunicação delas. Prova: `tests/test_calou_com_o_sol.py`. O sino ainda tem uma segunda peneira: mais de `_NOTIF_MAX_NOVOS_LEITURA`
+calada desde 11:05, uma da API PV sem leitura há 17 dias, as 5 da Sal Energia sem nenhuma). Vale para o macro (a
+Entrada e o `/api/entrada/tempo-real`, que o Nexus lê) e, no mesmo dia (o Levi: "quando ficar pronto sobe"), para as
+tabelas de strings de cada fonte (Monitoramento): o `_servir_com_sol` marca `calou_com_o_sol` em cada linha, junto da
+`sol_baixo`, e desconta essas linhas do card "Usinas sem comunicação" (`alertas_comm`); a tela lê a marca no
+`_strStatus`, no `semCom` e na `calada` da linha e no `semComU` do detalhe do inversor. Conferido em produção às 19:53:
+10 usinas "sem comunicação", todas de verdade (o Junco pela parte Junco 1, sem leitura desde 01/11), e 110 "Sem sol".
+Ficaram de fora, com a régua antiga: o selo "sem com." por inversor do Painel da usina (v2), o dado parado da tabela de
+trackers e a comunicação da estação (ETM). Prova: `tests/test_calou_com_o_sol.py` e `test_calou_com_o_sol_tabelas.py`. O sino ainda tem uma segunda peneira: mais de `_NOTIF_MAX_NOVOS_LEITURA`
 (100) quedas novas numa leitura é evento ambiente, nada é avisado individualmente. **Usina sem estado no
 cadastro cai na janela fixa antiga** — cadastrar o estado é o que liga a régua para ela. Teste que usa
 `_macro_status`/`_notif_ciclo` com usina real precisa de `freeze_now` em horário de sol, senão passa de dia
