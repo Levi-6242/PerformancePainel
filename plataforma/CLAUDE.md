@@ -296,6 +296,13 @@ ronda da 2C, que só querem a última leitura e saber se há curva) não monta n
 das 06h às 19h e na última hora (23h, para o dia fechar completo como antes); de noite e de madrugada, as 12 h da
 combiner. Das 19h à meia-noite o dia inteiro era baixado de novo ~10 vezes por usina (~7 a 11 GB por noite da API PV).
 Prova: `tests/test_worker_trackers_noite.py`.
+**O worker mais enxuto (02/11/2026, auditoria do worker, achados 16 a 20).** A combiner guarda um texto por leitura, não
+um por string (~65 MB dos 199 MB do `_pv_comb_cache`), e a 2C um datetime por minuto para todos os trackers do dia (o
+`strptime` por ponto eram ~860 mil por montagem). A ronda do WhatsApp, o vigia dela e o túnel só sobem no PC Windows; o
+`_qualidade_loop` só roda de dia. Saíram, sem chamador nenhum no repositório: a leitura da planilha de Tickets para o
+`TICKETS_OS` (`load_tickets_os`; o `/api/os-performance` lê o Fracttal), o `_pv_curva_warm_kick`, o
+`_perdas_trk_eventos_fonte` (da aba Perdas que saiu em 12/10) e a lista `_whats_log` (a tela lê o disco desde 11/10).
+Prova: `tests/test_worker_enxuto.py` e a suíte inteira.
 **Aquecimentos da aba Perdas antiga: fora do worker (12/10/2026, Levi: "extirpa essa porcaria que não serve para nada";
 a tela de verdade é a Falhas do Diagnóstico).** O `_perdas_ocor_warm_loop`, o `_perdas_pv_warm_dm1_loop` e as
 ocorrências que o fechamento das 01:30 montava enchiam o `_PERDAS_OCOR_CACHE` e o `_pv_trk_dia_cache` DO WORKER, que o
@@ -2382,7 +2389,8 @@ de `tickets_relay.ABAS`, carimbando o nome verificado no diário e deixando rast
 `logs/tickets_relay.log`. Essas rotas passam pelo `_auth_gate` por isenção explícita (gate
 próprio no handler, como `/api/campo/`). E como o túnel troca de endereço a cada subida, o
 `_tunnel_url_loop` publica a URL atual no banco (`os_creator/plataforma`) — é de lá que o app a
-lê. Sem essa publicação o app fica só-leitura, então **restart da plataforma = URL republicada**.
+lê. Sem essa publicação o app fica só-leitura, então **restart da plataforma = URL republicada**. Ele, a ronda do
+WhatsApp e o vigia dela só sobem no PC Windows (02/11/2026): no servidor não há túnel nem `C:\GridcoWhats`.
 
 ## OS Creator na web — proxy `/os/*` (12/09/2026)
 
@@ -2470,7 +2478,8 @@ para fora), clique direito de verdade no chip, solto e dentro de uma moldura.
 ## Qualidade de dado: clipping e valor travado (pvanalytics, 17/09/2026)
 
 `qualidade.py` (módulo PURO, com teste) embrulha duas réguas do **pvanalytics**; `_qualidade_loop`
-roda 1×/h **no worker** e publica no snapshot; `/api/qualidade` só lê. É pandas — nunca chamar no
+roda 1×/h **no worker**, só de dia (a janela do sino, 05:40–18:20, desde 02/11/2026: de noite o resultado não muda e
+o ciclo baixava ~84 dias pagos da 2C à toa), e publica no snapshot; `/api/qualidade` só lê. É pandas — nunca chamar no
 caminho de uma requisição.
 
 - **Clipping** (`features.clipping.geometric`, sobre o Pac do `day_inverter`). **Tem PISO

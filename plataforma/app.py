@@ -3684,7 +3684,6 @@ def maybe_reload_tickets():
         print("[Tickets] planilha alterada -> recarregando ocorrências...")
         load_tickets_trackers()
         load_tickets_strings()
-        load_tickets_os()
 
 
 def nome_usina(plant_id, nome_api):
@@ -10674,9 +10673,10 @@ def _pv_comb_curvas(rows, devs, dia) -> dict:
         esn = sn[3:] if sn[:3].upper() == "CMB" else sn
         if esn not in por_esn:
             continue
+        hm = ts[11:16]                    # um texto por leitura, não um por string (02/11/2026, auditoria, achado 20)
         for a, b in cj.items():
             if a.startswith("Ipv") and isinstance(b, (int, float)):
-                por_comb.setdefault(esn, {}).setdefault(a, []).append((ts[11:16], float(b)))
+                por_comb.setdefault(esn, {}).setdefault(a, []).append((hm, float(b)))
     out = {}
     for esn, strs in por_comb.items():
         curv = {k: sorted(v) for k, v in strs.items()}
@@ -10947,11 +10947,6 @@ def load_tickets_trackers():
         print(f"[AVISO] Tickets/Trackers não carregado: {e}")
 
 
-# ── OSs de Performance (planilha de Tickets) → viram COMENTÁRIO automático na usina ────────────
-#   Só as EM ABERTO. Abas com nº de OS: 'Desligamentos' (col OS; aberta = sem 'Fim da ocorrência')
-#   e 'Inv. com baixa perfor.' (col 'Nº OS'; aberta = Status fora de Concluído/Cancelado). As abas
-#   Strings/Limitação não têm coluna de OS → ficam de fora. Casa por NOME da usina (mesmo _tk_norm).
-TICKETS_OS = {}     # usina_norm → [ {os, categoria, sub, status, aberta, nota, causa, equipamento, codigo, data} ]
 
 
 def _tk_s(v):
@@ -11050,97 +11045,6 @@ def load_usina_codigos():
         print(f"[OK] BD_Performance/Info Geral: de-para de {len(set(USINA_COD.values()))} códigos Fractal")
     except Exception as e:
         print(f"[AVISO] de-para Código Fractal não carregado: {e}")
-
-
-def load_tickets_os():
-    """(Re)carrega as OSs de Performance EM ABERTO da planilha de Tickets, por usina. Cada linha com
-    nº de OS + usina vira um comentário automático (só-leitura) na usina. Chaveia por nome/código
-    (acento-insensível via _usina_key)."""
-    global TICKETS_OS
-    # Memoria PRIMEIRO (a API), arquivo so como queda - mesma correcao do BD_Thopen e da aba
-    # Trackers (02/09/2026). O BytesIO e consumido por VARIOS read_excel abaixo, e um stream
-    # so se le uma vez: por isso cada leitura recebe a sua propria copia (ver _fonte()).
-    _src = _bd_readable("tickets_performance", _tickets_path)
-    if _src is None:
-        return
-    _bytes = _src.getvalue() if not isinstance(_src, str) else None
-    def _fonte():
-        return io.BytesIO(_bytes) if _bytes is not None else _src
-    out = {}
-
-    def _add(u, e):
-        # indexa por NOME e por CÓDIGO da usina (acento-insensível). A coluna "Usina" da planilha mistura
-        # os dois; e o endpoint ainda resolve a usina do dashboard → Código Fractal (Info Geral) na busca.
-        for k in {_usina_key(u), _usina_key(e.get("codigo"))}:
-            if k:
-                out.setdefault(k, []).append(e)
-
-    # Desligamentos — aberta = 'Fim da ocorrência' vazio (usina/equipamento ainda desligado)
-    try:
-        dg = pd.read_excel(_fonte(), sheet_name="Desligamentos", header=3)
-        dg.columns = [str(c).strip() for c in dg.columns]
-        for _, r in dg.iterrows():
-            os_ = _tk_os_num(r.get("OS"))
-            if not os_ or _tk_s(r.get("Fim da ocorrência")):
-                continue
-            _add(r.get("Usina"), {
-                "os": os_, "categoria": "Desligamento", "sub": _tk_s(r.get("Classificação")),
-                "equipamento": _tk_s(r.get("Equipamento")), "status": "Em aberto", "aberta": True,
-                "nota": _tk_s(r.get("Comentários gerais")), "causa": "",
-                "codigo": _tk_s(r.get("Código da usina")), "data": _tk_data(r.get("Início da ocorrência"))})
-    except Exception as e:
-        print(f"[AVISO] OS/Desligamentos não lido: {e}")
-
-    # Inversores com baixa potência — aberta = Status fora de Concluído/Cancelado
-    try:
-        iv = pd.read_excel(_fonte(), sheet_name="Inv. com baixa perfor.", header=3)
-        iv.columns = [str(c).strip() for c in iv.columns]
-        for _, r in iv.iterrows():
-            os_ = _tk_os_num(r.get("Nº OS"))
-            if not os_:
-                continue
-            st = _tk_s(r.get("Status"))
-            if "conclu" in st.lower() or "cancel" in st.lower():
-                continue
-            _add(r.get("Usina"), {
-                "os": os_, "categoria": "Inversor · baixa potência",
-                "sub": _tk_s(r.get("Inversores afetados")), "equipamento": _tk_s(r.get("Inversores afetados")),
-                "status": st or "Em aberto", "aberta": True,
-                "nota": _tk_s(r.get("Comentários para os clientes")) or _tk_s(r.get("Causa raiz")),
-                "causa": _tk_s(r.get("Causa raiz")),
-                "codigo": _tk_s(r.get("Código da usina")), "data": _tk_data(r.get("Data de avaliação"))})
-    except Exception as e:
-        print(f"[AVISO] OS/Inversores não lido: {e}")
-
-    # dedup por nº de OS dentro da usina (mantém o 1º)
-    for k, lst in out.items():
-        seen, dd = set(), []
-        for e in lst:
-            if e["os"] in seen:
-                continue
-            seen.add(e["os"]); dd.append(e)
-        out[k] = dd
-    TICKETS_OS = out
-    print(f"[OK] Tickets/OS de Performance: {sum(len(v) for v in out.values())} OS abertas em {len(out)} usinas")
-
-
-def _os_performance_de(usina):
-    """OSs de Performance EM ABERTO de uma usina → (lista, Código Fractal). Resolve a usina do dashboard
-    (nome/código/descrição) → Código Fractal (Info Geral) e casa por código E nome. Função pura p/ reuso
-    (endpoint /api/os-performance no app + /api/g/os no dashboard de PR importam a MESMA régua)."""
-    u = (usina or "").strip()
-    if not u:
-        return [], None
-    cands = {_usina_key(u)}
-    cod = USINA_COD.get(_usina_key(u))     # nome/descrição/código do dashboard → Código Fractal
-    if cod:
-        cands.add(_usina_key(cod))
-    seen, res = set(), []
-    for k in cands:
-        for e in TICKETS_OS.get(k, []):
-            if e["os"] not in seen:
-                seen.add(e["os"]); res.append(e)
-    return res, cod
 
 
 @app.route("/api/os-performance")
@@ -12211,7 +12115,6 @@ def api_tickets_str_os(linha):
 load_tickets_trackers()   # carga inicial
 load_tickets_strings()    # tickets abertos de strings (aba Strings indisp) — coluna "Tickets" da tabela de strings
 load_usina_codigos()      # de-para nome↔Código Fractal (Info Geral) — resolve usina do dashboard
-load_tickets_os()         # OSs de Performance (planilha de Tickets) → comentário automático
 
 
 # Detecção por desvio vs a MEDIANA DA FROTA — independe do alvo, que na API PV pode vir tão
@@ -13380,34 +13283,6 @@ def _pv_trk_refina_curva(idusina, lst, date, fetch=False):
     # _trk_alvo_mediana, que re-exonera com o alvo bom e as consome (pop) no fim.
     _trk_marca_mov_recente(lst, g)
     _trk_exonera_onalvo(lst)   # parado→normal em cima do alvo (mesmo fix; Levi 30/07) — PV usa a régua via direta, não _trk_status_from_curva
-
-
-_pv_warm_sem  = threading.Semaphore(2)   # no MÁX 2 aquecimentos de curva PV simultâneos (protege a API PV)
-_pv_warm_pend = set()
-_pv_warm_lock = threading.Lock()
-
-
-def _pv_curva_warm_kick(idusina, date):
-    """RÉGUA ÚNICA: aquece EM BACKGROUND a curva de UMA usina PV cujo overview ficou 'severo' coarse (curva
-    fria → o refino freeze-based não rodou → os travados caem como severo em vez de parado, divergindo do
-    gráfico que baixa a curva). No próximo refresh o refino roda e o overview BATE com o gráfico. Deduped +
-    teto de 2 simultâneos (a trackerschart é pesada; não pode martelar a API PV — memória do bloqueio)."""
-    key = (idusina, str(date))
-    with _pv_warm_lock:
-        if key in _pv_warm_pend or len(_pv_warm_pend) > 60:
-            return
-        _pv_warm_pend.add(key)
-
-    def _job():
-        try:
-            with _pv_warm_sem:
-                _pv_trk_grafico(idusina, date, fetch=True)   # baixa+cacheia (dedup interno por (usina,dia))
-        except Exception:
-            pass
-        finally:
-            with _pv_warm_lock:
-                _pv_warm_pend.discard(key)
-    threading.Thread(target=_job, daemon=True).start()
 
 
 def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curvas=False) -> dict:
@@ -17046,7 +16921,10 @@ def _qualidade_loop():
     time.sleep(240)                                        # deixa token/plants aquecerem
     while True:
         try:
-            _qualidade_ciclo()
+            # só de dia (02/11/2026, auditoria do worker, achado 19): o ciclo baixa o dia inteiro dos inversores da 2C
+            # (fonte paga) e das 18:20 às 05:40 o resultado não muda — ~84 downloads por noite à toa
+            if _notif_de_dia():
+                _qualidade_ciclo()
         except Exception as e:                             # noqa: BLE001 — o laço não morre
             print(f"[qualidade] ciclo falhou: {e}")
         time.sleep(QUALIDADE_INTERVALO_S)
@@ -22573,6 +22451,24 @@ def _2c_trk_build_api(date_iso, force=False, codigos=None):
         return ent[1] if codigos is None else {c: v for c, v in ent[1].items() if c in codigos}
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
     out = {}
+    # um datetime por minuto para todos os trackers do dia, não um `strptime` por ponto (~860 mil por montagem; 02/11/2026,
+    # auditoria do worker, achado 20 — o mesmo das strings da 2C em 20/10)
+    minuto = {}
+
+    def _serie(lst):
+        s = []
+        for p in lst or []:
+            if p.get("y") is None:
+                continue
+            try:
+                t = minuto.get(p["x"])
+                if t is None:
+                    t = minuto[p["x"]] = datetime.strptime(str(p["x"])[:16], "%Y-%m-%d %H:%M")
+                s.append((t, float(p["y"])))
+            except (TypeError, ValueError):
+                continue
+        return s
+
     for pid in sorted({f[4] for f in _2C_TRK_FAIXAS
                        if (codigos is None or f[0] in codigos) and _cob_entra("2capi", f[4])}):
         if force and data_br == datetime.now().strftime("%d/%m/%Y"):
@@ -22584,17 +22480,6 @@ def _2c_trk_build_api(date_iso, force=False, codigos=None):
             if par is None:
                 continue                                            # tracker novo na API: sem de-para, não inventa nome
             code, n = par
-
-            def _serie(lst):
-                s = []
-                for p in lst or []:
-                    if p.get("y") is None:
-                        continue
-                    try:
-                        s.append((datetime.strptime(str(p["x"])[:16], "%Y-%m-%d %H:%M"), float(p["y"])))
-                    except (TypeError, ValueError):
-                        continue
-                return s
             out.setdefault(code, {})[n] = {"atual": _serie(pts), "alvo": _serie(alvo.get(trk))}
     # vazio não entra no memo: a API sem resposta devolve o dia vazio e, guardado, os 4 códigos da aba saíam zerados
     # no mesmo minuto (30/09/2026, 15:07 no servidor: ARA, IPX, STL e TUP com 0 trackers)
@@ -26283,6 +26168,11 @@ def _iniciar_loops_de_fundo():
                  _falhas_backfill_pv_loop,      # idem da API PV, pela corrente (só no servidor: a cota é da conta)
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
                  _janitor_loop):            # impede o processo de dias inchar sem teto
+        # a ronda do WhatsApp, o vigia dele e o túnel só funcionam no PC Windows (PowerShell, C:\GridcoWhats,
+        # cloudflared): no servidor eram três threads à toa, e um whats_ronda.json ligado lá faria o vigia "reiniciar" o
+        # nada a cada 6 min (02/11/2026, auditoria do worker, achado 16)
+        if os.name != "nt" and alvo in (_ronda_whats_loop, _whats_watchdog_loop, _tunnel_url_loop):
+            continue
         threading.Thread(target=alvo, daemon=True).start()
 
     # aquece o gerencial no boot (PR/meta por usina) — sem isso, logo após restart o Painel NOC
@@ -31410,14 +31300,6 @@ RONDA_GRACE_MIN = 120  # min após o horário do slot em que a ronda ainda DISPA
 # Cada tentativa de envio por região vira uma linha {ts, slot, regiao, ok, trackers, erro};
 # o watchdog também registra os restarts. Persistido (sobrevive a restart), capado em 400 linhas.
 _WHATS_LOG_PATH = os.path.join(_AQUI, "whats_log.json")
-_whats_log = []
-try:
-    with open(_WHATS_LOG_PATH, encoding="utf-8") as _f:
-        _whats_log = json.load(_f) or []
-except Exception:
-    _whats_log = []
-
-
 def _whats_log_carregar():
     try:
         with open(_WHATS_LOG_PATH, encoding="utf-8") as f:
@@ -31438,7 +31320,6 @@ def _whats_log_add(**e):
         log = _whats_log_carregar()
         log.append(e)
         del log[:-400]
-        _whats_log[:] = log
         try:
             tmp = _WHATS_LOG_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -32258,19 +32139,6 @@ def _dt_iso(s):
         return datetime.fromisoformat(str(s).replace(" ", "T")[:19])
     except Exception:
         return None
-
-
-def _perdas_trk_eventos_fonte(fonte, dia):
-    """Eventos de tracker (travou→voltou) da fonte no dia — usados como ocorrências severo (≥30min). De
-    quebra, chamar isto PERSISTE os eventos no histórico global (habilita o 'parado desde' da fonte)."""
-    try:
-        if fonte == "sunop": return _sunop_eventos_calc("gridco", dia).get("rows", [])
-        if fonte == "axis":  return _sunop_eventos_calc("axis", dia).get("rows", [])
-        if fonte == "pg":    return _pg_eventos_calc(dia).get("rows", [])
-        if fonte == "owen":  return _owen_eventos_calc(dia).get("rows", [])
-    except Exception:
-        return []
-    return []
 
 
 def _trk_ocor_curva_list(fonte, dia):
