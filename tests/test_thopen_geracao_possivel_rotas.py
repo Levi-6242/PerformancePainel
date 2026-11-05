@@ -56,12 +56,14 @@ def test_geral_de_outubro_pela_regra(cli):
     e = _esperado()
     assert alt["meta"] == pytest.approx(e["meta"]) == pytest.approx(3000)        # 3 dias × 1.000, não o mês inteiro
     assert alt["irr_esp"] == pytest.approx(e["meta_ipoa"]) and alt["irr_med"] == pytest.approx(e["ipoa_ajustado"])
-    assert alt["dif_irr"] == pytest.approx(e["dif_ipoa"]) and alt["possivel"] == pytest.approx(e["possivel"])
-    assert alt["possivel_exp"] == pytest.approx(e["possivel_exp"])
+    assert alt["dif_irr"] == pytest.approx(e["dif_ipoa"])
     assert alt["dif_prod"] == pytest.approx(2400 / 3000 - 1)
     assert alt["furos"] == ["03/10", "04/10"] and alt["sem_etm"] is False and alt["cobertura"] == pytest.approx(2 / 3)
-    assert r["total"]["possivel"] == pytest.approx(2 * e["possivel"])               # as duas usinas com os mesmos dias
     assert r["total"]["meta"] == pytest.approx(6000)
+    # o Total da irradiação segue pelas usinas com ETM (a possível fica por dentro só para escolhê-las)
+    assert r["total"]["ipoa_ajustado"] == pytest.approx(e["ipoa_ajustado"]) and r["total"]["meta_ipoa"] is not None
+    # a geração possível saiu da Visão Geral (Levi, 05/11/2026: "Lembra de tirar"): nem na linha nem no Total
+    assert not set(("possivel", "dif_possivel", "possivel_exp", "dif_possivel_exp")) & set(alt) and not set(("possivel", "dif_possivel", "possivel_exp", "dif_possivel_exp") + ("real_etm", "real_exp")) & set(r["total"])
 
 
 def test_geral_de_setembro_igual_ao_de_antes(cli):
@@ -72,11 +74,11 @@ def test_geral_de_setembro_igual_ao_de_antes(cli):
     assert "possivel" not in alt
 
 
-def test_operacao_carregando_sem_expurgo(cli, monkeypatch):
+def test_operacao_carregando_a_visao_geral_segue(cli, monkeypatch):
     monkeypatch.setattr(fonte_operacao, "dados", lambda *a, **k: None)
     alt = next(l for l in cli.get("/api/t/geral?carteira=Thopen&ano=2026&mes=10").get_json()["linhas"]
                if l["usina"] == "Altair")
-    assert alt["possivel_exp"] is None and alt["possivel"] == pytest.approx(_esperado()["possivel"])
+    assert alt["meta"] == pytest.approx(_esperado()["meta"]) and "possivel_exp" not in alt
 
 
 def test_ghi_le_a_coluna_da_aba():
@@ -97,33 +99,31 @@ def _corpo(nome):
     return h[i:h.index("\n}\n", i)]
 
 
-def test_visao_geral_de_outubro_com_as_14_colunas_e_o_total_do_servidor():
+def test_visao_geral_de_outubro_com_as_10_colunas_e_o_total_do_servidor():
     h = _html()   # o desenho da regra nova mora num auxiliar (_geralPossivel) chamado pelo renderGeral
     g = h[h.index("const _GERAL_CAB="):h.index("\n}\n", h.index("async function renderGeral("))]
     assert "d.regra==='possivel'" in g and "d.total" in g
-    for cab in ("Geração Possível (kWh)", "Dif. Possível (%)", "Possível c/ Expurgos (kWh)", "Dif. c/ Expurgos (%)"):
-        assert cab in g, cab
+    # as 4 colunas da geração possível saíram (Levi, 05/11/2026), da tela, do PDF e da Metodologia
+    for cab in ("Geração Possível", "Dif. Possível", "Possível c/ Expurgos", "Dif. c/ Expurgos"):
+        assert cab not in h, cab
+    assert "r.possivel" not in g and "T.possivel" not in g and "_GERAL_CAB_POSSIVEL" not in h
     assert "sem ETM" in g and "dias sem dado" in g and "medição de irradiação em" in g
     assert 'id="geralHead"' in _html()
     # antes de outubro, o cabeçalho e o Total de antes (somado no navegador)
     assert "Diferença Irradiação (%)" in g and "const sMeta=" in g
 
 
-def test_visao_geral_de_outubro_cabe_na_folha():
-    h = _html()
-    # medido em 20/10/2026 na largura da folha (1.400 px): sem isto a tabela de 14 colunas ia a 1.658 px e o PDF
-    # Carteira cortava as últimas colunas; com o cabeçalho quebrando, 1.330 de 1.330
-    i = h.index("#tblGeral.possivel{")
-    css = h[i:h.index("</style>", i)]
-    assert "width:100%" in css and "white-space:normal" in css
+def test_visao_geral_de_outubro_sem_o_aperto_das_14_colunas():
+    # o CSS que apertava as 14 colunas na folha (20/10/2026) saiu com as 4 da possível (05/11/2026): as 10 cabem
+    assert "#tblGeral.possivel" not in _html() and "classList.add('possivel')" not in _html()
 
 
-def test_diario_de_outubro_com_a_possivel_do_dia(cli):
+def test_diario_de_outubro_com_o_ipoa_medido_e_sem_a_possivel(cli):
     r = cli.get("/api/t/diario?usina=Altair&ano=2026&mes=10").get_json()
     p1, p2 = r["pontos"][0], r["pontos"][1]
-    assert p1["possivel"] == pytest.approx(gp.possivel_do_dia(31000.0, 155.0, 6.0)) and p1["fonte_ipoa"] == "ETM"
-    assert p2["possivel"] == pytest.approx(gp.possivel_do_dia(31000.0, 155.0, 5.5)) and p2["fonte_ipoa"] == "GHI"
-    assert p2["ipoa_med"] == 5.5 and r["pontos"][4]["possivel"] is None            # dia sem medição: sem ponto
+    assert p1["ipoa_med"] == 6.0 and p1["fonte_ipoa"] == "ETM" and p2["ipoa_med"] == 5.5 and p2["fonte_ipoa"] == "GHI"
+    assert r["pontos"][4]["ipoa_med"] is None                                        # dia sem medição: sem ponto
+    assert all("possivel" not in p for p in r["pontos"])                            # saiu em 05/11/2026
     assert r["possivel_info"] == {"sem_etm": False, "motivo": None, "dias": 3, "dias_medidos": 2}
     assert "esperada" not in p1 and "esperada_base" not in r                         # a conta kWp × IPOA × PR saiu
 
@@ -134,7 +134,7 @@ def test_diario_sem_cobertura_nao_tem_linha(cli, monkeypatch):
     monkeypatch.setattr(dth, "_ghi_por_dia", lambda u: {})
     r = cli.get("/api/t/diario?usina=Altair&ano=2026&mes=10").get_json()
     assert r["possivel_info"]["sem_etm"] is True and r["possivel_info"]["motivo"] == "cobertura"
-    assert all(p["possivel"] is None for p in r["pontos"])
+    assert all(p["ipoa_med"] is None and "possivel" not in p for p in r["pontos"])
 
 
 def test_diario_de_setembro_como_antes(cli):
@@ -153,7 +153,8 @@ def test_tela_do_diario_desenha_a_possivel_e_a_metodologia():
     assert "esperada_base" not in d
     h = _html()
     m = h.index("Meta diária (linha azul do Diário)")
-    assert "Geração possível pelo IPOA" in h[m:m + 3000] and "PR da meta" not in h
+    # a geração possível saiu da Metodologia com as colunas (05/11/2026); a regra do IPOA medido fica
+    assert "Geração possível" not in h[m:m + 3000] and "IPOA medido do dia" in h[m:m + 3000] and "PR da meta" not in h
 
 
 def test_nota_sem_etm_aparece_no_pdf():

@@ -224,7 +224,7 @@
   <div class="head">
     <div>
       <h1 id="hTitulo">Disponibilidade <span>&middot;</span> <span id="hMes">—</span></h1>
-      <div class="sub" id="hSub">janela solar 06h–18h · Religamento, Religamento Remoto e Corretiva Emergencial (Fracttal)</div>
+      <div class="sub" id="hSub">janela solar 06h–18h (Thopen 07h30–17h30) · Religamento, Religamento Remoto e Corretiva Emergencial (Fracttal)</div>
     </div>
     <div class="controles">
       <select id="selCliente" onchange="carregar()"><option value="">Todos os clientes</option></select>
@@ -497,13 +497,14 @@ document.addEventListener('click', e => {
 // dele pela MESMA conta do total: os clientes fecham com o total.
 const ABERTOS = {cli: new Set(), usi: new Set()};   // fora do render(): a releitura de 5 min não fecha o que está aberto
 
-// A disponibilidade de um conjunto de usinas, ponderada pela potência: 1 − Σ(kWp × horas perdidas) ÷ (Σ kWp × 12 h ×
-// dias). É a conta do KPI de antes, a mesma operação na mesma ordem (o total não muda nem no último dígito); só o mês sem
-// dia fechado (dia 1) dá "—" em vez de NaN.
+// A disponibilidade de um conjunto de usinas, ponderada pela potência: 1 − Σ(kWp × horas perdidas) ÷ Σ(kWp × horas do
+// período solar × dias). As horas são as da usina (`janela_h`: 12, a Thopen 10 desde 05/11/2026, "para o cliente Thopen,
+// a disponibilidade será calculada com o período solar de 7 as 17"; depois, 07:30 às 17:30); só o mês sem dia fechado (dia 1) dá "—" em vez de
+// NaN.
+const horasSol = u => (u && u.janela_h) ? u.janela_h[1] - u.janela_h[0] : 12;
 function dispPonderada(us, dias){
-  const kwp = us.reduce((s, u) => s + (u.pot_kwp || 0), 0);
-  const totH = 12 * dias;
-  return kwp && totH ? 100 * (1 - us.reduce((s, u) => s + u.pot_kwp * u.h_perdidas, 0) / (kwp * totH)) : null;
+  const kwpH = us.reduce((s, u) => s + (u.pot_kwp || 0) * horasSol(u), 0) * dias;
+  return kwpH ? 100 * (1 - us.reduce((s, u) => s + u.pot_kwp * u.h_perdidas, 0) / kwpH) : null;
 }
 // [{cliente, usinas, disp}] do pior para o melhor; as usinas seguem a ordem que chegam (a da tela: a pior primeiro)
 function gruposPorCliente(us, dias){
@@ -613,10 +614,12 @@ $('porCliente').addEventListener('click', e => {
 });
 
 // ── card de detalhe do dia ───────────────────────────────────────────────────
-function hSolarDia(iniISO, fimISO, ano, mn, d){
-  // horas do intervalo da OS dentro da janela 06–18h DAQUELE dia
+function hSolarDia(iniISO, fimISO, ano, mn, d, jan){
+  // horas do intervalo da OS dentro do período solar DAQUELE dia (06–18h; a Thopen 07:30–17:30, `janela_h` da usina,
+  // em horas decimais)
   if (!iniISO || !fimISO) return 0;
-  const js = new Date(+ano, +mn - 1, d, 6, 0), jf = new Date(+ano, +mn - 1, d, 18, 0);
+  const [hi, hf] = jan || [6, 18];
+  const js = new Date(+ano, +mn - 1, d, 0, Math.round(hi * 60)), jf = new Date(+ano, +mn - 1, d, 0, Math.round(hf * 60));
   const a = new Date(iniISO) > js ? new Date(iniISO) : js;
   const b = new Date(fimISO) < jf ? new Date(fimISO) : jf;
   return Math.max(0, (b - a) / 36e5);
@@ -630,20 +633,21 @@ function abrirDia(usina, d){
   const [ano, mn] = DADOS.mes.split('-');
   const k = `${ano}-${mn}-${String(d).padStart(2, '0')}`;
   const diaInfo = (DADOS.diario[usina] || {})[k] || {h_eq: 0, disp: 100, kwh: 0};
+  const U = (DADOS.usinas || []).find(x => x.usina === usina), jan = (U && U.janela_h) || [6, 18];
   // a OS aberta sem data final conta até o fim do período (15/10/2026): o índice manda o fim nulo para dizer "ainda aberta"
   const fimConta = o => o.fim || (o.aberta ? DADOS.periodo.fim : null);
   const oss = DADOS.oss.filter(o => !o.excl && (o.usinas || []).includes(usina)
-    && hSolarDia(o.ini, fimConta(o), ano, mn, d) > 0);
+    && hSolarDia(o.ini, fimConta(o), ano, mn, d, jan) > 0);
   $('mTitulo').textContent = `${usina} · ${String(d).padStart(2, '0')}/${mn}/${ano}`;
   const hq = diaInfo.h_q || 0, he = diaInfo.h_e || 0;
   $('mResumo').innerHTML = `Disponibilidade do dia: <b>${fmtp(diaInfo.disp)}%</b> ·
-    horas-eq. indisponíveis: <b>${fmtH(diaInfo.h_eq)}</b> de 12h solares ·
+    horas-eq. indisponíveis: <b>${fmtH(diaInfo.h_eq)}</b> de ${jan[1] - jan[0]}h solares ·
     perda do dia: <b>${fmt(diaInfo.kwh)} kWh</b>`
     + (hq || he ? `<br>Por origem: <b>${fmtH(hq)}</b> de queda · <b>${fmtH(he)}</b> de equipamento`
        + (hq && he ? ' <span style="color:var(--faint)">(as duas famílias podem se sobrepor no total)</span>' : '')
        : '');
   $('mOss').innerHTML = oss.map(o => {
-    const hDia = hSolarDia(o.ini, fimConta(o), ano, mn, d);
+    const hDia = hSolarDia(o.ini, fimConta(o), ano, mn, d, jan);
     const linhas = (o.escopo || []).filter(e => e.usina === usina).map(e =>
       `<div class="cl"><span>${e.rotulo} · ${fmt(Math.round(e.kwp))} kWp × ${fmtH(hDia)} solares</span>
        <span>${fmt(Math.round(e.kwp * hDia))} kWh</span></div>`).join('');

@@ -1359,17 +1359,16 @@ def diario():
     so_os = _so_os_fracttal(ano, mes)
     pontos = [{"dia": r["data"].day, "ger": r["ger"], "ipoa": r["ipoa"], "com": None if so_os else r["com"]}
               for r in recs]
-    # a linha preta de 10/2026 em diante é a geração possível do dia (Levi, 20/10/2026; geracao_possivel.py): meta do
-    # mês × IPOA medido do dia ÷ meta de IPOA do mês, com o IPOA da ETM (≥ 0,3) ou o GHI (≥ 1,0). Mês com medição em
-    # menos da metade dos dias com geração: sem a linha, e a tela diz por quê. Antes de outubro, a irradiação de sempre
+    # a linha preta de 10/2026 em diante é o IPOA medido do dia (geracao_possivel.ipoa_do_dia): o da ETM (≥ 0,3) ou o GHI
+    # (≥ 1,0). Mês com medição em menos da metade dos dias com geração: a tela diz quantos dias têm medição. Antes de
+    # outubro, a irradiação de sempre. A possível do dia saiu do gráfico em 27/10 e da resposta em 05/11/2026
     info = None
     if so_os:
         ghi = _ghi_por_dia(usina)
         per = geracao_possivel.periodo(recs, ghi, meta_kwh, meta.get("metairr"), dias_mes, None)
         for pt, r in zip(pontos, recs):
             med, fonte = geracao_possivel.ipoa_do_dia(r["ipoa"], ghi.get(r["data"]))
-            pt.update(ipoa_med=med, fonte_ipoa=fonte, possivel=None if per["sem_etm"] else
-                      geracao_possivel.possivel_do_dia(meta_kwh, meta.get("metairr"), med))
+            pt.update(ipoa_med=med, fonte_ipoa=fonte)        # a possível do dia saiu (05/11/2026)
         info = {"sem_etm": per["sem_etm"], "motivo": per["motivo"], "dias": per["dias"],
                 "dias_medidos": per["dias_medidos"]}
     disp_vals = [] if so_os else [r["disp"] for r in recs if r["disp"] is not None]
@@ -1531,6 +1530,8 @@ def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, at
     mudam de significado em vez de ganhar colunas: a tabela vai para a folha A4."""
     p = geracao_possivel.periodo(recs, _ghi_por_dia(usina), meta_mes, metairr_mes, monthrange(ano, mes)[1],
                                  _disp_dias(usina, ano, mes), ate=ate)
+    # a possível fica aqui só para o Total do portfólio (`portfolio` escolhe por ela as usinas com ETM); a rota a tira
+    # antes de responder (`_sem_possivel`, 05/11/2026)
     return {"meta": p["meta"], "irr_esp": p["meta_ipoa"], "irr_med": p["ipoa_ajustado"], "dif_irr": p["dif_ipoa"],
             "dif_prod": ((produzida - p["meta"]) / p["meta"]) if (produzida is not None and p["meta"]) else None,
             "real": p["real"], "meta_ipoa": p["meta_ipoa"], "ipoa_ajustado": p["ipoa_ajustado"],
@@ -1538,6 +1539,15 @@ def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, at
             "dif_possivel_exp": p["dif_possivel_exp"], "sem_etm": p["sem_etm"], "motivo": p["motivo"],
             "cobertura": p["cobertura"], "dias": p["dias"], "dias_medidos": p["dias_medidos"],
             "furos": [d.strftime("%d/%m") for d in p["furos"]]}
+
+
+# a geração possível saiu da Visão Geral (Levi, 05/11/2026: "plataforma Thopen ainda tem os dados de geração possível,
+# dif possível, possível com expurgo. Lembra de tirar"): a rota não manda os números, nem nas linhas nem no Total
+TOTAL_SEM_POSSIVEL = ("possivel", "dif_possivel", "possivel_exp", "dif_possivel_exp", "real_etm", "real_exp")
+
+
+def _sem_possivel(d):
+    return {k: v for k, v in d.items() if k not in TOTAL_SEM_POSSIVEL}
 
 
 def _ultimo_coletado(usinas, ano, mes):
@@ -1584,8 +1594,9 @@ def geral():
         # delas, a meta só das usinas com meta, o IPOA ponderado pela potência; a Disponibilidade, a média simples de
         # sempre (até 20/10 o Total era somado no navegador)
         dv = [r["disp"] for r in linhas if r.get("disp") is not None]
-        out.update(regra="possivel", total=dict(geracao_possivel.portfolio(linhas),
-                                                disp=(sum(dv) / len(dv)) if dv else None))
+        out.update(regra="possivel", total=dict(_sem_possivel(geracao_possivel.portfolio(linhas)),
+                                                disp=(sum(dv) / len(dv)) if dv else None),
+                   linhas=[_sem_possivel(r) for r in linhas], fora=[_sem_possivel(r) for r in fora])
     return jsonify(out)
 
 

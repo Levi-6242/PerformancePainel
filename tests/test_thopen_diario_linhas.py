@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """As linhas do gráfico do Diário (Levi, 26/10/2026: "Tem como dar para ver duas linhas? a linha do POA e a linha da
 projeção? para comparativo mesmo! (...) Quero que no gráfico também dê para escolher qual quer mostrar, se quer tirar
-algum e não vai sair no pdf claro"). A conta continua no servidor (/api/t/diario: possivel, ipoa_med, fonte_ipoa); aqui
+algum e não vai sair no pdf claro"). A conta continua no servidor (/api/t/diario: ipoa_med, fonte_ipoa; a possível do dia saiu em 05/11/2026); aqui
 só a tela: a linha do IPOA medido no eixo da direita ao lado da geração possível, o seletor das linhas fora da folha e a
 escolha valendo para o PDF."""
 import os

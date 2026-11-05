@@ -18,6 +18,7 @@ from datetime import datetime
 
 import pytest
 
+import disponibilidade as dm
 from disponibilidade import calcular
 
 PER_INI = datetime(2026, 10, 1)
@@ -37,6 +38,13 @@ for n, r in ROM.items():
         EQUIP.append({"cliente": "Thopen", "usina": u, "usina_fracttal": fr, "equipamento": "Inversor 1.%d" % k,
                       "parente": "UG 01", "pot_kwp": None})
 RESERVA = {"Pharma II": 990.0, "Pharma III": 990.0, "Pharma IV": 990.0}
+
+
+@pytest.fixture(autouse=True)
+def _janela_de_antes(monkeypatch):
+    """Estes testes provam outras regras com usinas fictícias do cliente "Thopen" e números das 06–18 h: ficam nessa
+    janela. A da Thopen, 07:30–17:30 desde 05/11/2026, tem teste próprio (test_janela_thopen.py)."""
+    monkeypatch.setattr(dm, "JANELA_POR_CLIENTE", {})
 
 
 def task(**kw):

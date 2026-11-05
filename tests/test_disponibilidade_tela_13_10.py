@@ -31,6 +31,7 @@ from html.parser import HTMLParser
 import pytest
 
 import app
+import disponibilidade as dm
 from disponibilidade import calcular
 
 RAIZ = pathlib.Path(app.__file__).resolve().parents[1]
@@ -253,6 +254,13 @@ def _itens_os(html):
 
 
 # ── 0. o que a regra de 15/10 mudou, e só isso ──────────────────────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def _janela_de_antes(monkeypatch):
+    """Estes testes provam outras regras com usinas fictícias do cliente "Thopen" e números das 06–18 h: ficam nessa
+    janela. A da Thopen, 07:30–17:30 desde 05/11/2026, tem teste próprio (test_janela_thopen.py)."""
+    monkeypatch.setattr(dm, "JANELA_POR_CLIENTE", {})
+
+
 def test_o_modulo_so_muda_o_que_a_regra_de_15_10_mudou():
     """Sobre a entrada gravada, a saída é a de 13/10 (6ad711e) com só o que a regra nova pede: a OS 20 conta os dois dias
     na Beta 1 (o juiz da geração saiu) e a OS 40, aberta sem data final, conta de 25/07 09:00 até o fim do mês na Delta.
@@ -281,6 +289,8 @@ def test_o_modulo_so_muda_o_que_a_regra_de_15_10_mudou():
         40: "OS aberta sem data final: conta enquanto estiver aberta (21 dias em aberto)"}
 
     # usinas: Beta 1 (24 h × 500 kWp) e Delta (82,5 h × 300 kWp)
+    for u in novo["usinas"]:
+        assert u.pop("janela_h") == [6, 18], u["usina"]                    # o período solar (05/11/2026), 06–18 aqui
     us_n, us_a = {u["usina"]: u for u in novo["usinas"]}, {u["usina"]: u for u in antes["usinas"]}
     assert {u for u in us_n if us_n[u] != us_a[u]} == {"Beta 1", "Delta"}
     b1, dl = us_n["Beta 1"], us_n["Delta"]

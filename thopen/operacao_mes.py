@@ -48,6 +48,12 @@ ALIAS_FALHAS = {"Marajoara I": "Marajoara 1", "Piracicaba I": "Piracicaba 1",
 PARTES = {"Ouro Branco I": ("Ouro Branco", 1), "Ouro Branco II": ("Ouro Branco", 2),
           "Ouro Branco III": ("Ouro Branco", 3), "Ouro Branco IV": ("Ouro Branco", 4),
           "Ouro Branco V": ("Ouro Branco", 5)}
+# O período solar da Thopen: 07:30 às 17:30, 10 h por dia (Levi, 05/11/2026: "para o cliente Thopen, a disponibilidade
+# será calculada com o período solar de 7 as 17 para melhor confiabilidade"; "na verdade será das 07:30 as 17:30"). As
+# horas perdidas que a plataforma publica já
+# são dessa janela (plataforma/disponibilidade.JANELA_POR_CLIENTE; o teste confere que as duas batem); todas as usinas do
+# 5080 são do cliente Thopen
+HORAS_SOL = 10.0
 _NUM_ESCOPO = re.compile(r"(cabine|ug|skid|qgbt|inversor)\s*0*(\d+)")
 
 # O que a rota devolve — e NADA além disto (o 5080 é público, sem senha). Rodada 2 (08/10, tarde): `por_dia` (a
@@ -259,7 +265,7 @@ def _unir(intervalos):
 def _disp_da_parte(dados, nome, ano, mes, pot_parte):
     """{dia: disponibilidade %} da parte: os dias que o Gerencial publicou para a usina do site, menos as horas da parte
     (a parada inteira pelos trechos, sem contar duas vezes a hora em que duas OS se cruzam; o inversor dela pela fração,
-    fora das horas em que ela já estava inteira parada), em 12 h por dia, como a régua."""
+    fora das horas em que ela já estava inteira parada), nas HORAS_SOL do dia, como a régua."""
     nomes, n = parte(nome)
     m = f"{ano}-{mes:02d}"
     dias = {d for d in (_no_mes(r.get("dia"), ano, mes) for r in dados.get("disponibilidade_dia") or []
@@ -279,7 +285,7 @@ def _disp_da_parte(dados, nome, ano, mes, pot_parte):
         cob = _unir(inteiras[d])
         h = sum((b - a).total_seconds() for a, b in cob) / 3600
         h += sum(f * _horas_fora(t, cob) for f, t in parciais[d])
-        out[d] = 100.0 * (1 - min(12.0, h) / 12.0)
+        out[d] = 100.0 * (1 - min(HORAS_SOL, h) / HORAS_SOL)
     return out
 
 
@@ -402,7 +408,7 @@ def disp_por_dia(dados, nome, ano, mes, pot_kwp=None):
         try:
             pot = float(r.get("pot_kwp") or 1.0)
             h = r.get("h_perdidas")
-            v = 100.0 * (1 - float(h) / 12.0) if h not in (None, "") else float(r.get("disp"))
+            v = 100.0 * (1 - float(h) / HORAS_SOL) if h not in (None, "") else float(r.get("disp"))
         except (TypeError, ValueError):
             continue
         soma[dia][0] += v * pot
@@ -444,7 +450,7 @@ _TRECHO = re.compile(r"\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*")
 
 
 def _trechos(txt, dia):
-    """"06:00-08:06; 10:55-12:05" (a coluna `trechos` da disponibilidade_os_dia: onde a OS foi dona da perda nas 06–18 h
+    """"06:00-08:06; 10:55-12:05" (a coluna `trechos` da disponibilidade_os_dia: onde a OS foi dona da perda nas 07:30–17:30
     daquele dia, na conta do Gerencial) → [(de, até)]. Pedaço que não lê fica fora."""
     out = []
     for p in str(txt or "").split(";"):
@@ -795,7 +801,7 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None):
     else:
         r["zeladoria"] = dict(SEM_CADASTRO)
     # rodada 4: Disp (%) e a ronda do dia na tabela; a disponibilidade do mês é a média dos dias — a mesma conta do
-    # Gerencial (12 h por dia: 100·(1 − Σh/12n) é a média dos dias)
+    # Gerencial (HORAS_SOL por dia, 10 h desde 05/11/2026: 100·(1 − Σh/10n) é a média dos dias)
     dsp = disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], os_por_dia(dados, nome, ano, mes, trips, pot_kwp) if bd is None else bd[1])

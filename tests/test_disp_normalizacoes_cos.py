@@ -34,6 +34,13 @@ EQUIP = [
 POR_ID = {11: ["Alfa"], 22: ["Gama"], 33: ["Beta 1", "Beta 2"]}
 
 
+@pytest.fixture(autouse=True)
+def _janela_de_antes(monkeypatch):
+    """Estes testes provam outras regras com usinas fictícias do cliente "Thopen" e números das 06–18 h: ficam nessa
+    janela. A da Thopen, 07:30–17:30 desde 05/11/2026, tem teste próprio (test_janela_thopen.py)."""
+    monkeypatch.setattr(dm, "JANELA_POR_CLIENTE", {})
+
+
 def norm(registro, **kw):
     r = {"registro": registro, "os": "17001", "cliente": "THOPEN", "usina_codigo": "THPN-ALF100", "usina_id": "11",
          "usina_ligada_por": "código cheio", "equipamentos_codigos": "", "tipo_falha": "DESLIGAMENTO_USINA",

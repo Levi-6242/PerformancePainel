@@ -1566,6 +1566,14 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   Teste: `tests/test_disp_cascata_relatorio_sem_geracao.py`.
 - **Antes** (`calcular_pelo_bd` + `_disp_dias_bd_thopen`): só as usinas da Thopen, pela "Disponibilidade Usina (%)" do
   BD_Thopen (o leitor do 5080), sem OS e sem queda × equipamento; de-paras em `_DISP_BD_ABAS` (os do Gerencial).
+- **O período solar da Thopen: 07:30 às 17:30 (05/11/2026**, Levi: "para o cliente Thopen, a disponibilidade será
+  calculada com o período solar de 7 as 17 para melhor confiabilidade"; logo depois: "na verdade será das 07:30 as
+  17:30"). `disponibilidade.JANELA_POR_CLIENTE` (pelo começo do nome do cliente, em horas decimais) dá a janela de cada
+  usina (`janela`, `horas_dia`): 10 h na Thopen, 12 h (06–18 h) nos outros. Vale na varredura (`_varrer`, os trechos
+  publicados), por inversor, nas horas da OS, por usina (horas do mês = horas do dia × dias), por cliente (Σ kWp × horas)
+  e no dia publicado; a usina leva `janela_h`, e a tela pondera e mostra o dia por ela. O 5080 divide pelas mesmas 10 h
+  (`operacao_mes.HORAS_SOL`, `disp_comentarios.SOL_INI_H/FIM`); o teste `tests/test_janela_thopen.py` confere que batem.
+  Setembro para trás (o BD_Thopen) fica como era. Os testes das outras regras fixam a janela antiga (`_janela_de_antes`).
 - **A gravação nova das normalizações chega na hora (03/11/2026**, o Atualizar do Dashboard Thopen; Levi: "fiz umas
   alterações nas normalizações e precisava trazer"). A correção feita no Andamento passava por quatro esperas, até 2 h 30:
   o Nexus de hora em hora, este índice de 30 em 30 min, o workbook de hora em hora e a leitura do 5080. Entre as voltas

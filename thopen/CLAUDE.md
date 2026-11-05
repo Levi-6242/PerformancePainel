@@ -145,7 +145,8 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   AP. do Taboado, Areia Branca, Monte Aprazível, Nova Iguaçu e Cambé (`disp_comentarios.USINAS`; as Sol Maior GD I a V
   da lista dele não estão no dashboard; Aruanã, Sapopema e Segredo saíram no mesmo dia, quando o COS registrou os
   desligamentos delas: "Passam para o COS"). De 10/2026 em diante a disponibilidade de cada dia sai do
-  PERÍODO escrito no comentário da equipe ("... - 04/10 às 09:35h ao 09/10 às 07:14h"), na janela de sol 06–18 h, e o
+  PERÍODO escrito no comentário da equipe ("... - 04/10 às 09:35h ao 09/10 às 07:14h"), na janela de sol da Thopen
+  (07:30–17:30 desde 05/11/2026; antes 06–18 h), e o
   comentário da tela é o do BD (a tabela por dia, com a disponibilidade; o dia em 100% com comentário também aparece).
   A coluna de disponibilidade do BD não serve em outubro (vazia; a Nova Iguaçu em 100% e a Segredo em 0% contra o
   comentário). Decisões dele: falha de comunicação não conta; desligamento de cabine conta 1 ÷ nº de cabines;
@@ -328,7 +329,9 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
   do cadastro do Nexus, N:N (Primavera e Nova Londrina com dois ids somam os dois; Coração 1 e 2 dividem um).
 - **Disponibilidade = a do Gerencial** (rodada 4, Levi 09/10: "calculada pelo Fracttal, da mesma forma que calculamos
   pelo gerencial da plataforma"; "a partir de outubro somente; antes disso é modelo anterior"). `disp_por_dia`: um
-  valor por dia FECHADO, `100·(1 − h_perdidas/12)` — pelas horas e não pelo `disp` de 1 casa da aba (arredondado, a
+  valor por dia FECHADO, `100·(1 − h_perdidas/HORAS_SOL)` — 10 h, o período solar da Thopen de 07:30 às 17:30 (Levi,
+  05/11/2026: "para o cliente Thopen, a disponibilidade será calculada com o período solar de 7 as 17"; "na verdade será
+  das 07:30 as 17:30"; antes 12 h, 06–18 h) — pelas horas e não pelo `disp` de 1 casa da aba (arredondado, a
   média do mês saía 0,01–0,02 fora do Gerencial). Usina do 5080 com mais de uma do Gerencial: média pela potência.
   Liga **primeiro pelo nome** (sem acento) e só sem nome igual pelo nome do Fracttal no de-para: Aparecida do Taboado
   1 e 2 dividem um site no Fracttal ("1 e 2 - MS") e, pelo site, as duas davam 87,53. O mês (`disponibilidade`) é a
@@ -516,10 +519,13 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
   vez no `#chDiario`) abre a janela do dia. Dica "Clique na barra de um dia para contestar os dados dele" sob o título
   e cursor de mão (`.contesta`) só de 10/2026 em diante, com o card e com algum canal; fora de todo PDF. Dia futuro
   do mês corrente não abre.
-- **Geração possível pelo IPOA, de 10/2026 em diante** (Levi, 20/10/2026, a regra completa que trocou a conta kWp ×
-  IPOA × PR da manhã do mesmo dia; spec `docs/superpowers/specs/2026-10-20-thopen-geracao-possivel-design.md`). A conta
-  mora em `geracao_possivel.py` (puro) e vale na Visão Geral e na linha preta do Diário; antes de outubro, tudo como era
-  (a Visão Geral de 10 colunas, a linha da irradiação). Conferido em 20/10: a Visão Geral de setembro idêntica à da
+- **A regra do período e do IPOA medido, de 10/2026 em diante** (Levi, 20/10/2026, que trocou a conta kWp × IPOA × PR
+  da manhã do mesmo dia; spec `docs/superpowers/specs/2026-10-20-thopen-geracao-possivel-design.md`). A conta mora em
+  `geracao_possivel.py` (puro) e vale na Visão Geral e na linha preta do Diário; antes de outubro, tudo como era. **A
+  geração possível saiu da tela e das rotas em 05/11/2026** (Levi: "plataforma Thopen ainda tem os dados de geração
+  possível, dif possível, possível com expurgo. Lembra de tirar"; do gráfico já tinha saído em 27/10): a Visão Geral
+  volta às 10 colunas, a Metodologia sem as fórmulas dela, e `/api/t/geral` e `/api/t/diario` não mandam os números
+  (`TOTAL_SEM_POSSIVEL`); o `geracao_possivel.periodo` segue fazendo a conta por dentro. Conferido em 20/10: a Visão Geral de setembro idêntica à da
   `main`; o Diário de setembro volta à linha da irradiação (a conta kWp × IPOA × PR da `a32a688` sai de todos os
   meses). As regras:
   - **Dia que entra**: geração > 0, ou 0 com irradiação medida (a usina parada com sol). O 0 sem medição é a linha que o
@@ -534,20 +540,15 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
     até 25,7 "kWh/m²" (parece MJ/m²) e 41 dias de outubro IPOA de 10 a 11,6 (tracker). Cobertura (dias medidos ÷ dias
     que entram) abaixo de metade, ou sem meta de IPOA: **sem ETM** — sem possível, "sem ETM" em cinza na tabela e, no
     Diário, sem a linha e com a nota sob o gráfico. IPOA medido ajustado = Σ medido ÷ cobertura.
-  - **Possível** = meta do período × ajustado ÷ meta de IPOA (o PR já está na meta); **com expurgos** = × disponibilidade
-    efetiva (a `disponibilidade_dia` das OS, isolada da geração como em 15/10 — o Levi escolheu manter assim em 20/10 —,
-    ponderada pelo IPOA do dia ou a meta de IPOA do dia sem medição; operação carregando = "—").
-  - **Visão Geral**: Meta, Irradiação Esperada e Medida passam a ser as do período (ajustada); 4 colunas novas
-    (Geração Possível, Dif. Possível, Possível c/ Expurgos, Dif. c/ Expurgos), 14 no total; o **Total** vem do servidor
-    (`/api/t/geral` → `total`, `geracao_possivel.portfolio`): meta e produzida das usinas com meta, possível e real só
-    das usinas com ETM, IPOA ponderado pela potência, Disponibilidade na média simples de sempre. Na folha, a tabela
-    ocupa a largura e o cabeçalho quebra (1.330 de 1.330 px; sem isso ia a 1.658 e o PDF cortava).
-  - **Diário**: `pontos[].possivel` = meta mensal × IPOA medido do dia ÷ meta mensal de IPOA, com `ipoa_med` e
-    `fonte_ipoa` (o mouse: "Possível pelo IPOA 21.705 kWh · IPOA 4,65 kWh/m² (ETM)"); `possivel_info` diz a cobertura.
+  - **Visão Geral**: Meta, Irradiação Esperada e Medida são as do período (ajustada), nas 10 colunas de sempre; o
+    **Total** vem do servidor (`/api/t/geral` → `total`, `geracao_possivel.portfolio` sem as chaves da possível): meta e
+    produzida das usinas com meta, IPOA ponderado pela potência, Disponibilidade na média simples de sempre.
+  - **Diário**: `pontos[].ipoa_med` e `fonte_ipoa` (o mouse: "IPOA 4,65 kWh/m² (ETM)"); `possivel_info` diz a
+    cobertura.
   - **As linhas do gráfico e o seletor** (Levi, 26/10/2026: "Quero que no gráfico também dê para escolher qual quer
     mostrar"; 27/10/2026: "tira o possível pelo POA e deixa só o POA medido mesmo!"): de outubro em diante a linha é o
     **IPOA medido** (`ipoa_med`, ETM ou GHI, no eixo da direita; preto e sólido; o dia sem medição fica sem ponto), com a
-    Meta; antes, a irradiação de sempre. A geração possível saiu do gráfico e segue nas colunas da Visão Geral. Sem
+    Meta; antes, a irradiação de sempre. A geração possível saiu do gráfico (e da Visão Geral em 05/11/2026). Sem
     botões em cima ("tire esses botões de cima também, deixe só a legenda!", 27/10/2026): o clique na legenda tira e põe
     IPOA e Meta (a tirada fica cinza na legenda, para voltar); a escolha fica no navegador (`localStorage`
     `thopen_linhas`) e no Ctrl+P, no Baixar PDF e no PDF Carteira a linha tirada sai do gráfico e da legenda
@@ -555,7 +556,7 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
     menos da metade dos dias: a nota sob o gráfico diz quantos dias têm irradiação medida. O desenho mora no
     `_desenhaDiario` (o `renderDiario` busca e chama).
   - Medido em 20/10, carteira Thopen de outubro (59 usinas): 8 sem ETM, 11 com furo. Altair: meta do período 596.874
-    kWh (1.027.950 ÷ 31 × 18), irradiação 95,18 contra 127,92 esperados, possível 444.128 kWh, produzida 439.566 (−1,03%).
+    kWh (1.027.950 ÷ 31 × 18), irradiação 95,18 contra 127,92 esperados.
   - Prova: `tests/test_thopen_geracao_possivel.py` (a regra, números à mão) e `tests/test_thopen_geracao_possivel_rotas.py`
     (rotas, setembro como era, a tela e a folha); as linhas e o seletor, `tests/test_thopen_diario_linhas.py`.
 - **Zero dos eixos** (14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração"): com a linha do IPOA na
@@ -566,7 +567,7 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
 - **O valor ao passar o mouse, em todos os gráficos** (Levi, 15/10/2026: "ao passar o mouse na coluna não precisa
   mostrar o dia mas precisamos da unidade de medida certa"; "Precisa ajustar o valor e unidade de medida nessas colunas
   também"): só o valor com a unidade, no formato do Brasil (`_fmtU` + `customdata` + `_HOV`). Energia × Irradiação:
-  "31.249,5 kWh" na barra, "Possível pelo IPOA 21.705 kWh · IPOA 4,65 kWh/m² (ETM)" na linha preta (ou "5,43 kWh/m²"
+  "31.249,5 kWh" na barra, "IPOA 4,65 kWh/m² (ETM)" na linha preta (ou "5,43 kWh/m²"
   na irradiação, antes de 10/2026), "Meta 31.000 kWh" na meta; Energia Acumulada no Mês e Produção
   Anual: "379.788 kWh", "3.343.983 kWh"; Mensal (cinco séries por mês): "Produzida 2026: 828,3 MWh". O padrão do Plotly
   dizia "(9, 31.2495k)", "(Meta, 379.7882k)", "(3.343983M, Meta 2026)": o "k"/"M" no lugar da unidade.

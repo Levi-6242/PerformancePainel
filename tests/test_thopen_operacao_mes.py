@@ -455,11 +455,12 @@ def test_nome_proprio_no_gerencial_vence_o_site_compartilhado_do_fracttal():
 
 def test_mes_pelas_horas_perdidas_e_nao_pelo_dia_arredondado():
     # o dia vem arredondado em 1 casa; a média de dias arredondados errava o mês do Gerencial em 0,01–0,02 p.p.
-    ds = [dict(dsp("Altair", "2026-10-01", 97.9, ids=[1]), h_perdidas=0.254),
+    ds = [dict(dsp("Altair", "2026-10-01", 97.5, ids=[1]), h_perdidas=0.254),
           dict(dsp("Altair", "2026-10-02", 100.0, ids=[1]), h_perdidas=0)]
     r = om.resposta(dados(disponibilidade_dia=ds, de_para=DP, atualizacao=PUB4), "Altair", 2026, 10, HOJE)
-    assert r["disponibilidade"] == round(100 * (1 - 0.254 / 24), 2) == 98.94
-    assert [x["disp"] for x in r["por_dia"]] == [97.9, 100.0]
+    # 10 h por dia, o período solar da Thopen desde 05/11/2026 (07:30–17:30)
+    assert r["disponibilidade"] == round(100 * (1 - 0.254 / (2 * om.HORAS_SOL)), 2) == 98.73
+    assert [x["disp"] for x in r["por_dia"]] == [97.5, 100.0]
 
 
 # ── 13/10 (Levi): "tem dias que a disponibilidade tá menor que 100 e não tem comentário de desligamento, isso não pode

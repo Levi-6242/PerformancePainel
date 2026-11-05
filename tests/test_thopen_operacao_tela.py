@@ -238,7 +238,7 @@ def test_metodologia_disponibilidade_pelas_paradas_do_cos_sem_geracao():
     # que o COS registra na Ronda COS (e, nas usinas fora dela, pelos comentários da equipe): o texto diz isso ao cliente
     met = _metodologia(T)
     bloco = met[met.index("<h3>Disponibilidade</h3>"):met.index("<dt>Antes de 10/2026")]
-    for trecho in ("Centro de Operações (COS)", "de 06h a 18h", "da hora da falha até a hora em que o COS registrou a volta",
+    for trecho in ("Centro de Operações (COS)", "de 07h30 a 17h30", "÷ 10 h", "da hora da falha até a hora em que o COS registrou a volta",
                    "atuação de proteção", "falha da concessionária", "a falha de comunicação com a usina gerando não conta",
                    "falta de comunicação não é usina parada", "comentários da equipe", "A geração não entra na conta",
                    "Dia sem parada = 100%"):

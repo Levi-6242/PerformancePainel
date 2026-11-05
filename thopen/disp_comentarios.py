@@ -14,7 +14,9 @@ parada), a usina inteira. O de-para da usina, das cabines e dos inversores é a 
 30/10/2026: cinco dessas usinas nem estão no Registro mestre do Nexus): as colunas "Inversor N.M" dizem as cabines (N) e
 os inversores; sem elas, as cabines do cadastro do Nexus; sem nada, a usina inteira. Desligamento de inversor conta os
 inversores citados na linha ("Inversor 1.3 e 1.4") ÷ os da usina (um, se não citar). A conta é a mesma do Gerencial:
-janela de sol 06–18 h, 12 h por dia, perda = fração da potência × horas. Módulo puro: sem rede.
+janela de sol 07:30–17:30, 10 h por dia (a da Thopen desde 05/11/2026; antes 06–18 h), perda = fração da potência ×
+horas.
+Módulo puro: sem rede.
 """
 import re
 import unicodedata
@@ -26,7 +28,13 @@ from datetime import date, datetime, timedelta
 # Aruanã, Sapopema e Segredo saíram no mesmo dia (Levi: "Passam para o COS"): o COS registrou os desligamentos delas, e
 # elas seguem a régua do COS na plataforma
 USINAS = frozenset({"Rondonópolis", "AP. do Taboado", "Areia Branca", "Monte Aprazível", "Nova Iguaçu", "Cambé"})
-SOL_INI_H, SOL_FIM_H = 6, 18
+# o período solar da Thopen, em horas decimais (Levi, 05/11/2026: "na verdade será das 07:30 as 17:30"), o mesmo da
+# plataforma (disponibilidade.JANELA_POR_CLIENTE) e do operacao_mes.HORAS_SOL
+SOL_INI_H, SOL_FIM_H = 7.5, 17.5
+
+
+def _na_hora(d, h):
+    return datetime(d.year, d.month, d.day) + timedelta(hours=h)
 
 _PERIODO = re.compile(
     r"(\d{1,2})/(\d{1,2})(?:/\d{2,4})?\s*(?:as|a)?\s*(\d{1,2})[:h](\d{2})\s*h?\s*"
@@ -89,7 +97,7 @@ def periodos(texto, ref):
 def _perda_do_dia(dia, eventos):
     """Horas equivalentes perdidas no dia: a maior fração ativa em cada trecho da janela de sol (a usina inteira cobre a
     cabine; duas cabines ao mesmo tempo somam, até a usina)."""
-    js, jf = datetime(dia.year, dia.month, dia.day, SOL_INI_H), datetime(dia.year, dia.month, dia.day, SOL_FIM_H)
+    js, jf = _na_hora(dia, SOL_INI_H), _na_hora(dia, SOL_FIM_H)
     evs = [(max(a, js), min(b, jf), f) for a, b, f in eventos if b > js and a < jf]
     bordas = sorted({x for a, b, _f in evs for x in (a, b)})
     h = 0.0
@@ -127,9 +135,9 @@ def por_dia(registros, ano, mes, ate, n_cabines=None, n_inversores=None):
             comentarios[d] = [x.strip() for x in str(r["com"]).splitlines() if x.strip()]
     disp, d = {}, date(ano, mes, 1)
     while d.month == mes and d <= ate:
-        disp[d] = round(100.0 * (1 - _perda_do_dia(d, eventos) / 12.0), 3)
+        disp[d] = round(100.0 * (1 - _perda_do_dia(d, eventos) / (SOL_FIM_H - SOL_INI_H)), 3)
         if disp[d] < 100 and d not in comentarios:      # o desligamento escrito noutro dia e que pega este
-            js, jf = datetime(d.year, d.month, d.day, SOL_INI_H), datetime(d.year, d.month, d.day, SOL_FIM_H)
+            js, jf = _na_hora(d, SOL_INI_H), _na_hora(d, SOL_FIM_H)
             comentarios[d] = sorted({linhas[(a, b)] for a, b, _f in eventos if b > js and a < jf})
         d += timedelta(days=1)
     return disp, comentarios

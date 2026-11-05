@@ -44,7 +44,8 @@ def test_usina_inteira_conta_a_janela_de_sol_e_o_evento_repetido_conta_uma_vez()
     c = "Desligamento usina - prot 59ABC - 30/09 às 06:03 ao 02/10 às 09:00"
     disp, com = dc.por_dia(_regs((date(2026, 9, 30), c), (date(2026, 10, 1), c), (date(2026, 10, 2), c)),
                            2026, 10, date(2026, 10, 3))
-    assert disp == {date(2026, 10, 1): 0.0, date(2026, 10, 2): 75.0, date(2026, 10, 3): 100.0}
+    # o período solar da Thopen, 07:30–17:30 (05/11/2026): em 02/10 a usina parou das 07:30 às 09:00, 1,5 h de 10
+    assert disp == {date(2026, 10, 1): 0.0, date(2026, 10, 2): 85.0, date(2026, 10, 3): 100.0}
     assert com[date(2026, 10, 2)] == [c]
 
 
@@ -57,8 +58,8 @@ def test_comunicacao_nao_conta_mas_o_comentario_vai_para_a_tela():
 def test_cabine_conta_a_fracao_ou_a_usina_inteira_sem_cadastro():
     c = "Desligamento de cabine - relé - 08/10 08:00 às 11:00"
     assert dc.por_dia(_regs((date(2026, 10, 8), c)), 2026, 10, date(2026, 10, 8), n_cabines=2)[0][date(2026, 10, 8)] \
-        == pytest.approx(100 * (1 - 1.5 / 12), abs=0.001)
-    assert dc.por_dia(_regs((date(2026, 10, 8), c)), 2026, 10, date(2026, 10, 8))[0][date(2026, 10, 8)] == 75.0
+        == pytest.approx(100 * (1 - 1.5 / 10), abs=0.001)                    # 3 h × ½ cabine, de 10 h (07:30–17:30)
+    assert dc.por_dia(_regs((date(2026, 10, 8), c)), 2026, 10, date(2026, 10, 8))[0][date(2026, 10, 8)] == 70.0
 
 
 def test_dia_do_evento_sem_comentario_escrito_leva_a_linha_do_evento():

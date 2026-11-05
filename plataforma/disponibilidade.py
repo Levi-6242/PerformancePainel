@@ -52,6 +52,29 @@ TIPOS_QUEDA = {"religamento", "religamento remoto"}
 TIPOS_EQUIP = {"corretiva emergencial"}
 TIPOS_ALVO = TIPOS_QUEDA | TIPOS_EQUIP
 SOL_INI_H, SOL_FIM_H = 6, 18
+# A Thopen no período solar de 07:30 às 17:30 (Levi, 05/11/2026: "para o cliente Thopen, a disponibilidade será calculada
+# com o período solar de 7 as 17 para melhor confiabilidade"; logo depois: "na verdade será das 07:30 as 17:30"): 10 h por
+# dia, na conta, nos trechos e nos dias publicados. O 5080 divide pelas mesmas 10 h (thopen/operacao_mes.HORAS_SOL, e o
+# disp_comentarios das usinas fora da Ronda COS); os outros clientes seguem nas 06–18 h. Em horas decimais (7.5 =
+# 07:30), pelo começo do nome do cliente na aba Equipamentos, como o COS_CLIENTE
+JANELA_POR_CLIENTE = {"THOPEN": (7.5, 17.5)}
+
+
+def na_hora(d, h):
+    """O instante do dia `d` na hora decimal `h` (7.5 = 07:30)."""
+    return datetime(d.year, d.month, d.day) + timedelta(hours=h)
+
+
+def janela(cliente):
+    """(hora de início, hora de fim) do período solar do cliente."""
+    c = norm(cliente)
+    return next((j for k, j in JANELA_POR_CLIENTE.items() if c.startswith(k)), (SOL_INI_H, SOL_FIM_H))
+
+
+def horas_dia(cliente):
+    """As horas do período solar do cliente num dia (12; a Thopen, 10)."""
+    a, b = janela(cliente)
+    return float(b - a)
 SUF_CABINE = ("CABN", "SKID", "QGBT", "PECN", "DTRF")
 # linha agregada que convive com as filhas numeradas no BD — no parque ela duplicaria o kWp
 PARQUE_EXCLUI = {"AP. do Taboado"}
@@ -698,13 +721,14 @@ def _rotulo_escopo(nivel, chave):
 
 
 # ══ janela solar ═════════════════════════════════════════════════════════════
-def horas_solares_por_dia(a, b, teto):
-    """{date: horas} da interseção [a,b) com a janela 06–18h, dias < teto.date()."""
+def horas_solares_por_dia(a, b, teto, jan=None):
+    """{date: horas} da interseção [a,b) com o período solar `jan` (início, fim em horas decimais; padrão 06–18 h; a
+    Thopen 07:30–17:30, `janela`), dias < teto.date()."""
+    ini_h, fim_h = jan or (SOL_INI_H, SOL_FIM_H)
     out = {}
     d = a.date()
     while d <= b.date() and d < teto.date():
-        js = datetime(d.year, d.month, d.day, SOL_INI_H)
-        jf = datetime(d.year, d.month, d.day, SOL_FIM_H)
+        js, jf = na_hora(d, ini_h), na_hora(d, fim_h)
         x, y = max(a, js), min(b, jf)
         if y > x:
             out[d] = (y - x).total_seconds() / 3600.0
@@ -733,6 +757,7 @@ def _varrer(eventos, usinas, per_fim, det_os_usina=None, det_os_dia=None):
     for u in sorted({e["usina"] for e in eventos}):
         evs = [e for e in eventos if e["usina"] == u]
         pot_u = usinas[u].pot or 0.0
+        jan = janela(getattr(usinas[u], "cliente", ""))      # a Thopen 07:30–17:30 (05/11/2026)
         bordas = sorted({e["ini"] for e in evs} | {e["fim"] for e in evs})
         for i in range(len(bordas) - 1):
             a, b = bordas[i], bordas[i + 1]
@@ -745,7 +770,7 @@ def _varrer(eventos, usinas, per_fim, det_os_usina=None, det_os_dia=None):
                 kw_af = min(pot_u, sum(e["kwp"] for e in ativos))
                 donos = ativos
             frac_af = (kw_af / pot_u) if pot_u > 0 else 0.0
-            hs = horas_solares_por_dia(a, b, per_fim)
+            hs = horas_solares_por_dia(a, b, per_fim, jan)
             tot_kw = sum(e["kwp"] for e in donos) or 1.0
             for dia, h in hs.items():
                 h_eq[u][dia] += frac_af * h
@@ -756,8 +781,7 @@ def _varrer(eventos, usinas, per_fim, det_os_usina=None, det_os_dia=None):
                     if det_os_usina is not None:
                         det_os_usina[(e["o"]["folio"], u)] += parte
                     if det_os_dia is not None:
-                        js = datetime(dia.year, dia.month, dia.day, SOL_INI_H)
-                        jf = datetime(dia.year, dia.month, dia.day, SOL_FIM_H)
+                        js, jf = na_hora(dia, jan[0]), na_hora(dia, jan[1])
                         x = det_os_dia.setdefault((u, dia, e["o"]["folio"]), {"h": 0.0, "trechos": []})
                         x["h"] += frac_af * (e["kwp"] / tot_kw) * h
                         x["trechos"].append((max(a, js), min(b, jf)))
@@ -787,7 +811,7 @@ def _os_do_dia(det_os_dia):
     return dict(out)
 
 
-def _disp_por_inversor(eventos, usinas, per_fim, tot_h):
+def _disp_por_inversor(eventos, usinas, per_fim, n_dias):
     """Disponibilidade POR INVERSOR, com a CASCATA da cabine (pedido do Levi, 14/09/2026): uma OS de
     USINA derruba todos os inversores; uma de CABINE derruba os inversores daquela cabine (mapa
     inversor→UG da coluna 'Equipamento Parente' da aba Equipamentos = `inv_ug`); uma de INVERSOR só
@@ -802,6 +826,8 @@ def _disp_por_inversor(eventos, usinas, per_fim, tot_h):
         if not U.invs:
             continue
         inv_keys = list(U.invs.keys())
+        cli = getattr(U, "cliente", "")
+        jan, tot_h = janela(cli), horas_dia(cli) * n_dias
         ev_por_inv = {k: [] for k in inv_keys}
         for e in por_usina.get(u, []):
             nivel, chave = e["nivel"], (e.get("chave") or "")
@@ -827,7 +853,7 @@ def _disp_por_inversor(eventos, usinas, per_fim, tot_h):
                 for i in range(len(bordas) - 1):
                     a, b = bordas[i], bordas[i + 1]
                     if any(e["ini"] <= a and e["fim"] >= b for e in evs):
-                        h_down += sum(horas_solares_por_dia(a, b, per_fim).values())
+                        h_down += sum(horas_solares_por_dia(a, b, per_fim, jan).values())
             linhas.append({"inversor": "Inversor " + k, "cabine": U.inv_ug.get(k),
                            "disp": round(100.0 * (1 - h_down / tot_h), 2) if tot_h else None,
                            "h_perdidas": round(h_down, 2)})
@@ -1226,7 +1252,8 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     usinas, lacunas = montar_catalogo(linhas_equip, pot_reserva)
     idx = indices_g1(usinas)
     n_dias = (per_fim.date() - per_ini.date()).days
-    tot_h = 12.0 * n_dias
+    # as horas do mês de cada usina: o período solar do cliente × os dias (a Thopen 10 h, 05/11/2026)
+    tot_h_de = lambda U: horas_dia(U.cliente) * n_dias      # noqa: E731
 
     oss, eventos, os_escopo = [], [], {}
     cos = ({u for u, U in usinas.items() if norm(U.cliente).startswith(COS_CLIENTE)}
@@ -1342,18 +1369,21 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
     h_qd, kwh_qd, _ = _varrer([e for e in eventos if e["o"]["origem"] == "queda"], usinas, per_fim)
     h_eq_ip, kwh_ip, _ = _varrer([e for e in eventos if e["o"]["origem"] == "equipamento"],
                                  usinas, per_fim)
-    disp_inv = _disp_por_inversor(eventos, usinas, per_fim, tot_h)   # por inversor, com cascata da cabine (Levi 14/09)
+    disp_inv = _disp_por_inversor(eventos, usinas, per_fim, n_dias)  # por inversor, com cascata da cabine (Levi 14/09)
 
     os_h = {}
     for o in oss:
         if o["excl"]:
             continue
+        # o período solar do cliente da OS (o da 1ª usina da conta dela; a Thopen 07:30–17:30)
+        jan = janela(next((getattr(usinas[u], "cliente", "") for (u, _n, _c, _k) in os_escopo.get(o["folio"], [])
+                           if u in usinas), ""))
         if o.get("_trechos"):                       # a OS do COS com duas normalizações: a soma das duas
-            os_h[o["folio"]] = round(sum(sum(horas_solares_por_dia(a, b, per_fim).values())
+            os_h[o["folio"]] = round(sum(sum(horas_solares_por_dia(a, b, per_fim, jan).values())
                                          for a, b in sorted(o["_trechos"])), 2)
             continue
         a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
-        os_h[o["folio"]] = round(sum(horas_solares_por_dia(a, b, per_fim).values()), 2) if b > a else 0.0
+        os_h[o["folio"]] = round(sum(horas_solares_por_dia(a, b, per_fim, jan).values()), 2) if b > a else 0.0
     alinhar = _para_alinhar(oss, os_escopo, per_ini, per_fim)
 
     # SÓ FULL O&M (decisão do Levi, 30/08): onde a Grid Co. não faz a manutenção completa, a
@@ -1373,7 +1403,10 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         ph = sum(h_eq[u].values())
         phq = sum(h_qd[u].values())
         phe = sum(h_eq_ip[u].values())
+        tot_h = tot_h_de(U)
         res_usinas.append({"usina": u, "cliente": U.cliente, "fracttal": U.fracttal,
+                           # o período solar da usina (05/11/2026): a tela pondera e mostra o dia por ele
+                           "janela_h": list(janela(U.cliente)),
                            "full_om": U.full_om, "pot_kwp": round(U.pot, 1),
                            "fonte_pot": U.fonte_pot, "n_inv": U.n_inv, "n_cab": U.n_cab,
                            "disp": round(100.0 * (1 - ph / tot_h), 2) if tot_h else None,
@@ -1387,12 +1420,13 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
                            "n_os": len({e["o"]["folio"] for e in eventos if e["usina"] == u}),
                            "inversores": disp_inv.get(u, [])})
 
-    por_cli = defaultdict(lambda: {"kwp": 0.0, "ph_pond": 0.0, "phq_pond": 0.0, "phe_pond": 0.0,
+    por_cli = defaultdict(lambda: {"kwp": 0.0, "kwp_h": 0.0, "ph_pond": 0.0, "phq_pond": 0.0, "phe_pond": 0.0,
                                    "kwh": 0.0, "kwh_q": 0.0, "kwh_e": 0.0, "n_os": 0,
                                    "n_usinas": 0, "abaixo99": 0})
     for r in res_usinas:
         c = por_cli[r["cliente"] or "—"]
         c["kwp"] += r["pot_kwp"]
+        c["kwp_h"] += r["pot_kwp"] * horas_dia(r["cliente"]) * n_dias
         c["ph_pond"] += r["pot_kwp"] * r["h_perdidas"]
         c["phq_pond"] += r["pot_kwp"] * r["h_queda"]
         c["phe_pond"] += r["pot_kwp"] * r["h_equip"]
@@ -1405,7 +1439,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
             c["abaixo99"] += 1
 
     def _pond(num, c):
-        return round(100.0 * (1 - num / (c["kwp"] * tot_h)), 2) if (tot_h and c["kwp"]) else None
+        return round(100.0 * (1 - num / c["kwp_h"]), 2) if c["kwp_h"] else None
 
     res_clientes = [{"cliente": nome, "kwp": round(c["kwp"]),
                      "disp": _pond(c["ph_pond"], c), "kwh": round(c["kwh"]),
@@ -1420,7 +1454,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None, 
         "usinas": res_usinas,
         "clientes": res_clientes,
         "diario": {u: {d.isoformat(): {"h_eq": round(h, 3),
-                                       "disp": round(100 * (1 - h / 12), 1),
+                                       "disp": round(100 * (1 - h / horas_dia(getattr(usinas[u], "cliente", ""))), 1),
                                        "kwh": round(kwh[u].get(d, 0)),
                                        # decomposição do dia (card da célula do mapa)
                                        "h_q": round(h_qd[u].get(d, 0.0), 3),
