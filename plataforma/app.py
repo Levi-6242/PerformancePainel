@@ -17120,6 +17120,66 @@ def _macro_sol_baixo(r, agora=None) -> bool:
     return _sol.sol_baixo(_estado_da_usina(r.get("usina")), agora)
 
 
+# À noite, a usina que calou COM o sol não é "sem comunicação" (05/11/2026; o Levi disse "sim" à proposta). Às 18:45 de
+# 05/11 a Entrada e a Visão do cliente do Nexus diziam "Sem comunicação" em 44 das 81 usinas da Thopen, quase todas com a
+# última leitura entre 17h e 18h: no fim do dia o registrador da API PV atrasa e para, e a régua dos 30 min
+# (`COMM_ALERT_MINUTES`) dispara; às 19:05 eram 12. A folga é a mesma das outras réguas de usina calada (2 h).
+CALOU_COM_O_SOL_H = 2
+
+
+def _macro_leitura_local(s):
+    """A `ultima_leitura` em hora de Brasília (sem fuso), ou None. Sufixo 'Z' = UTC (RenoGrid/SolarEdge)."""
+    if not s:
+        return None
+    s = str(s).strip()
+    utc = s.endswith("Z")
+    if utc:
+        s = s[:-1]
+    for f in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            d = datetime.strptime(s, f)
+        except ValueError:
+            continue
+        return d + timedelta(hours=_sol.FUSO_BRASILIA_H) if utc else d
+    return None
+
+
+def _sol_baixou_em(r, agora):
+    """O instante em que o sol baixou pela última vez antes de `agora` no estado da usina: quando a régua do
+    `_macro_sol_baixo` passou de sol alto para sol baixo (o sol abaixo de 8° no estado, ou o fim da janela fixa das 18h
+    para quem não tem estado no cadastro). Passos de 10 min para trás e o minuto exato depois; até 24 h."""
+    estado = _estado_da_usina(r.get("usina"))
+
+    def baixo(t):                     # a mesma régua do _macro_sol_baixo, com o estado lido uma vez só
+        return not (7 <= t.hour < 18) or _sol.sol_baixo(estado, t)
+
+    t = agora.replace(second=0, microsecond=0)
+    for _ in range(144):
+        antes = t - timedelta(minutes=10)
+        if not baixo(antes):
+            for m in range(1, 11):
+                u = antes + timedelta(minutes=m)
+                if baixo(u):
+                    return u
+            return t
+        t = antes
+    return agora - timedelta(hours=24)
+
+
+def _calou_com_o_sol(r, agora=None) -> bool:
+    """A usina calada (sem dado, `falha_comunicacao`, leitura velha) que mandou dado até `CALOU_COM_O_SOL_H` antes de o
+    sol baixar no estado dela, com o sol baixo agora: calou com o sol, não por falha de comunicação. A que calou de
+    dia, a sem leitura há dias e a que não manda nada seguem "sem comunicação" (às 19:05 de 05/11: uma da GreenYellow
+    calada desde 11:05, uma da API PV sem leitura há 17 dias, as 5 da Sal Energia sem nenhuma)."""
+    agora = agora or datetime.now()
+    if not _macro_sol_baixo(r, agora):
+        return False
+    ult = _macro_leitura_local(r.get("ultima_leitura"))
+    if ult is None:
+        return False
+    return ult >= _sol_baixou_em(r, agora) - timedelta(hours=CALOU_COM_O_SOL_H)
+
+
 def _macro_eh_dia(r) -> bool:
     """De dia — a régua de 'sem produção'/inversor-parado só vale com sol. Janela 07–18h (Brasília) E sol acima
     de SOL_BAIXO_GRAUS no estado da usina (quando o cadastro tem estado).
@@ -17218,7 +17278,9 @@ def _macro_status(r) -> str:
     if r.get("desligada"):
         return "desligada"                             # usina desligada, com motivo (28/09/2026): não é falha de comunicação
     if r.get("sem_dados") or r.get("falha_comunicacao"):
-        return "sem_comm"
+        if not _calou_com_o_sol(r):
+            return "sem_comm"
+        return _inv_padrao_status_de(r) or "ok"       # calou com o sol (05/11/2026): sem sol, nada a julgar ao vivo
     _ipst = _inv_padrao_status_de(r)                   # padrão por inversor: a única régua de quem não vê string
     if _macro_sol_baixo(r):
         return _ipst or "ok"                           # sem sol nada se julga ao vivo; o D-1 do padrão continua valendo
@@ -17269,6 +17331,8 @@ def _macro_causa(r, status: str) -> str:
 
 
 def _macro_item(fonte: str, r: dict) -> dict:
+    if (r.get("sem_dados") or r.get("falha_comunicacao")) and _calou_com_o_sol(r):
+        r = dict(r, sem_dados=False, falha_comunicacao=False)   # calou com o sol: a comunicação não se julga à noite
     status = _macro_status(r)
     sev = 0 if status == "sem_producao" else (2 if status == "desligada" else severidade(r))   # parada é crítica no ranking; desligada tem motivo
     if status in ("ok", "critico", "atencao") and (r.get("sem_visao") or r.get("rampa") or _macro_sol_baixo(r)):
@@ -17299,6 +17363,26 @@ def _macro_item(fonte: str, r: dict) -> dict:
         "inv_off": r.get("inv_off"), "qtd_inversores": r.get("qtd_inversores"),
         "ultima_leitura": r.get("ultima_leitura"),
     }
+
+
+def _guarda_telemetria_parada(usinas):
+    """Se a frota está lendo fresco (dia/sistema no ar) mas uma usina está com a última leitura velha (>2h), é problema
+    de comunicação — não "sem geração". À noite/sistema fora, a frota inteira fica velha → não reclassifica nada; e,
+    desde 05/11/2026, a usina que calou com o sol (`_calou_com_o_sol`) também não: às 20:15 a que parou às 17:40 já passa
+    de 2 h enquanto outras fontes seguem mandando de noite."""
+    idades = [_macro_idade_h(u.get("ultima_leitura")) for u in usinas]
+    fresca = min([a for a in idades if a is not None], default=None)
+    if fresca is None or fresca >= 1.0:
+        return
+    for u, a in zip(usinas, idades):
+        # usina PARADA (potência ~0) fica como 'sem produção' mesmo com leitura velha — ela parou de
+        # enviar PORQUE está desligada; só reclassifica p/ comm quem NÃO é sem_producao.
+        if (a is not None and a > 2 and u["status"] not in ("sem_comm", "sem_producao", "desligada")
+                and not _calou_com_o_sol(u)):
+            u["status"] = "sem_comm"
+            u["sev"] = 3
+            u["causa"] = f"Telemetria parada (última leitura {u.get('ultima_leitura')})"
+            u["strings_faltando"] = 0
 
 
 def _macro_idade_h(s):
@@ -17536,21 +17620,7 @@ def _portfolio_rollup() -> list:
     for _k, _it in por_usina.items():         # soma as fatias da MESMA fonte do vencedor (antes do guard
         _somar_partes_da_usina(_it, (partes.get(_k) or {}).get(_it["fonte"]) or [])   # de telemetria, que zera)
     usinas = list(por_usina.values())
-    # Guard de telemetria parada: se a frota está lendo fresco (dia/sistema no ar) mas uma usina
-    # está com a última leitura velha (>2h), é problema de comunicação — não "sem geração".
-    # À noite/sistema fora, a frota inteira fica velha → fleet_up=False → não reclassifica nada.
-    idades = [_macro_idade_h(u.get("ultima_leitura")) for u in usinas]
-    fresca = min([a for a in idades if a is not None], default=None)
-    fleet_up = fresca is not None and fresca < 1.0
-    if fleet_up:
-        for u, a in zip(usinas, idades):
-            # usina PARADA (potência ~0) fica como 'sem produção' mesmo com leitura velha — ela parou de
-            # enviar PORQUE está desligada; só reclassifica p/ comm quem NÃO é sem_producao.
-            if a is not None and a > 2 and u["status"] not in ("sem_comm", "sem_producao", "desligada"):
-                u["status"] = "sem_comm"
-                u["sev"] = 3
-                u["causa"] = f"Telemetria parada (última leitura {u.get('ultima_leitura')})"
-                u["strings_faltando"] = 0
+    _guarda_telemetria_parada(usinas)
 
     for u in usinas:                          # estado/região (Info Geral) por usina → agrupamento e rondas
         ig = INFO_GERAL.get(_nrm(u.get("usina") or "")) or {}

@@ -42,9 +42,12 @@ def test_macro_de_dia_a_mesma_usina_continua_sem_producao(freeze_now):
     assert app._macro_status(_junco(inv_off=0, pot_med=50.0)) == "critico"      # 82 strings abaixo com sol alto
 
 
-def test_sem_comunicacao_continua_valendo_de_noite(freeze_now):
+def test_sem_comunicacao_de_noite_so_para_quem_calou_antes_do_sol_baixar(freeze_now):
+    """Desde 05/11/2026 (test_calou_com_o_sol.py): a que calou com o sol é "sem sol"; a que calou de dia segue
+    "sem comunicação"."""
     freeze_now("2026-09-10 18:10:00")
-    assert app._macro_status(_junco(falha_comunicacao=True)) == "sem_comm"
+    assert app._macro_status(_junco(falha_comunicacao=True, ultima_leitura="2026-09-10 11:00:00")) == "sem_comm"
+    assert app._macro_status(_junco(falha_comunicacao=True, ultima_leitura="2026-09-10 17:30:00")) == "ok"
 
 
 def test_usina_sem_estado_cai_na_regua_antiga(freeze_now):

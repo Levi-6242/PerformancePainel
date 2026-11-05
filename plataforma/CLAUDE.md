@@ -2306,7 +2306,20 @@ a curva de hoje das três da 2C saía "INV-400771" e o drill desenhava a do 1º 
 janelas fixas ("dia" até 18h; sino até 18:20). Agora `sol.py` calcula a elevação do sol pela capital do
 **estado** da usina (Info Geral; não há lat/lon no cadastro) e `_macro_sol_baixo(r)` / `_notif_filtra_novos`
 descartam o julgamento ao vivo com o sol abaixo de `SOL_BAIXO_GRAUS` (8°). O D-1 da régua de padrão por
-inversor continua valendo à noite. O sino ainda tem uma segunda peneira: mais de `_NOTIF_MAX_NOVOS_LEITURA`
+inversor continua valendo à noite.
+
+**A usina que calou com o sol não é "sem comunicação" (05/11/2026; o Levi disse "sim" à proposta).** Às 18:45 de 05/11
+a Entrada e a Visão do cliente do Nexus diziam "Sem comunicação" em 44 das 81 usinas da Thopen, quase todas com a última
+leitura entre 17h e 18h: no fim do dia o registrador da API PV atrasa e para, e a régua dos 30 min
+(`COMM_ALERT_MINUTES`) dispara; às 19:05 eram 12. Agora, com o sol baixo, a usina calada (sem dado, `falha_comunicacao`
+ou leitura velha) que mandou dado até `CALOU_COM_O_SOL_H` (2 h, a folga das outras réguas de usina calada) antes de o
+sol baixar no estado dela (`_sol_baixou_em`: quando a régua do `_macro_sol_baixo` virou) é "Sem sol"
+(`_calou_com_o_sol`): no `_macro_status`, no `_macro_item` (a severidade é a de quem está sem sol) e no guarda da
+telemetria parada (`_guarda_telemetria_parada`, que à noite pegaria a que parou às 17:40 assim que passasse de 2 h). A
+que calou de dia, a sem leitura há dias e a que não manda nada seguem "Sem comunicação" (às 19:05: uma da GreenYellow
+calada desde 11:05, uma da API PV sem leitura há 17 dias, as 5 da Sal Energia sem nenhuma). A régua vale para o macro
+(a Entrada e o `/api/entrada/tempo-real`, que o Nexus lê); as tabelas de strings de cada fonte seguem com o card de
+comunicação delas. Prova: `tests/test_calou_com_o_sol.py`. O sino ainda tem uma segunda peneira: mais de `_NOTIF_MAX_NOVOS_LEITURA`
 (100) quedas novas numa leitura é evento ambiente, nada é avisado individualmente. **Usina sem estado no
 cadastro cai na janela fixa antiga** — cadastrar o estado é o que liga a régua para ela. Teste que usa
 `_macro_status`/`_notif_ciclo` com usina real precisa de `freeze_now` em horário de sol, senão passa de dia
