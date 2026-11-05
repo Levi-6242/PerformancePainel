@@ -307,9 +307,11 @@ parados de tracker, strings zeradas e ocorrências, qualidade do dado, os quatro
 (cache e classificação das ocorrências, cobertura por curva, `_str_ev_rows_range`). FICAM, porque outras telas leem:
 `/api/perdas/<fonte>/trackers/paradas-hist` (painéis de usina e de portfólio), `/api/perdas/fechamento` (status do
 fechamento das 01:30) e a curva de reserva `_trk_ocor_curva_list` (rota de depuração `/api/trk/regua/diff`). Prova:
-`tests/test_perdas_fora.py`. Ainda aberto: o backfill do mês do PV (`_trk_ev_pv_mes(force=True)`) reenfileira a cada
-hora os ~1.263 pares (usina, dia) que nunca classificam (cobertura 0), ~2,4 h por volta — enquanto roda, o
-`_trk_ev_hoje_loop` pula.
+`tests/test_perdas_fora.py`. O backfill do mês do PV (`_trk_ev_pv_mes(force=True)`) reenfileirava a cada hora os ~1.263
+pares (usina, dia) que nunca classificam (cobertura 0), ~2,4 h por volta, com o `_trk_ev_hoje_loop` parado enquanto
+isso. Desde 02/11/2026 (auditoria do worker, achado 5) o par de dia passado tem o teto de tentativas por boot
+(`_trk_ev_bf_att`, `("pv", dia, usina)`), o force das outras fontes também (`_trk_ev_backfill_fontes`), e o dia de hoje
+antes da janela (`TRK_EV_WIN_INI`, 06:00) não vira pedido. Prova: `tests/test_worker_backfill_teto.py`.
 **Medido de novo em 20/10/2026 (chat de desempenho do Nexus).** O Raio-X do Nexus no servidor (7,1 GB) mostrou a
 máquina com 0,2 GB livres e 3,2 GB no swap às 14:17, este worker com 3 GB às 14:45 e 3,3 GB às 16:12, quando o Nexus
 inteiro travou esperando o disco (ele com 1,5 GB no swap). Dentro do worker do PC (`sys.remote_exec`, só leitura, Levi

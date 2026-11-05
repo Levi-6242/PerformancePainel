@@ -224,6 +224,7 @@ def _rodada_backfill(monkeypatch, teto, ocioso):
     monkeypatch.setattr(app, "_pv_trk_dia_locks", {})
     monkeypatch.setattr(app, "_pv_trk_graf_cache", {})
     monkeypatch.setattr(app, "_trk_eventos", {})
+    monkeypatch.setattr(app, "_trk_ev_bf_att", {})            # cada rodada é um boot novo (o teto de tentativas)
     monkeypatch.setattr(app, "_build_pv_trk_payload", lambda *a, **k: {})
     monkeypatch.setattr(app, "_pv_trk_plant", {pid: {"ts": time.time(), "payload": {"total": 10, "usina": f"Usina {pid}"}}
                                                for pid in (101, 102, 103, 104)})

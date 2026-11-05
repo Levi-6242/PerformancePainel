@@ -14239,19 +14239,33 @@ def _trk_ev_backfill(ini_iso, fim_iso, force=False):
         # só usinas COM trackers (evita gastar chamada em quem não tem)
         com_trk = {pid: ent["payload"] for pid, ent in _pv_trk_itens()
                    if (ent.get("payload") or {}).get("total")}
-        hoje_iso = datetime.now().strftime("%Y-%m-%d")
+        agora = datetime.now()
+        hoje_iso = agora.strftime("%Y-%m-%d")
         fim_iso = min(fim_iso, hoje_iso)
+        # TETO (auditoria do worker, 02/11/2026, achado 5): o par que nunca classifica (sem curva, cobertura 0) voltava
+        # em toda passada da hora — ~1.263 pares, ~2,4 h por volta, pedidos pagos à API PV, o `_trk_ev_hoje_loop` parado
+        # enquanto isso. Dia passado tem teto de tentativas por boot, como as outras fontes; hoje antes da janela
+        # (06:00) só pode dar cobertura 0 e não vira pedido. Prova: tests/test_worker_backfill_teto.py.
+        antes_da_janela = agora.hour * 60 + agora.minute < TRK_EV_WIN_INI
         tarefas = []
         for d in _trk_ev_dias(ini_iso, fim_iso):
             d_iso, d_br = d.strftime("%Y-%m-%d"), d.strftime("%d/%m/%Y")
             for pid, pl in com_trk.items():
                 _e0 = _trk_eventos.get(d_iso, {}).get(str(pid))
-                if _e0 and d_iso != hoje_iso:
-                    if not force:
-                        continue              # já processado (dia passado é imutável)
-                    if _e0.get("classes") is not None and _e0.get("regua") == REGUA_VER:
-                        continue              # force RESUMÍVEL: já classificado COM A RÉGUA ATUAL (régua
+                if d_iso == hoje_iso:
+                    if antes_da_janela:
+                        continue
+                else:
+                    if _e0:
+                        if not force:
+                            continue          # já processado (dia passado é imutável)
+                        if _e0.get("classes") is not None and _e0.get("regua") == REGUA_VER:
+                            continue          # force RESUMÍVEL: já classificado COM A RÉGUA ATUAL (régua
                                               # antiga não conta — senão mudar limiar não reprocessa nada)
+                    chave = ("pv", d_iso, str(pid))
+                    if _trk_ev_bf_att.get(chave, 0) >= _TRK_EV_BF_MAX_ATT:
+                        continue              # esgotou as tentativas neste boot
+                    _trk_ev_bf_att[chave] = _trk_ev_bf_att.get(chave, 0) + 1
                 tarefas.append((d_iso, d_br, pid, pl.get("usina") or str(pid)))
         # processa do dia MAIS RECENTE → mais antigo: HOJE (o que o operador olha agora) sai PRIMEIRO,
         # não por último. Sem isto, o "Gerar histórico" (01/06→hoje) só preenchia o dia atual no FIM —
@@ -34273,14 +34287,16 @@ def _trk_ev_backfill_fontes(ini_iso, fim_iso, force=False):
         d = df
         while d >= di:
             dia = d.isoformat(); d -= timedelta(days=1)
-            if dia != hoje and not force:
-                if _trk_ev_dia_cob(fonte, dia, pids) >= minp:                    # já coberto no store
+            if dia != hoje:
+                if not force and _trk_ev_dia_cob(fonte, dia, pids) >= minp:      # já coberto no store
                     continue
+                if force and _trk_ev_dia_classes(fonte, dia, pids) > 0:
+                    continue                 # force RESUMÍVEL: dia que já tem a CLASSIFICAÇÃO não refaz (sobrevive a restart)
+                # o teto vale também com force (02/11/2026, achado 5): o backfill da hora é force, e o dia que nunca
+                # classifica voltava a cada hora
                 if _trk_ev_bf_att.get((fonte, dia), 0) >= _TRK_EV_BF_MAX_ATT:    # esgotou tentativas neste boot
                     continue
                 _trk_ev_bf_att[(fonte, dia)] = _trk_ev_bf_att.get((fonte, dia), 0) + 1
-            elif dia != hoje and force and _trk_ev_dia_classes(fonte, dia, pids) > 0:
-                continue                     # force RESUMÍVEL: dia que já tem a CLASSIFICAÇÃO não refaz (sobrevive a restart)
             try:
                 cache.pop(dia, None)          # busta o cache do dia → recomputa FRESCO (re-busca a API)
                 calc(dia)                     # persiste no store (_trk_eventos)
