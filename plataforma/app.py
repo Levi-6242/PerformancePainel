@@ -34500,14 +34500,73 @@ def api_campo_usinas():
 _CAMPO_PARADOS: dict = {"data": None, "por_fonte": {}}
 
 
+# O nome da usina no Fracttal (05/11/2026, a sessão do App de Campo: o App guarda a usina pelo nome do Fracttal, "Thopen -
+# Altair 1 - SP", e o tempo real manda o nome curto ou o da macro, "Altair", que cobre Altair 1 a 5; pelo nome, só 29 das
+# 95 casavam). Vem da coluna "Usina Fractall" da aba Equipamentos (com as chaves do Nexus trocadas), pelo nome EXATO
+# ("Usina" ou "Usina Supervisório", sem o "(577)"): sem o trecho que o Criar OS aceita (`_fractall_da_usina`), porque aqui
+# o App não adivinha. Nome que aponta para mais de uma usina do Fracttal não resolve (vazio).
+_CAMPO_FRACTTAL: dict = {"ts": 0.0, "mapa": {}}
+
+
+def _campo_fracttal_mapa() -> dict:
+    """{nome em minúsculas: o nome do Fracttal, ou "" quando o nome cobre mais de uma}, guardado 10 min."""
+    c = _CAMPO_FRACTTAL
+    if c["mapa"] and time.time() - c["ts"] < 600:
+        return c["mapa"]
+    vistos: dict = {}
+    try:
+        df = _equipamentos_df()
+        sub = df[["Usina", "Usina Supervisório", "Usina Fractall"]].dropna(subset=["Usina Fractall"])
+        for _, r in sub.iterrows():
+            fr = " ".join(str(r["Usina Fractall"]).split())
+            if not fr:
+                continue
+            for k in (r["Usina"], r["Usina Supervisório"]):
+                if pd.notna(k) and str(k).strip():
+                    vistos.setdefault(str(k).strip().lower(), set()).add(fr)
+    except Exception as e:                                    # noqa: BLE001 — sem a aba, o nome do Fracttal sai vazio
+        print(f"[campo] nome do Fracttal: a aba Equipamentos não foi lida ({e})")
+        return c["mapa"]
+    mapa = {k: (next(iter(v)) if len(v) == 1 else "") for k, v in vistos.items()}
+    if mapa:
+        c.update(ts=time.time(), mapa=mapa)
+    return mapa
+
+
+def _campo_fracttal(nome) -> str:
+    """O nome do Fracttal pelo nome exato (com ou sem o "(577)"), ou ""."""
+    k = str(nome or "").strip().lower()
+    if not k:
+        return ""
+    m = _campo_fracttal_mapa()
+    return m.get(k) or m.get(re.sub(r"\(.*?\)", "", k).strip()) or ""
+
+
 def _campo_trk_linha(r: dict) -> dict:
-    """Um tracker parado como o técnico precisa: o nº (como no /api/campo/ronda), o status, desde quando, o ângulo e o
-    inversor (onde achar o tracker na usina)."""
+    """Um tracker parado como o técnico precisa: o nº (como no /api/campo/ronda), o status, desde quando, o ângulo, o
+    inversor (onde achar o tracker na usina) e a usina dele no Fracttal, pelo nome que a fonte dá ao tracker (a usina
+    de verdade, antes de juntar na macro: "Altair 3", não "Altair")."""
     sc = bool(r.get("sem_comunicacao"))
     return {"tracker": _pv_trk_num(r.get("tracker")), "nome": str(r.get("tracker") or ""),
             "status": "sem_comunicacao" if sc else "parado", "desde": r.get("parado_desde"),
             "atual": r.get("atual"), "alvo": r.get("alvo"), "disparidade": r.get("disparidade"),
-            "inversor": r.get("inversor") or "", "com_os": bool(r.get("ticket_status"))}
+            "inversor": r.get("inversor") or "", "com_os": bool(r.get("ticket_status")),
+            "usina_fracttal": _campo_fracttal(r.get("usina"))}
+
+
+def _campo_fracttal_da_usina(nome: str, parados: list) -> str:
+    """O nome do Fracttal da linha da usina: o dos trackers quando todos são da mesma usina do Fracttal; vazio quando
+    a usina do tempo real cobre mais de uma (Altair = Altair 1 a 5: aí vale o de cada tracker). Sem parado, pelo nome da
+    usina. O tracker sem nome do Fracttal herda o da usina, quando ela tem um só."""
+    dos_trk = {t["usina_fracttal"] for t in parados if t.get("usina_fracttal")}
+    proprio = _campo_fracttal(nome)
+    if len(dos_trk) > 1 or (dos_trk and proprio and dos_trk != {proprio}):
+        return ""
+    fr = next(iter(dos_trk), "") or proprio
+    if fr:
+        for t in parados:
+            t["usina_fracttal"] = t.get("usina_fracttal") or fr
+    return fr
 
 
 def _campo_parados_guardar(grupos: dict, fontes_trk, listas: dict, lidas_em: dict) -> None:
@@ -34529,12 +34588,13 @@ def _campo_parados_guardar(grupos: dict, fontes_trk, listas: dict, lidas_em: dic
             vistas.add(k)
             u = {"usina": nome, "cliente": x["cliente"], "fonte": x["fonte"]}
             if lido is None:
-                u.update(falhou=True)
+                u.update(falhou=True, usina_fracttal=_campo_fracttal(nome))
             else:
                 parados = sorted(listas.get(k) or [], key=lambda t: (not isinstance(t["tracker"], int),
                                                                      t["tracker"] if isinstance(t["tracker"], int) else 0,
                                                                      t["nome"]))
-                u.update(falhou=False, atualizado=lido[0], atrasado=lido[1], n_parados=len(parados), parados=parados)
+                u.update(falhou=False, atualizado=lido[0], atrasado=lido[1], n_parados=len(parados), parados=parados,
+                         usina_fracttal=_campo_fracttal_da_usina(nome, parados))
             usinas.append(u)
     usinas.sort(key=lambda u: (u["fonte"], _nrm(u["usina"])))
     _CAMPO_PARADOS["data"] = {"atualizado": datetime.now().isoformat(timespec="seconds"),

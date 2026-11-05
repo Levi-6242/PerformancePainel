@@ -2357,6 +2357,13 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   zero no lugar de "não li". Fonte que atrasou usa a lista da última montagem boa com a hora dela (`atrasado: true`), até
   3 h (`_ENTRADA_TRK_ULTIMO_MAX_S`, o mesmo teto da contagem do card). Processo recém-subido, antes da 1ª montagem: 503
   com `"aquecendo": true`.
+- **`usina_fracttal`** (05/11/2026, pedido do App: ele guarda a usina pelo nome do Fracttal e, pelo nome do tempo real,
+  só 29 de 95 casavam): na usina e em cada tracker, o nome da coluna "Usina Fractall" da aba Equipamentos (com as chaves
+  do Nexus), pelo nome EXATO ("Usina" ou "Usina Supervisório", com ou sem o "(577)"), nunca pelo trecho. O tracker usa o
+  nome que a fonte dá à usina dele (a de verdade, antes da macro). A usina do tempo real que cobre mais de uma do Fracttal
+  (Altair = Altair 1 a 5) sai com `usina_fracttal` vazio na linha e o de cada tracker preenchido; nome que aponta para duas
+  usinas do Fracttal não resolve (vazio). Medido em 05/11: 93 das 95 usinas pelo nome da linha (sem par: Coração 2;
+  ambígua: Rodrigues 2). Mapa em `_campo_fracttal_mapa`, guardado 10 min.
 - **Usina sem tracker** aparece com 0: o "0" diz só que a fonte respondeu e não há parado; quem decide se a UFV tem
   tracker é o catálogo do App.
 - Prova: `python -m pytest -q tests/test_campo_parados.py`.

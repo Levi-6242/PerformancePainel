@@ -31,6 +31,10 @@ def entrada(monkeypatch):
     monkeypatch.setattr(app, "_entrada_trk_ultimo_gravar", lambda grupos: None)
     monkeypatch.setattr(app, "_entrada_trk_anterior", lambda ant, c, f: None)
     monkeypatch.setattr(app, "_CAMPO_PARADOS", {"data": None, "por_fonte": {}})
+    # a aba Equipamentos (o nome do Fracttal) nunca é lida de verdade aqui; quem precisa dela usa _aba()
+    import pandas as pd
+    monkeypatch.setattr(app, "_CAMPO_FRACTTAL", {"ts": 0.0, "mapa": {}})
+    monkeypatch.setattr(app, "_equipamentos_df", lambda: pd.DataFrame(columns=["Usina", "Usina Supervisório", "Usina Fractall"]))
     monkeypatch.setattr(app, "_pv_parados_rows", lambda *a, **k: [])
     monkeypatch.setattr(app, "_owen_parados_rows", lambda *a, **k: [])
     monkeypatch.setattr(app, "_sunop_parados_rows", lambda inst=None, *a, **k: [])
@@ -103,3 +107,46 @@ def test_a_rota_pede_a_chave_e_nao_le_aquecendo_como_zero(entrada, monkeypatch):
     assert _usina(j, "Ipixuna 2")["n_parados"] == 2 and 0 < j["proxima_em_s"] <= app._ENTRADA_TR_TTL
     assert {f["fonte"] for f in j["fontes"]} >= {"Thopen", "Athon", "API PV", "2C", "Axis"}
 
+
+
+# ── o nome da usina no Fracttal (05/11/2026): o App guarda a usina por ele, e o nome do tempo real só casava em 29 de 95 ──
+def _aba(monkeypatch, linhas):
+    import pandas as pd
+    monkeypatch.setattr(app, "_CAMPO_FRACTTAL", {"ts": 0.0, "mapa": {}})
+    monkeypatch.setattr(app, "_equipamentos_df", lambda: pd.DataFrame(
+        linhas, columns=["Usina", "Usina Supervisório", "Usina Fractall"]))
+
+
+def test_cada_usina_e_cada_tracker_levam_o_nome_do_fracttal(entrada):
+    _aba(entrada, [("Ipixuna 2", "Ipixuna 2 (33)", "Thopen - Ipixuna 2 - PA"),
+                   ("Altair 3", "Altair 3", "Thopen - Altair 3 - SP"),
+                   ("CPP100", "CPP100", "Athon - Capim Grosso 1 - BA")])
+    app._entrada_tempo_real_build()
+    d = app._CAMPO_PARADOS["data"]
+    ipx = _usina(d, "Ipixuna 2")
+    assert ipx["usina_fracttal"] == "Thopen - Ipixuna 2 - PA"
+    assert {t["usina_fracttal"] for t in ipx["parados"]} == {"Thopen - Ipixuna 2 - PA"}
+    assert _usina(d, "Altair 3")["usina_fracttal"] == "Thopen - Altair 3 - SP"     # sem parado: pelo nome da usina
+
+
+def test_usina_macro_que_cobre_varias_do_fracttal_vai_tracker_a_tracker(entrada):
+    # "Altair" no tempo real = Altair 1 a 5 no Fracttal: a linha da usina fica vazia e cada tracker leva a dele
+    _aba(entrada, [("Altair 1", "Altair 1", "Thopen - Altair 1 - SP"), ("Altair 2", "Altair 2", "Thopen - Altair 2 - SP"),
+                   ("Altair", "Altair", "Thopen - Altair 1 - SP"), ("Altair", "Altair", "Thopen - Altair 2 - SP")])
+    entrada.setattr(app, "_macro_usina_nome", lambda n: "Altair" if str(n).startswith("Altair") else n)
+    entrada.setattr(app, "_pg_parados_rows", lambda *a, **k: [
+        {"plant_id": 1, "usina": "Altair 1", "tracker": "TRK-1", "sem_comunicacao": False},
+        {"plant_id": 2, "usina": "Altair 2", "tracker": "TRK-9", "sem_comunicacao": False}])
+    app._entrada_tempo_real_build()
+    alt = next(u for u in app._CAMPO_PARADOS["data"]["usinas"] if u["usina"].startswith("Altair") and u.get("n_parados"))
+    assert alt["usina_fracttal"] == ""
+    assert {t["tracker"]: t["usina_fracttal"] for t in alt["parados"]} == {1: "Thopen - Altair 1 - SP",
+                                                                           9: "Thopen - Altair 2 - SP"}
+    assert app._campo_fracttal("Altair") == ""                     # o nome que cobre duas não resolve: nunca adivinha
+
+
+def test_sem_o_nome_exato_nao_adivinha_pelo_trecho(entrada):
+    _aba(entrada, [("Ipixuna 2 Norte", "Ipixuna 2 Norte", "Thopen - Ipixuna 2 Norte - PA")])
+    app._entrada_tempo_real_build()
+    ipx = _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")
+    assert ipx["usina_fracttal"] == "" and all(t["usina_fracttal"] == "" for t in ipx["parados"])
