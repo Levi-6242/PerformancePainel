@@ -2321,6 +2321,13 @@ estava parado no último dia CLASSIFICADO do registro (até `TRK_MANTER_DIAS` at
 classificam passam a usina: motores da SunOp, Banco e 2C, refino da API PV, os 4 gráficos, o registro do dia e a
 reserva das Ocorrências. O web carrega o `trk_eventos.json` (26 MB) só no boot, então o worker grava junto, no
 `_trk_ev_save`, um índice pequeno do fim de cada dia (`trk_parados_fim_dia.json`) que o web relê pelo mtime.
+**A gravação do registro (02/11/2026, auditoria do worker, achado 3).** Cada recálculo das ocorrências de hoje regravava
+os 26 MB, 20 a 30 vezes por hora, e as threads e o web gravavam pelo MESMO `.tmp` (o lock só na montagem do texto): duas
+gravações cruzadas publicavam um arquivo quebrado, que as Falhas leem como "sem trackers". Agora cada gravação tem o seu
+`.tmp` (`_grava_texto_atomico`), e no worker a de hoje grava no máximo a cada `TRK_EV_GRAVA_S` (10 min); a que fica
+pendente o `_persist_loop` leva ao disco (`_trk_ev_grava_pendente`), e o fim do backfill força. O web grava na hora. O
+`_trk_parada_reconcilia` (todo minuto) só suja o snapshot quando o estado muda. Prova:
+`tests/test_worker_trk_eventos_gravacao.py`.
 Medido às 08:36 de 29/09, nas mesmas curvas (régua de produção sem piso / só o piso / piso + dia anterior): API PV 451 /
 146 / 363 (Brodowski, Guatambu 4 e Primavera voltam inteiros; Córrego do Sapucaia 26 / 0 / 0 e São Bento do Una 52 / 0 /
 11 — os falsos da manhã continuam fora); Banco 284 / 94 / 161 (Aparecida 3 66 / 17 / 64); Athon 72 nas três.

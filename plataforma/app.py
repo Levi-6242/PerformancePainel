@@ -8972,6 +8972,9 @@ def _trk_parada_reconcilia():
     with _trk_parada_lock:
         if _trk_parada_total["date"] != hoje:
             _trk_parada_total["date"], _trk_parada_total["plants"] = hoje, {}
+            antes = None                                  # a virada do dia sempre vai ao snapshot
+        else:
+            antes = {k: dict(v) for k, v in _trk_parada_total["plants"].items()}
         st = _trk_parada_total["plants"]
         for pid, ent in _pv_trk_itens():
             pl = ent.get("payload", {})
@@ -8991,7 +8994,8 @@ def _trk_parada_reconcilia():
             else:
                 st.pop(key, None)
         snap = {k: dict(v) for k, v in st.items()}
-    _persist_mark()
+    if snap != antes:                                     # roda todo minuto: sem mudança, o snapshot não é regravado
+        _persist_mark()                                   # (auditoria do worker, 02/11/2026, achado 3)
     return snap
 
 
@@ -13910,22 +13914,55 @@ def _trk_ev_load():
         print(f"[trk_ev] snapshot ilegível ({e}) — começando vazio")
 
 
-def _trk_ev_save():
+# GRAVAÇÃO (auditoria do worker, 02/11/2026, achado 3). Todo recálculo das ocorrências de hoje (banco, Athon, 2C,
+# backfill) regravava o registro inteiro (26 MB, de 01/07 até hoje): 20 a 30 vezes por hora no worker, ~0,5–0,8 GB/h de
+# disco. E as threads (a ETAPA 1 do prewarm roda PG, Athon e 2C juntas) e o web gravavam pelo MESMO .tmp, com o lock só
+# na montagem do texto: duas gravações cruzadas publicavam um arquivo quebrado, que as Falhas leem como "sem trackers".
+# Agora cada gravação tem o seu .tmp e, no worker, a de hoje grava no máximo a cada TRK_EV_GRAVA_S; o resto fica
+# pendente e o `_persist_loop` o leva ao disco (`_trk_ev_grava_pendente`). O fim do backfill força. O web grava na hora
+# (ele não tem o laço do snapshot). Prova: tests/test_worker_trk_eventos_gravacao.py.
+TRK_EV_GRAVA_S = 600
+_trk_ev_gravacao = {"ultima": 0.0, "pendente": False}
+
+
+def _grava_texto_atomico(caminho: str, texto: str) -> None:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(caminho) or ".", prefix=".grava_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(texto)
+        _replace_atomico(tmp, caminho)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _trk_ev_save(forcar: bool = False):
+    agora = time.time()
+    if not forcar and not _MODO_WEB and agora - _trk_ev_gravacao["ultima"] < TRK_EV_GRAVA_S:
+        _trk_ev_gravacao["pendente"] = True
+        return
+    _trk_ev_gravacao.update(ultima=agora, pendente=False)
     try:
         with _trk_eventos_lock:
             snap = json.dumps(_trk_eventos, ensure_ascii=False)
-        tmp = _TRK_EV_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(snap)
-        _replace_atomico(tmp, _TRK_EV_PATH)
+        _grava_texto_atomico(_TRK_EV_PATH, snap)
         if not _MODO_WEB:                  # o índice do fim do dia (regra do dia anterior do piso) é do worker
             with _trk_eventos_lock:
                 idx = _trk_fim_dia_indice(_trk_eventos, datetime.now().strftime("%Y-%m-%d"))
-            with open(_TRK_FIM_DIA_PATH + ".tmp", "w", encoding="utf-8") as f:
-                json.dump(idx, f, ensure_ascii=False)
-            _replace_atomico(_TRK_FIM_DIA_PATH + ".tmp", _TRK_FIM_DIA_PATH)
+            _grava_texto_atomico(_TRK_FIM_DIA_PATH, json.dumps(idx, ensure_ascii=False))
     except Exception as e:
+        _trk_ev_gravacao["pendente"] = True               # o laço do snapshot tenta de novo
         print(f"[trk_ev] falha ao salvar: {e}")
+
+
+def _trk_ev_grava_pendente() -> None:
+    """Chamado pelo `_persist_loop` a cada minuto: o recálculo de hoje que ficou pendente vai ao disco passados os
+    TRK_EV_GRAVA_S da última gravação."""
+    if _trk_ev_gravacao["pendente"] and time.time() - _trk_ev_gravacao["ultima"] >= TRK_EV_GRAVA_S:
+        _trk_ev_save(forcar=True)
 
 
 def _trk_min_x(x):
@@ -14307,7 +14344,7 @@ def _trk_ev_backfill(ini_iso, fim_iso, force=False):
                 _trk_ev_prog.update({"feito": feito, "atual": f"{futs[f][3]} {futs[f][1]}"})
                 if feito % 25 == 0:
                     _trk_ev_save()
-        _trk_ev_save()
+        _trk_ev_save(forcar=True)             # o fim do backfill vai ao disco na hora (ver GRAVAÇÃO)
         # curvas do dia agora QUENTES no cache → rebuild LIGHT do overview (sem baixar nada de novo)
         # reclassifica os travados que o build frio marcou como 'desvio'/normal para 'parado'. Sem isto
         # a linha-pai (ex.: Mandaguaçu) ficava com 0 parados até alguém clicar "Atualizar status".
@@ -25756,6 +25793,10 @@ def _persist_loop():
     com os caches que ele apenas leu."""
     while True:
         time.sleep(60)
+        try:
+            _trk_ev_grava_pendente()                     # o registro de trackers que ficou pendente (ver GRAVAÇÃO)
+        except Exception as e:                           # noqa: BLE001 — o snapshot segue
+            print(f"[persist] registro de trackers pendente falhou: {e}")
         if not _persist_flag["dirty"]:
             continue
         try:

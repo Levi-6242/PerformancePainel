@@ -85,7 +85,7 @@ def test_o_web_le_o_indice_que_o_worker_grava(registro, monkeypatch, freeze_now)
     freeze_now("2026-09-29 08:00:00")
     registro["2026-09-28"] = {"8": {"classes": _classes(TRK4="parado")}}
     monkeypatch.setattr(app, "_MODO_WEB", False, raising=False)
-    app._trk_ev_save()
+    app._trk_ev_save(forcar=True)                                          # na hora, sem a espera dos 10 min
     idx = json.load(open(app._TRK_FIM_DIA_PATH, encoding="utf-8"))
     assert idx["8"]["2026-09-28"] == ["TRK4"]
     registro.clear()                                                        # o web não tem o dia em memória
