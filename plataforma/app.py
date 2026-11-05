@@ -12410,6 +12410,16 @@ def _pv_trk_j_da_api(d: dict) -> dict:
     return {"dados": [{"trackers": trks}], "ultimaLeitura": d.get("ultima_ts")}
 
 
+def _pv_trk_dia_ttl() -> int:
+    """A validade do dia de HOJE no cache pela hora (auditoria do worker, 02/11/2026, achado 9). Os 30 min valiam as 24 h:
+    das 19h à meia-noite, com os trackers em repouso, o dia inteiro era baixado de novo ~10 vezes por usina (8,8 a 13,8
+    MB cada, ~7 a 11 GB por noite da API PV), virando objetos que morriam em seguida. 30 min de dia e na última hora (23h:
+    o dia fecha completo como antes, a no máximo 30 min da meia-noite); fora disso, a da noite da combiner. Prova:
+    tests/test_worker_trackers_noite.py."""
+    h = datetime.now().hour
+    return TRK_DIA_TTL if 6 <= h < 19 or h == 23 else PV_COMB_TTL_NOITE_S
+
+
 def _pv_trk_dia(idusina, data: str, fetch: bool = True, curva: bool = True) -> dict:
     """Dia de trackers da usina pela API PV FIXA, cacheado por (usina, data).
 
@@ -12422,10 +12432,10 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True, curva: bool = True) -> d
     Dia FECHADO nunca expira: o passado não muda, e rebuscar 13 MB por causa do TTL era o
     desperdício que o cache do trackerschart já evitava."""
     servir = _pv_trk_expande if curva else (lambda dd: dd)
-    hoje = datetime.now().strftime("%d/%m/%Y")
+    hoje, ttl = datetime.now().strftime("%d/%m/%Y"), _pv_trk_dia_ttl()
     key, agora = (idusina, data), time.time()
     ent = _pv_trk_dia_cache.get(key)
-    if ent and ((data != hoje and ent["d"]["curva"]) or (agora - ent["ts"]) < TRK_DIA_TTL):
+    if ent and ((data != hoje and ent["d"]["curva"]) or (agora - ent["ts"]) < ttl):
         if data != hoje:                          # relido = em uso: a poda o deixa por último (ver o teto acima)
             ent["uso"], ent["usos"] = agora, (ent.get("usos") or 1) + 1
         return servir(ent["d"])
@@ -12435,7 +12445,7 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True, curva: bool = True) -> d
         lk = _pv_trk_dia_locks.setdefault(key, threading.Lock())
     with lk:
         ent = _pv_trk_dia_cache.get(key)          # re-check: outro thread pode ter buscado
-        if ent and ((data != hoje and ent["d"]["curva"]) or (time.time() - ent["ts"]) < TRK_DIA_TTL):
+        if ent and ((data != hoje and ent["d"]["curva"]) or (time.time() - ent["ts"]) < ttl):
             if data != hoje:
                 ent["uso"], ent["usos"] = time.time(), (ent.get("usos") or 1) + 1
             return servir(ent["d"])

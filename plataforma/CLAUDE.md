@@ -292,7 +292,10 @@ posições): as horas são os textos da leitura, um por leitura, e as posições
 None. São ~16 B por ponto contra ~218 do `{x, y}`; o dia de hoje às 23h (≈ 850 MB) vira ≈ 65 MB. O `_pv_trk_dia` monta a
 curva de sempre na saída, a cada leitura (quem lê pode mexer nela sem mexer no cache); com `curva=False` (o overview e a
 ronda da 2C, que só querem a última leitura e saber se há curva) não monta nada. Prova:
-`tests/test_worker_trackers_compactos.py`.
+`tests/test_worker_trackers_compactos.py`. A validade do dia de hoje é pela hora (`_pv_trk_dia_ttl`, achado 9): 30 min
+das 06h às 19h e na última hora (23h, para o dia fechar completo como antes); de noite e de madrugada, as 12 h da
+combiner. Das 19h à meia-noite o dia inteiro era baixado de novo ~10 vezes por usina (~7 a 11 GB por noite da API PV).
+Prova: `tests/test_worker_trackers_noite.py`.
 **Aquecimentos da aba Perdas antiga: fora do worker (12/10/2026, Levi: "extirpa essa porcaria que não serve para nada";
 a tela de verdade é a Falhas do Diagnóstico).** O `_perdas_ocor_warm_loop`, o `_perdas_pv_warm_dm1_loop` e as
 ocorrências que o fechamento das 01:30 montava enchiam o `_PERDAS_OCOR_CACHE` e o `_pv_trk_dia_cache` DO WORKER, que o
