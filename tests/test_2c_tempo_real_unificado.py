@@ -242,7 +242,7 @@ def test_o_laco_renova_o_dia_antes_de_vencer(monkeypatch):
     monkeypatch.setattr(app, "_pv_trk_dia_cache", cache)
     monkeypatch.setattr(app, "_2c_trk_vazio", {})
     pedidos = []
-    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True: pedidos.append(pid) or {"curva": {"TRK1": []}})
+    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True, **_: pedidos.append(pid) or {"curva": {"TRK1": []}})
     ren = app._2c_trk_renova_dias(agora)
     assert SC1 not in ren and SC2 in ren and SC3 in ren and 18771898 in ren          # a fresca fica, as outras renovam
     assert cache[(SC2, br)]["ts"] == 0.0                                             # venceu sem ser apagada
@@ -254,7 +254,7 @@ def test_renovar_nao_troca_o_dia_bom_por_vazio_quando_a_api_falha(monkeypatch):
     from datetime import datetime as _dt
     hoje = _dt.now().strftime("%d/%m/%Y")
     bom = {"curva": {"TRK1": [{"x": "10:00", "y": 12.0}]}, "ultima": {}, "ultima_ts": None}
-    monkeypatch.setattr(app, "_pv_trk_dia_cache", {(SC1, hoje): {"ts": _t.time(), "d": bom}})
+    monkeypatch.setattr(app, "_pv_trk_dia_cache", {(SC1, hoje): {"ts": _t.time(), "d": app._pv_trk_compacta(bom)}})
 
     class _Fora:
         def post(self, *a, **k):
@@ -262,7 +262,7 @@ def test_renovar_nao_troca_o_dia_bom_por_vazio_quando_a_api_falha(monkeypatch):
     monkeypatch.setattr(app, "_http", lambda: _Fora())
     monkeypatch.setattr(app, "_pv_token_for", lambda pid: "t")
     app._2c_trk_vence(SC1, hoje)
-    assert app._pv_trk_dia(SC1, hoje, fetch=True) is bom                            # a busca falhou: fica o de antes
+    assert app._pv_trk_dia(SC1, hoje, fetch=True) == bom                            # a busca falhou: fica o de antes
 
 
 def test_dia_ainda_vazio_nao_e_pedido_a_cada_minuto(monkeypatch):
@@ -270,7 +270,7 @@ def test_dia_ainda_vazio_nao_e_pedido_a_cada_minuto(monkeypatch):
     monkeypatch.setattr(app, "_pv_trk_dia_cache", {})
     monkeypatch.setattr(app, "_2c_trk_vazio", {})
     pedidos = []
-    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True: pedidos.append(pid) or {"curva": {}})
+    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True, **_: pedidos.append(pid) or {"curva": {}})
     agora = _dt(2026, 9, 30, 6, 5)
     primeira = app._2c_trk_renova_dias(agora)
     assert len(primeira) == 6 and len(pedidos) == 6

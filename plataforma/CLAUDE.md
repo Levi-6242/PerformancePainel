@@ -287,6 +287,12 @@ dia mais antigo primeiro" nem LRU puro serviam. Dia passado ocioso há 2 h sai. 
 memo da 2C (`_2c_trk_memo_poda`) e a marca de "dia vazio" (`_2C_TRK_VAZIO_S`) só guardam o que ainda servem. Prova:
 `tests/test_worker_memoria_teto.py` — inclusive o MESMO backfill com e sem teto, acervo de eventos e curvas idênticos
 (o que sai é dia fechado e volta igual; custa uma busca, não um número).
+**O dia de trackers compacto (02/11/2026, auditoria do worker, achado 7).** O cache guarda cada tracker como (horas,
+posições): as horas são os textos da leitura, um por leitura, e as posições vão num `array('d')` com NaN no lugar de
+None. São ~16 B por ponto contra ~218 do `{x, y}`; o dia de hoje às 23h (≈ 850 MB) vira ≈ 65 MB. O `_pv_trk_dia` monta a
+curva de sempre na saída, a cada leitura (quem lê pode mexer nela sem mexer no cache); com `curva=False` (o overview e a
+ronda da 2C, que só querem a última leitura e saber se há curva) não monta nada. Prova:
+`tests/test_worker_trackers_compactos.py`.
 **Aquecimentos da aba Perdas antiga: fora do worker (12/10/2026, Levi: "extirpa essa porcaria que não serve para nada";
 a tela de verdade é a Falhas do Diagnóstico).** O `_perdas_ocor_warm_loop`, o `_perdas_pv_warm_dm1_loop` e as
 ocorrências que o fechamento das 01:30 montava enchiam o `_PERDAS_OCOR_CACHE` e o `_pv_trk_dia_cache` DO WORKER, que o

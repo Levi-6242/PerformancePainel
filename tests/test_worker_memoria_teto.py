@@ -159,7 +159,7 @@ def test_dia_fechado_em_cache_segue_sem_vencer_na_leitura(api):
     """A regra de 22/09 continua: LER um dia fechado do cache nunca o expira (fetch=False devolve o que tem). Quem
     tira é só a poda — por teto ou por ociosidade —, nunca a leitura."""
     d = {"curva": {"TRK1": [{"x": "2026-09-20 10:00", "y": 1.0}]}, "ultima": {"TRK1": {}}, "ultima_ts": "x"}
-    app._pv_trk_dia_cache[(1, "20/09/2026")] = {"ts": time.time() - 99999, "d": d}
+    app._pv_trk_dia_cache[(1, "20/09/2026")] = {"ts": time.time() - 99999, "d": app._pv_trk_compacta(d)}
     assert app._pv_trk_dia(1, "20/09/2026", fetch=False)["curva"]
 
 

@@ -1,5 +1,6 @@
 ﻿import os
 import re
+import array
 import unicodedata
 import calendar
 import collections
@@ -12272,8 +12273,37 @@ def _pv_trk_dia_pontos(ent) -> int:
     n = (ent or {}).get("n")
     if n is None:
         d = (ent or {}).get("d") or {}
-        n = sum(len(s) for s in (d.get("curva") or {}).values()) + sum(len(s) for s in (d.get("alvo") or {}).values())
+        tam = lambda s: len(s[1]) if isinstance(s, tuple) else len(s)                    # noqa: E731 — o compacto
+        n = sum(tam(s) for s in (d.get("curva") or {}).values()) + sum(tam(s) for s in (d.get("alvo") or {}).values())
     return n
+
+
+# COMPACTO (auditoria do worker, 02/11/2026, achado 7). O cache guardava cada ponto como o {"x", "y"} que a tela lê:
+# ~218 bytes por ponto, e o dia de HOJE fica fora do teto acima de propósito. Às 23h o dia está completo (3,9 milhões de
+# pontos em 86 usinas em 11/10, ≈ 850 MB), o maior consumidor conhecido do worker (5,0 GB no Raio-X de 01/11). Guardado,
+# cada tracker vira (horas, posições): as horas são os mesmos textos da leitura, um por leitura, e a posição vai num
+# array('d') com NaN no lugar de None: ~16 bytes por ponto. Quem lê recebe a curva de sempre, montada na saída do
+# `_pv_trk_dia` (o único leitor do cache). Prova: tests/test_worker_trackers_compactos.py.
+_NAN = float("nan")
+
+
+def _pv_trk_compacta(d: dict) -> dict:
+    out = dict(d)
+    for campo in ("curva", "alvo"):
+        if campo in d:
+            out[campo] = {trk: (tuple(p["x"] for p in pts), array.array("d", (_NAN if p["y"] is None else p["y"]
+                                                                                for p in pts)))
+                          for trk, pts in d[campo].items()}
+    return out
+
+
+def _pv_trk_expande(d: dict) -> dict:
+    out = dict(d)
+    for campo in ("curva", "alvo"):
+        if campo in d:
+            out[campo] = {trk: [{"x": x, "y": None if y != y else y} for x, y in zip(xs, ys)]   # y != y: o NaN
+                          for trk, (xs, ys) in d[campo].items()}
+    return out
 
 
 def _pv_trk_dia_poda(agora=None) -> int:
@@ -12380,23 +12410,27 @@ def _pv_trk_j_da_api(d: dict) -> dict:
     return {"dados": [{"trackers": trks}], "ultimaLeitura": d.get("ultima_ts")}
 
 
-def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
+def _pv_trk_dia(idusina, data: str, fetch: bool = True, curva: bool = True) -> dict:
     """Dia de trackers da usina pela API PV FIXA, cacheado por (usina, data).
 
     `fetch=False` devolve SÓ o cache (não dispara a busca, que é pesada) — mesmo contrato do
     `_pv_trk_grafico`, usado no refino do overview p/ não travar a tela.
 
+    `curva=False` é para quem só quer a última leitura e saber se há curva (o overview, a ronda da 2C): a curva vem no
+    formato compacto do cache, sem montar os pontos, e NÃO deve ser lida (ver o COMPACTO acima).
+
     Dia FECHADO nunca expira: o passado não muda, e rebuscar 13 MB por causa do TTL era o
     desperdício que o cache do trackerschart já evitava."""
+    servir = _pv_trk_expande if curva else (lambda dd: dd)
     hoje = datetime.now().strftime("%d/%m/%Y")
     key, agora = (idusina, data), time.time()
     ent = _pv_trk_dia_cache.get(key)
     if ent and ((data != hoje and ent["d"]["curva"]) or (agora - ent["ts"]) < TRK_DIA_TTL):
         if data != hoje:                          # relido = em uso: a poda o deixa por último (ver o teto acima)
             ent["uso"], ent["usos"] = agora, (ent.get("usos") or 1) + 1
-        return ent["d"]
+        return servir(ent["d"])
     if not fetch:
-        return (ent or {}).get("d") or {"curva": {}, "ultima": {}, "ultima_ts": None}
+        return servir(ent["d"]) if ent else {"curva": {}, "ultima": {}, "ultima_ts": None}
     with _pv_trk_dia_guard:
         lk = _pv_trk_dia_locks.setdefault(key, threading.Lock())
     with lk:
@@ -12404,7 +12438,7 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
         if ent and ((data != hoje and ent["d"]["curva"]) or (time.time() - ent["ts"]) < TRK_DIA_TTL):
             if data != hoje:
                 ent["uso"], ent["usos"] = time.time(), (ent.get("usos") or 1) + 1
-            return ent["d"]
+            return servir(ent["d"])
         try:
             r = _http().post(f"{BASE_URL}/trackers",
                              headers={"x-access-token": _pv_token_for(idusina),
@@ -12423,13 +12457,13 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
             print(f"[trackers/apipv] usina {idusina} {data}: {e}")
             d = {"curva": {}, "ultima": {}, "ultima_ts": None, "erro": f"{type(e).__name__}: {str(e)[:160]}"}
         if d["curva"]:
-            _pv_trk_dia_cache[key] = {"ts": time.time(), "d": d, "n": _pv_trk_dia_pontos({"d": d})}
+            _pv_trk_dia_cache[key] = {"ts": time.time(), "d": _pv_trk_compacta(d), "n": _pv_trk_dia_pontos({"d": d})}
             if data != hoje:
                 _pv_trk_dia_poda()                # o teto vale a cada dia passado que entra, no worker e no web
             return d
         # busca vazia (usina sem tracker, madrugada, throttle): NÃO cacheia vazio — senão "Sem curva"
         # gruda por 5 min mesmo com a fonte já respondendo. Mesmo cuidado do trackerschart.
-        return (ent or {}).get("d") or d
+        return servir(ent["d"]) if ent else d
 
 
 _pv_trk_graf_cache  = {}     # (idusina, data) -> {ts, g}: grafico cru do trackerschart (reusa detalhe+chart)
@@ -13376,7 +13410,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
         # API PV FIXA primeiro (22/09/2026). A mesma busca já alimenta a curva, então no detalhe
         # (curva=True) o instantâneo sai de graça do cache — e some a dependência do PLAT_TOKEN,
         # que vence toda semana e só se renova com alguém colando um token na tela.
-        dia = _pv_trk_dia(idusina, date, fetch=True)
+        dia = _pv_trk_dia(idusina, date, fetch=True, curva=False)      # só a última leitura: a curva fica no cache
         j, erro_res = _pv_trk_j_da_api(dia), None
         if not j:                                   # reserva: a PV Plataforma, como estava
             try:
@@ -22428,7 +22462,7 @@ def _2c_trk_renova_dias(agora=None) -> list:
         if not ent and time.time() - _2c_trk_vazio.get((pid, hoje_br), 0.0) < _2C_TRK_VAZIO_S:
             continue
         _2c_trk_vence(pid, hoje_br)
-        if not (_pv_trk_dia(pid, hoje_br, fetch=True) or {}).get("curva"):
+        if not (_pv_trk_dia(pid, hoje_br, fetch=True, curva=False) or {}).get("curva"):
             _2c_trk_vazio[(pid, hoje_br)] = time.time()
         renovadas.append(pid)
     # a marca só vale _2C_TRK_VAZIO_S para quem lê; sem a poda, uma por planta por dia ficava para sempre

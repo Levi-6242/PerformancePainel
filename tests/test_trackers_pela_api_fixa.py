@@ -228,7 +228,7 @@ def test_dia_FECHADO_nao_expira():
     import time as _t
     app._pv_trk_dia_cache.clear()
     d = {"curva": {"TRK1": [{"x": "2026-09-20 10:00", "y": 1.0}]}, "ultima": {"TRK1": {}}, "ultima_ts": "x"}
-    app._pv_trk_dia_cache[(1, "20/09/2026")] = {"ts": _t.time() - 99999, "d": d}
+    app._pv_trk_dia_cache[(1, "20/09/2026")] = {"ts": _t.time() - 99999, "d": app._pv_trk_compacta(d)}
     assert app._pv_trk_dia(1, "20/09/2026", fetch=False)["curva"], "dia fechado foi descartado do cache"
 
 
