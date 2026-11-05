@@ -150,3 +150,33 @@ def test_sem_o_nome_exato_nao_adivinha_pelo_trecho(entrada):
     app._entrada_tempo_real_build()
     ipx = _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")
     assert ipx["usina_fracttal"] == "" and all(t["usina_fracttal"] == "" for t in ipx["parados"])
+
+
+# ── 05/11/2026, o retorno do App de Campo com o dado do dia ──────────────────────────────────────────────────────────
+def test_assis_cada_trk1_leva_o_skid_dele(entrada):
+    """A Assis vem como "Assis" nos parados da API PV, mas são quatro usinas na fonte, cada uma com o seu TRK1, e sem o
+    inversor: o App juntava os TRK1 num item só. A parte (o nome na fonte) separa, e casa o nome do Fracttal."""
+    _aba(entrada, [("Assis", "Assis Chateaubriand  Skid 1 (79)", "Thopen - Assis Chateaubriand - PR"),
+                   ("Assis", "Assis Chateaubriand Skid 2 (80)", "Thopen - Assis Chateaubriand - PR")])
+    entrada.setattr(app, "_macro_cache", {"ts": 0.0, "data": {"usinas": [
+        {"usina": "Assis", "plant_id": 18747433, "status": "ok", "cliente": "Thopen", "fonte": "API PV"}]}, "warming": False})
+    entrada.setattr(app, "_pv_trk_cache", {"ts": 0.0, "payload": {"rows": [
+        {"plant_id": 18747433, "usina": "Assis Chateaubriand  Skid 1 (79)"},
+        {"plant_id": 18747548, "usina": "Assis Chateaubriand Skid 2 (80)"}]}})
+    entrada.setattr(app, "_pg_parados_rows", lambda *a, **k: [])
+    entrada.setattr(app, "_pv_parados_rows", lambda *a, **k: [
+        {"plant_id": 18747433, "usina": "Assis", "tracker": "TRK1", "inversor": "", "sem_comunicacao": False},
+        {"plant_id": 18747548, "usina": "Assis", "tracker": "TRK1", "inversor": "", "sem_comunicacao": False}])
+    app._entrada_tempo_real_build()
+    assis = _usina(app._CAMPO_PARADOS["data"], "Assis")
+    assert sorted(t["parte"] for t in assis["parados"]) == ["Assis Chateaubriand  Skid 1 (79)",
+                                                            "Assis Chateaubriand Skid 2 (80)"]
+    assert {t["usina_fracttal"] for t in assis["parados"]} == {"Thopen - Assis Chateaubriand - PR"}
+
+
+def test_sem_comunicacao_o_angulo_e_null(entrada):
+    app._entrada_tempo_real_build()
+    sc = next(t for t in _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")["parados"] if t["status"] == "sem_comunicacao")
+    assert sc["atual"] is None and sc["alvo"] is None and sc["disparidade"] is None
+    parado = next(t for t in _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")["parados"] if t["status"] == "parado")
+    assert parado["atual"] == 3.0 and parado["alvo"] == 41.0 and parado["parte"] == ""

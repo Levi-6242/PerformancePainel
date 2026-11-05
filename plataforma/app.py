@@ -5928,6 +5928,10 @@ def _entrada_tempo_real_build() -> dict:
     # contagem, para a ronda do técnico e o card da Entrada dizerem o mesmo número; nenhuma chamada a mais às fontes
     listas: dict = {}
     lidas_em: dict = {}
+    try:
+        partes = _campo_partes()
+    except Exception:                                         # noqa: BLE001 — sem o nome na fonte, sai sem a parte
+        partes = {}
     for fonte in fontes_trk:
         trows = colhido.get(fonte)
         if trows is None:
@@ -5982,7 +5986,8 @@ def _entrada_tempo_real_build() -> dict:
                         uu["trk_com_os"] += 1
                     casou = casou or uu["usina"]
             nome_lista = casou or _macro_usina_nome(r.get("usina") or "") or str(r.get("usina") or "")
-            listas.setdefault((x["cliente"], x["fonte"], nome_lista), []).append(_campo_trk_linha(r))
+            linha = _campo_trk_linha(r, partes if fonte == "API PV" else None)      # o plant_id é da API PV
+            listas.setdefault((x["cliente"], x["fonte"], nome_lista), []).append(linha)
     try:
         _campo_parados_guardar(grupos, fontes_trk, listas, lidas_em)
     except Exception as e:                                    # noqa: BLE001 — o App fica com a lista anterior; a Entrada segue
@@ -34568,16 +34573,32 @@ def _campo_fracttal(nome) -> str:
     return m.get(k) or m.get(re.sub(r"\(.*?\)", "", k).strip()) or ""
 
 
-def _campo_trk_linha(r: dict) -> dict:
+def _campo_partes() -> dict:
+    """{plant_id: o nome da usina NA FONTE} da API PV (05/11/2026): a Assis vem como "Assis" nos parados, mas são quatro
+    usinas na fonte ("Assis Chateaubriand Skid 1 (79)" a "Skid 4 (82)"), cada uma com o seu TRK1. Sem isso, o App de
+    Campo juntava os TRK1 dos quatro skids num item só."""
+    out = {}
+    for r in ((_pv_trk_cache.get("payload") or {}).get("rows") or []):
+        if r.get("plant_id") not in (None, "") and r.get("usina"):
+            out[str(r["plant_id"])] = str(r["usina"])
+    return out
+
+
+def _campo_trk_linha(r: dict, partes: dict | None = None) -> dict:
     """Um tracker parado como o técnico precisa: o nº (como no /api/campo/ronda), o status, desde quando, o ângulo, o
-    inversor (onde achar o tracker na usina) e a usina dele no Fracttal, pelo nome que a fonte dá ao tracker (a usina
-    de verdade, antes de juntar na macro: "Altair 3", não "Altair")."""
+    inversor (onde achar o tracker na usina), a parte (o nome da usina na fonte, quando a linha junta várias: o skid da
+    Assis) e a usina dele no Fracttal, pela parte e, sem ela, pelo nome que a fonte dá ao tracker.
+    Sem comunicação, o ângulo é null: o 0,0 que a fonte manda não é leitura (05/11/2026, o App mostrava "0°")."""
     sc = bool(r.get("sem_comunicacao"))
+    parte = (partes or {}).get(str(r.get("plant_id"))) or ""
+    if _nrm(parte) == _nrm(r.get("usina") or ""):
+        parte = ""
     return {"tracker": _pv_trk_num(r.get("tracker")), "nome": str(r.get("tracker") or ""),
             "status": "sem_comunicacao" if sc else "parado", "desde": r.get("parado_desde"),
-            "atual": r.get("atual"), "alvo": r.get("alvo"), "disparidade": r.get("disparidade"),
-            "inversor": r.get("inversor") or "", "com_os": bool(r.get("ticket_status")),
-            "usina_fracttal": _campo_fracttal(r.get("usina"))}
+            "atual": None if sc else r.get("atual"), "alvo": None if sc else r.get("alvo"),
+            "disparidade": None if sc else r.get("disparidade"),
+            "inversor": r.get("inversor") or "", "parte": parte, "com_os": bool(r.get("ticket_status")),
+            "usina_fracttal": _campo_fracttal(parte) or _campo_fracttal(r.get("usina"))}
 
 
 def _campo_fracttal_da_usina(nome: str, parados: list) -> str:

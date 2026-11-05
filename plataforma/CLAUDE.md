@@ -2364,6 +2364,13 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   (Altair = Altair 1 a 5) sai com `usina_fracttal` vazio na linha e o de cada tracker preenchido; nome que aponta para duas
   usinas do Fracttal não resolve (vazio). Medido em 05/11: 93 das 95 usinas pelo nome da linha (sem par: Coração 2;
   ambígua: Rodrigues 2). Mapa em `_campo_fracttal_mapa`, guardado 10 min.
+- **`parte` e ângulo** (05/11/2026, o retorno do App com o dado do dia): na API PV, cada tracker leva `parte`, o nome da
+  usina na fonte quando a linha junta várias (pelo `plant_id`, do `_pv_trk_cache`): a Assis vem "Assis" nos parados, mas
+  são quatro skids, cada um com o seu TRK1, sem o inversor; o App juntava os TRK1 num item só. O `usina_fracttal` do
+  tracker sai da parte primeiro (assim a Rodrigues 2, ambígua pelo nome da linha porque uma linha da aba "Rodrigues 2"
+  aponta para a Rodrigues 1 no Fracttal, casa pelos skids "Rodrigues 2.1 (233)" a "2.3"). Sem comunicação, `atual`,
+  `alvo` e `disparidade` vão null: o 0,0 da fonte não é leitura. A Coração 2 segue sem nome: a aba não tem a "Usina
+  Fractall" dela (cadastro).
 - **Usina sem tracker** aparece com 0: o "0" diz só que a fonte respondeu e não há parado; quem decide se a UFV tem
   tracker é o catálogo do App.
 - Prova: `python -m pytest -q tests/test_campo_parados.py`.
