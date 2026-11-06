@@ -309,3 +309,17 @@ def _normalizacoes_do_cos_vazias(monkeypatch, request):
         # a versão do livro (03/11/2026, a conta pela gravação nova do Nexus) também não vai à rede
         monkeypatch.setattr(app, "_disp_cos_versao", lambda: None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _disp_excecao_sem_banco_por_padrao(monkeypatch):
+    """A disponibilidade por exceção do 5080 (06/11/2026) lê o livro thopen_disp_excecao no banco (rede) a cada
+    `_disp_dias` de 10/2026 em diante: 16 testes das rotas da Visão Geral, dos Registros e do card iam ao banco de
+    verdade. Nos testes o livro vem vazio (a conta de sempre); tests/test_thopen_disp_excecao.py dubla a leitura."""
+    import types
+    pasta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "thopen")
+    if pasta not in sys.path:
+        sys.path.append(pasta)               # no fim: não esconde módulo da plataforma de mesmo nome
+    import disp_excecao
+    monkeypatch.setattr(disp_excecao, "livro_banco", types.SimpleNamespace(ler=lambda *a: []))
+    monkeypatch.setattr(disp_excecao, "_CACHE", {"linhas": None, "lido": 0.0, "falhou": 0.0})

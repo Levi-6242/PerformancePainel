@@ -764,10 +764,11 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None):
+def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, disp=None):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
     {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026). `pot_kwp`: a
-    potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026)."""
+    potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026). `disp` = {dia: disp %}
+    por exceção (disp_excecao, 06/11/2026): troca só o número do dia; o comentário segue o das OS ou o do BD."""
     r = dict.fromkeys(CHAVES)
     r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
@@ -802,7 +803,7 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None):
         r["zeladoria"] = dict(SEM_CADASTRO)
     # rodada 4: Disp (%) e a ronda do dia na tabela; a disponibilidade do mês é a média dos dias — a mesma conta do
     # Gerencial (HORAS_SOL por dia, 10 h desde 05/11/2026: 100·(1 − Σh/10n) é a média dos dias)
-    dsp = disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0]
+    dsp = disp if disp else (disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0])
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], os_por_dia(dados, nome, ano, mes, trips, pot_kwp) if bd is None else bd[1])
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"

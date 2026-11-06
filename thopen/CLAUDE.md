@@ -2,7 +2,7 @@
 
 Flask na porta **5080**. Réplica do Power BI "Performance da Usina" que o cliente Thopen acessa. **Com login por pessoa
 desde 16/10/2026** (seção abaixo; até então público, sem senha): com `THOPEN_LOGIN=1` cada conta entra com usuário (o de
-hoje do cliente, ou um e-mail) e senha e vê só as carteiras dela. O app são catorze arquivos (a lista no `deploy/_package_thopen.py`, `ITENS`). Lê tudo do PostgreSQL pela
+hoje do cliente, ou um e-mail) e senha e vê só as carteiras dela. O app são quinze arquivos (a lista no `deploy/_package_thopen.py`, `ITENS`). Lê tudo do PostgreSQL pela
 Gridco Performance API; não abre planilha nenhuma. Ver o `CLAUDE.md` da raiz para as convenções gerais.
 
 **É produto de cliente, não ferramenta interna.** Mudança aqui é visível para fora: teste antes
@@ -25,7 +25,7 @@ e evite alterar layout sem pedido.
 - **Railway: fora do ar** (404 em 08/10/2026). `railway.toml` e `render.yaml` da RAIZ continuam descrevendo o deploy de
   nuvem (`gunicorn dashboard_thopen:app --chdir thopen ... --workers 1`, 334 MB de pico por worker);
   `deploy/Procfile` e `deploy/railway.toml` daqui nunca foram lidos (o Railway lê a raiz).
-- **Instalador por zip** (`python thopen/deploy/_package_thopen.py` → `deploy/thopen-app.zip`): os 14 arquivos do app +
+- **Instalador por zip** (`python thopen/deploy/_package_thopen.py` → `deploy/thopen-app.zip`): os 15 arquivos do app +
   `requirements-thopen.txt`, `railway.toml`, `render.yaml` e um LEIAME com as variáveis; aborta se um segredo entrar.
   Arquivo novo que o dashboard importa entra em `ITENS` — o `tests/test_thopen_operacao_rota.py` confere ITENS contra
   os imports (o zip só com os 3 arquivos de antes de 08/10 nem subia).
@@ -160,6 +160,18 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   card do mês (`/api/t/operacao`, `fonte_disp` = "bd_comentarios"), no Diário, na Visão Geral e nos Registros
   (`_disp_dias`). A Cambé tem normalizações do COS na plataforma: no dashboard vale o BD. Prova:
   `tests/test_thopen_disp_comentarios.py`.
+- **Outubro/2026 por exceção (06/11/2026**, Levi, com a planilha "disponibilidades outubro.xlsx": "pegue a
+  disponibilidade dessas UFVs e coloque como disponibilidade de outubro segundo a lista, será uma exceção para
+  outubro!"): Rondonópolis, Aruanã, Lyon (as Sol Maior GD I a V), AP. do Taboado, Areia Branca (Pacaembu 1.1 e 1.2),
+  Monte Aprazível, Nova Iguaçu (2.1 e 2.2, as colunas "Nova Iguaçu 1" e "2" da planilha), Sapopema, Segredo (1.1 a 1.5)
+  e Cambé. O número de cada dia é o da planilha, gravado uma vez no livro `thopen_disp_excecao` · `disp_dia` (1 linha
+  = parte × dia, com o `kwp` da parte pela aba Equipamentos; as duas da Nova Iguaçu, sem kWp lá, pela conta de
+  inversores, 8 e 10), e o dia da usina = Σ(kWp × disp) ÷ Σ kWp das partes (`disp_excecao.py`). Vence as duas contas
+  no `_disp_dias` (Visão Geral, Diário, Registros, PDF) e no card do mês, só no mês que tem linha; o comentário do dia
+  segue o de antes (as OS ou o BD), e o dia abaixo de 100% sem OS diz "Indisponibilidade registrada sem o detalhe da
+  parada". Relido a cada 10 min e no Atualizar; banco fora = a última leitura boa, sem nenhuma = a conta de sempre. A
+  carga é de fora do 5080 (a planilha não entra no repositório: é dado de cliente). Prova:
+  `tests/test_thopen_disp_excecao.py`.
 
 ## Dados
 

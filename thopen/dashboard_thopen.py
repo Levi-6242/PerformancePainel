@@ -57,6 +57,7 @@ import trip_os               # 23/10/2026: o trip das OS no comentário do dia, 
 import fonte_zeladoria       # 26/10/2026: a Zeladoria que o Nexus publica no banco (nada roda no import)
 import zeladoria_cliente     # ... e a tela da semana (puro)
 import disp_comentarios      # 30/10/2026: a disponibilidade pelos comentários do BD_Thopen (as usinas fora da Ronda COS)
+import disp_excecao          # 06/11/2026: a disponibilidade por exceção (outubro de dez usinas, da planilha do Levi)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -1478,13 +1479,30 @@ def _disp_bd(usina, ano, mes):
 def _disp_dias(usina, ano, mes):
     """{data: disponibilidade %} das OS do Fracttal (a disponibilidade_dia da plataforma), ou None sem o dado
     (carregando, desligado, usina fora do Gerencial): a Visão Geral fica sem o expurgo, nunca com um 0. A usina que a
-    Ronda COS não cobre, pelos comentários do BD_Thopen (30/10/2026)."""
+    Ronda COS não cobre, pelos comentários do BD_Thopen (30/10/2026). A usina com exceção no mês, o número da exceção
+    (06/11/2026, disp_excecao): vence as duas contas."""
     if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
         return None
+    exc = _disp_excecao(usina, ano, mes)
+    if exc:
+        return exc
     if _pelo_bd(usina, ano, mes):
         return _disp_bd(usina, ano, mes)[0] or None
     dados = _op_dados()
     return (operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina)) or None) if dados else None
+
+
+def _disp_excecao(usina, ano, mes):
+    """{data: disp %} por exceção (Levi, 06/11/2026: "pegue a disponibilidade dessas UFVs e coloque como
+    disponibilidade de outubro segundo a lista, será uma exceção para outubro!"), ou None. Só de 10/2026 em diante, que
+    é onde a conta das OS vale; os dias fechados (até ontem no mês corrente), como as outras contas."""
+    if not _so_os_fracttal(ano, mes):
+        return None
+    exc = disp_excecao.por_dia(usina, ano, mes)
+    if not exc:
+        return None
+    ate = dt.date.today() - dt.timedelta(days=1)
+    return {d: v for d, v in exc.items() if d <= ate} or None
 
 
 def _da_parte(usina):
@@ -1753,6 +1771,7 @@ def reload_bd():
     DIRETAMENTE"); o que não couber em trip_os.LIMITE_ATUALIZAR segue em segundo plano."""
     if fonte_api is not None:
         fonte_api.invalidar()      # derruba o TTL: o botão tem de buscar o banco AGORA
+    disp_excecao.invalidar()
     with _lock:
         _state["wb"] = None
         _state["mtime"] = None
@@ -1882,7 +1901,9 @@ def api_operacao():
     dados = _op_dados()
     bd = _disp_bd(usina, ano, mes) if _pelo_bd(usina, ano, mes) else None
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
-    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, **_da_parte(usina))
+    # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (as OS ou o BD)
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=_disp_excecao(usina, ano, mes),
+                              **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None
