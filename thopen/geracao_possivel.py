@@ -4,9 +4,14 @@ diante. Puro: sem rede, sem Flask, nada no import (a plataforma importa o dashbo
 
 Por quê: a Visão Geral comparava a produção até o corte com a meta do MÊS INTEIRO — no meio do mês toda usina aparecia
 "abaixo da meta" — e não dizia quanto a usina deveria ter gerado com o sol que de fato fez. A regra do Levi, em ordem:
-  1. Só os dias com geração; meta de geração e de IPOA proporcionais a esses dias (meta mensal ÷ dias do mês, somada).
+  1. A meta de geração e a de IPOA são as dos dias do PERÍODO (meta mensal ÷ dias do mês, somada do dia 1 ao último
+     dia coletado da carteira), mesmo nos dias em que a usina não tem dado (Levi, 06/11/2026, com o cliente dizendo que
+     a meta de outubro da Assis estava errada e a da Ribeirão Cascalheiras não aparecia: "o problema é só as metas, não
+     a falta de dados de geração ou irradiação"). Até ali a meta era só dos dias com geração: a Assis parada em 11 e
+     12/10 sem irradiação medida saía com 29/31 da meta, e a Ribeirão, parada o mês todo, sem meta nenhuma. A geração e
+     o IPOA medido seguem só dos dias que entram.
   2. IPOA do dia = o da ETM se ≥ 0,3 kWh/m²; senão o GHI se ≥ 1,0; senão sem medição. Cobertura < 50% = sem ETM.
-     IPOA medido ajustado = Σ IPOA medido ÷ cobertura.
+     IPOA medido ajustado = a média do IPOA medido × os dias do período (a Dif. IPOA não muda com o período).
   3. Dif. IPOA = ajustado ÷ meta de IPOA − 1; geração possível = meta × (1 + Dif. IPOA) (o PR já está na meta).
   4. Com expurgos = possível × disponibilidade efetiva (a das OS, ponderada pelo IPOA de cada dia).
   5. Dif. = real ÷ possível − 1 (com e sem expurgos).
@@ -56,7 +61,10 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp, ate=None):
     BD cria de antemão para o mês inteiro (em 20/10/2026, hoje e ontem estavam assim em 93 e 92 de 98 usinas): não
     entra, e só é furo de coleta quando vem antes do último dia que entrou — ou até `ate`, o último dia coletado da
     carteira (revisão de 20/10/2026: na Polaris, 7 de 23 usinas tinham parado em 14/10 com a carteira em 18/10, e os 4
-    dias sumiam do período sem marca nenhuma)."""
+    dias sumiam do período sem marca nenhuma).
+
+    O período da META vai do dia 1 até o último dia que entrou ou até `ate`, o que vier depois (06/11/2026): o dia sem
+    dado não tira meta (a regra 1 do cabeçalho). Sem nenhum dos dois (o dia 1, nada coletado), sem meta."""
     ghi = ghi or {}
     marcados = []
     for r in sorted(registros, key=lambda x: x["data"]):
@@ -78,9 +86,12 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp, ate=None):
             d += timedelta(days=1)
     entram = [(d, g, med) for d, ok, g, med in marcados if ok]
     n = len(entram)
+    # os dias da meta: do dia 1 ao último dia que entrou ou ao último coletado da carteira (06/11/2026)
+    fim_meta = max([d for d in (ultimo, ate) if d is not None], default=None)
+    n_meta = min(fim_meta.day, dias_mes) if fim_meta is not None else 0
 
-    meta = (meta_mes / dias_mes * n) if (meta_mes and n) else None
-    meta_ipoa = (meta_ipoa_mes / dias_mes * n) if (meta_ipoa_mes and n) else None
+    meta = (meta_mes / dias_mes * n_meta) if (meta_mes and n_meta) else None
+    meta_ipoa = (meta_ipoa_mes / dias_mes * n_meta) if (meta_ipoa_mes and n_meta) else None
     real = sum(g for _, g, _ in entram)
     medidos = [med for _, _, med in entram if med is not None]
     cobertura = (len(medidos) / n) if n else None
@@ -94,7 +105,8 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp, ate=None):
         motivo = None
     sem_etm = motivo is not None
 
-    ipoa_aj = (sum(medidos) / cobertura) if not sem_etm else None
+    # a média do medido × os dias da meta: a mesma régua da meta de IPOA, então a Dif. IPOA é a de antes
+    ipoa_aj = (sum(medidos) / len(medidos) * n_meta) if not sem_etm else None
     dif_ipoa = _razao(ipoa_aj, meta_ipoa) if not sem_etm else None
     possivel = (meta * (1 + dif_ipoa)) if (meta and dif_ipoa is not None) else None
 
@@ -113,7 +125,7 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp, ate=None):
         disp_ef = (num / den / 100.0) if den > 0 else None
     possivel_exp = (possivel * disp_ef) if (possivel is not None and disp_ef is not None) else None
 
-    return {"dias": n, "furos": furos, "meta": meta, "meta_ipoa": meta_ipoa, "real": real,
+    return {"dias": n, "dias_meta": n_meta, "furos": furos, "meta": meta, "meta_ipoa": meta_ipoa, "real": real,
             "dias_medidos": len(medidos), "cobertura": cobertura, "ipoa_ajustado": ipoa_aj, "dif_ipoa": dif_ipoa,
             "possivel": possivel, "disp_efetiva": disp_ef, "possivel_exp": possivel_exp,
             "dif_possivel": _razao(real, possivel), "dif_possivel_exp": _razao(real, possivel_exp),

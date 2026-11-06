@@ -1543,8 +1543,8 @@ def _resumo_usina(usina, ano, mes, ate=None):
 
 def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, ate=None):
     """De 10/2026 em diante a Visão Geral pela regra da geração possível (Levi, 20/10/2026; geracao_possivel.py): a meta
-    e a irradiação esperada só dos dias com geração (no meio do mês a meta do mês inteiro punha toda usina "abaixo"), a
-    medida ajustada pela cobertura, a possível pelo IPOA e com o expurgo das OS. Meta, Irradiação Esperada e Medida
+    e a irradiação esperada dos dias do período, do dia 1 ao último coletado da carteira (no meio do mês a meta do mês
+    inteiro punha toda usina "abaixo"; desde 06/11/2026 o dia sem dado da usina não tira meta), a medida ajustada, a possível pelo IPOA e com o expurgo das OS. Meta, Irradiação Esperada e Medida
     mudam de significado em vez de ganhar colunas: a tabela vai para a folha A4."""
     p = geracao_possivel.periodo(recs, _ghi_por_dia(usina), meta_mes, metairr_mes, monthrange(ano, mes)[1],
                                  _disp_dias(usina, ano, mes), ate=ate)

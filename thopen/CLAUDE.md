@@ -546,12 +546,17 @@ de cliente): da OS saem só o nº (desde 15/10/2026), o tipo, o que parou e o tr
     sem dados") todo dia do calendário sem dado até o **último dia coletado da carteira** (o mais recente em que ao menos metade das usinas tem geração: uma usina adiantada não marca as outras;
     revisão de 20/10: na Polaris, 7 de 23 usinas tinham parado em 14/10 com a carteira em 18/10 e sumiam sem
     marca). Nenhum dia coletado no mês (dia 1): "sem ETM" com o motivo "nenhum dia com geração coletado ainda".
-  - **Meta e meta de IPOA do período** = Σ (mensal ÷ dias do mês) nesses dias (`_meta2026`: `meta`, `metairr`).
+  - **Meta e meta de IPOA do período** = Σ (mensal ÷ dias do mês) em TODOS os dias do período, do dia 1 ao último dia
+    que entrou ou ao último coletado da carteira (`_meta2026`: `meta`, `metairr`; `dias_meta`). Desde 06/11/2026 (o
+    cliente: a meta de outubro da Assis "errada", 29/31 do mês por 11 e 12/10 parados sem irradiação, e a da Ribeirão
+    Cascalheiras, parada o mês todo, sem aparecer; Levi: "o problema é só as metas, não a falta de dados de geração ou
+    irradiação"): o dia sem dado não tira meta; até ali, a meta era só dos dias que entram. Outubro fechado = a meta do
+    mês; no mês corrente, até o último dia coletado. A geração e o IPOA medido seguem só dos dias que entram.
   - **IPOA do dia** = o da ETM se 0,3 a 12 kWh/m²; senão o GHI (coluna "GHI" da aba diária, `_ghi_por_dia`, leitor
     próprio: o `_daily_records` não muda de formato) se 1,0 a 10; senão sem medição. Os tetos: uma usina tinha GHI de
     até 25,7 "kWh/m²" (parece MJ/m²) e 41 dias de outubro IPOA de 10 a 11,6 (tracker). Cobertura (dias medidos ÷ dias
     que entram) abaixo de metade, ou sem meta de IPOA: **sem ETM** — sem possível, "sem ETM" em cinza na tabela e, no
-    Diário, sem a linha e com a nota sob o gráfico. IPOA medido ajustado = Σ medido ÷ cobertura.
+    Diário, sem a linha e com a nota sob o gráfico. IPOA medido ajustado = a média do medido × os dias da meta (a Dif. IPOA é a mesma de antes).
   - **Visão Geral**: Meta, Irradiação Esperada e Medida são as do período (ajustada), nas 10 colunas de sempre; o
     **Total** vem do servidor (`/api/t/geral` → `total`, `geracao_possivel.portfolio` sem as chaves da possível): meta e
     produzida das usinas com meta, IPOA ponderado pela potência, Disponibilidade na média simples de sempre.

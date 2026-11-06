@@ -54,12 +54,14 @@ def test_geral_de_outubro_pela_regra(cli):
     assert r["regra"] == "possivel"
     alt = next(l for l in r["linhas"] if l["usina"] == "Altair")
     e = _esperado()
-    assert alt["meta"] == pytest.approx(e["meta"]) == pytest.approx(3000)        # 3 dias × 1.000, não o mês inteiro
+    # 5 dias × 1.000: do dia 1 ao último coletado (5/10), não o mês inteiro; os furos de 3 e 4/10 também têm meta
+    # (Levi, 06/11/2026: "o problema é só as metas, não a falta de dados de geração ou irradiação")
+    assert alt["meta"] == pytest.approx(e["meta"]) == pytest.approx(5000)
     assert alt["irr_esp"] == pytest.approx(e["meta_ipoa"]) and alt["irr_med"] == pytest.approx(e["ipoa_ajustado"])
     assert alt["dif_irr"] == pytest.approx(e["dif_ipoa"])
-    assert alt["dif_prod"] == pytest.approx(2400 / 3000 - 1)
+    assert alt["dif_prod"] == pytest.approx(2400 / 5000 - 1)
     assert alt["furos"] == ["03/10", "04/10"] and alt["sem_etm"] is False and alt["cobertura"] == pytest.approx(2 / 3)
-    assert r["total"]["meta"] == pytest.approx(6000)
+    assert r["total"]["meta"] == pytest.approx(10000)
     # o Total da irradiação segue pelas usinas com ETM (a possível fica por dentro só para escolhê-las)
     assert r["total"]["ipoa_ajustado"] == pytest.approx(e["ipoa_ajustado"]) and r["total"]["meta_ipoa"] is not None
     # a geração possível saiu da Visão Geral (Levi, 05/11/2026: "Lembra de tirar"): nem na linha nem no Total

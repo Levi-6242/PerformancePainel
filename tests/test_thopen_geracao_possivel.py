@@ -4,7 +4,7 @@
 POR QUE ESTE TESTE EXISTE
 A Visão Geral comparava a produção até o corte com a meta do MÊS INTEIRO (no meio do mês toda usina aparecia abaixo da
 meta) e não dizia quanto a usina deveria ter gerado com o sol que fez. A regra do Levi: só os dias com geração, meta e
-meta de IPOA proporcionais a esses dias, IPOA da ETM (≥ 0,3) ou o GHI (≥ 1,0), cobertura mínima de 50%, IPOA ajustado
+meta de IPOA dos dias do período (do dia 1 ao último coletado, mesmo nos dias sem dado da usina, desde 06/11/2026), IPOA da ETM (≥ 0,3) ou o GHI (≥ 1,0), cobertura mínima de 50%, IPOA ajustado
 pela cobertura, geração possível = meta × (1 + Dif. IPOA), expurgo pela disponibilidade das OS ponderada pelo IPOA e o
 portfólio só com as usinas com ETM. Spec: docs/superpowers/specs/2026-10-20-thopen-geracao-possivel-design.md.
 
@@ -49,22 +49,41 @@ def test_dia_parado_com_sol_entra():
 
 
 def test_meta_e_ipoa_do_periodo():
+    # o período vai do dia 1 ao último dia que entrou (D[4], dia 5): 5 dias de meta, mesmo com os furos de 3 e 4/10
     p = _p()
-    assert p["meta"] == pytest.approx(3000) and p["meta_ipoa"] == pytest.approx(15)
+    assert p["dias_meta"] == 5 and p["meta"] == pytest.approx(5000) and p["meta_ipoa"] == pytest.approx(25)
     assert p["dias_medidos"] == 2 and p["cobertura"] == pytest.approx(2 / 3)
-    assert p["ipoa_ajustado"] == pytest.approx(17.25) and p["dif_ipoa"] == pytest.approx(0.15)
-    assert p["possivel"] == pytest.approx(3450) and p["real"] == pytest.approx(2400)
-    assert p["dif_possivel"] == pytest.approx(-0.304348, abs=1e-6)
+    # a média do medido (6,0 e 5,5) × os 5 dias: a Dif. IPOA é a mesma da regra de antes (15%)
+    assert p["ipoa_ajustado"] == pytest.approx(28.75) and p["dif_ipoa"] == pytest.approx(0.15)
+    assert p["possivel"] == pytest.approx(5750) and p["real"] == pytest.approx(2400)
     assert p["sem_etm"] is False and p["motivo"] is None
+
+
+def test_dia_sem_dado_nao_tira_meta():
+    # Levi, 06/11/2026 ("o problema é só as metas, não a falta de dados de geração ou irradiação"): a usina parada em
+    # dois dias sem irradiação medida (a Assis em 11 e 12/10) tem a meta do mês inteiro com o mês fechado
+    regs = [{"data": dt.date(2026, 10, d), "ger": 0.0 if d in (11, 12) else 1000.0, "ipoa": None} for d in range(1, 32)]
+    p = gp.periodo(regs, {}, 31000.0, 155.0, 31, None, ate=dt.date(2026, 10, 31))
+    assert p["dias"] == 29 and p["furos"] == [dt.date(2026, 10, 11), dt.date(2026, 10, 12)]
+    assert p["dias_meta"] == 31 and p["meta"] == pytest.approx(31000) and p["real"] == pytest.approx(29000)
+
+
+def test_usina_parada_o_mes_todo_tem_meta():
+    # a Ribeirão Cascalheiras de outubro: nenhum dia com geração nem irradiação; a meta do mês aparece (sem ETM)
+    regs = [{"data": dt.date(2026, 10, d), "ger": 0.0, "ipoa": None} for d in range(1, 32)]
+    p = gp.periodo(regs, {}, 31000.0, 155.0, 31, None, ate=dt.date(2026, 10, 31))
+    assert p["dias"] == 0 and p["meta"] == pytest.approx(31000) and p["meta_ipoa"] == pytest.approx(155)
+    assert p["motivo"] == "sem_dias" and p["sem_etm"] is True and p["real"] == 0
 
 
 def test_expurgo_ponderado_pelo_ipoa():
     p = _p()
     # pesos: o IPOA medido (6,0 e 5,5) e, no dia sem medição, a meta de IPOA do dia (5,0)
     assert p["disp_efetiva"] == pytest.approx((100 * 6 + 80 * 5.5 + 90 * 5) / 16.5 / 100)
-    assert p["possivel_exp"] == pytest.approx(3450 * p["disp_efetiva"])
-    assert p["dif_possivel_exp"] == pytest.approx(-0.229647, abs=1e-6)
-    dif_ger_exp = (2400 / p["disp_efetiva"]) / 3000 - 1
+    # a meta e a possível são as dos 5 dias do período (06/11/2026): 5.000 e 5.750
+    assert p["possivel_exp"] == pytest.approx(5750 * p["disp_efetiva"])
+    assert p["dif_possivel_exp"] == pytest.approx(2400 / (5750 * p["disp_efetiva"]) - 1)
+    dif_ger_exp = (2400 / p["disp_efetiva"]) / 5000 - 1
     assert p["dif_possivel_exp"] == pytest.approx((1 + dif_ger_exp) / (1 + 0.15) - 1)
 
 
@@ -96,7 +115,7 @@ def test_sem_meta_de_ipoa():
 def test_sem_disp():
     p = _p(disp=None)
     assert p["disp_efetiva"] is None and p["possivel_exp"] is None and p["dif_possivel_exp"] is None
-    assert p["possivel"] == pytest.approx(3450)
+    assert p["possivel"] == pytest.approx(5750)
 
 
 def test_sem_meta_de_geracao():
@@ -113,16 +132,17 @@ def test_possivel_do_dia():
 
 def test_portfolio():
     a = dict(_p(), pot_kwp=1000.0, produzida=2400.0)
-    b = dict(gp.periodo([{"data": D[0], "ger": 4000.0, "ipoa": None}] * 3, {}, 50000.0, 150.0, 30, None),
+    b = dict(gp.periodo([{"data": d, "ger": 4000.0 / 3, "ipoa": None} for d in D[:3]], {}, 50000.0, 150.0, 30, None),
              pot_kwp=3000.0, produzida=4000.0)
     c = dict(gp.periodo([{"data": D[0], "ger": 100.0, "ipoa": None}], {}, None, None, 30, None),
              pot_kwp=500.0, produzida=100.0)
     t = gp.portfolio([a, b, c])
-    assert t["meta"] == pytest.approx(3000 + 5000) and t["produzida"] == pytest.approx(2400 + 4000)
-    assert t["dif_prod"] == pytest.approx(-0.2)
-    assert t["possivel"] == pytest.approx(3450) and t["real_etm"] == pytest.approx(2400)
-    assert t["dif_possivel"] == pytest.approx(-0.304348, abs=1e-6)
-    assert t["ipoa_ajustado"] == pytest.approx(17.25) and t["meta_ipoa"] == pytest.approx(15)
+    # a: 5 dias de meta (1 a 5/10, 06/11/2026); b: 3 dias
+    assert t["meta"] == pytest.approx(5000 + 5000) and t["produzida"] == pytest.approx(2400 + 4000)
+    assert t["dif_prod"] == pytest.approx(-0.36)
+    assert t["possivel"] == pytest.approx(5750) and t["real_etm"] == pytest.approx(2400)
+    assert t["dif_possivel"] == pytest.approx(2400 / 5750 - 1)
+    assert t["ipoa_ajustado"] == pytest.approx(28.75) and t["meta_ipoa"] == pytest.approx(25)
     assert t["dif_ipoa"] == pytest.approx(0.15)
     assert t["possivel_exp"] == pytest.approx(a["possivel_exp"]) and t["real_exp"] == pytest.approx(2400)
 
@@ -132,7 +152,7 @@ def test_portfolio_ipoa_ponderado_pela_potencia():
     b = dict(_p(), pot_kwp=3000.0, produzida=2400.0)
     b["ipoa_ajustado"], b["meta_ipoa"] = 13.25, 15.0
     t = gp.portfolio([a, b])
-    assert t["ipoa_ajustado"] == pytest.approx((17.25 * 1000 + 13.25 * 3000) / 4000)
+    assert t["ipoa_ajustado"] == pytest.approx((28.75 * 1000 + 13.25 * 3000) / 4000)
 
 
 def test_dia_1_sem_nenhum_dia_coletado():
@@ -150,3 +170,5 @@ def test_furo_ate_o_ultimo_dia_coletado_da_carteira():
     assert gp.periodo(regs, {}, 31000.0, 155.0, 31, None)["furos"] == []
     p = gp.periodo(regs, {}, 31000.0, 155.0, 31, None, ate=dt.date(2026, 10, 4))
     assert p["furos"] == [dt.date(2026, 10, 3), dt.date(2026, 10, 4)] and p["dias"] == 2
+    # a meta vai até o último coletado da carteira (06/11/2026): 4 dias, não os 2 da usina
+    assert p["dias_meta"] == 4 and p["meta"] == pytest.approx(4000)
