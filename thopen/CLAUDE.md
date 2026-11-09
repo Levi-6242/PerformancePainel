@@ -168,10 +168,23 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   = parte × dia, com o `kwp` da parte pela aba Equipamentos; as duas da Nova Iguaçu, sem kWp lá, pela conta de
   inversores, 8 e 10), e o dia da usina = Σ(kWp × disp) ÷ Σ kWp das partes (`disp_excecao.py`). Vence as duas contas
   no `_disp_dias` (Visão Geral, Diário, Registros, PDF) e no card do mês, só no mês que tem linha; o comentário do dia
-  segue o de antes (as OS ou o BD), e o dia abaixo de 100% sem OS diz "Indisponibilidade registrada sem o detalhe da
-  parada". Relido a cada 10 min e no Atualizar; banco fora = a última leitura boa, sem nenhuma = a conta de sempre. A
+  segue o de cada usina (abaixo). Relido a cada 10 min e no Atualizar; banco fora = a última leitura boa, sem nenhuma = a conta de sempre. A
   carga é de fora do 5080 (a planilha não entra no repositório: é dado de cliente). Prova:
   `tests/test_thopen_disp_excecao.py`.
+- **O comentário do dia, de 10/2026 em diante (09/11/2026)**, três fontes, nesta ordem:
+  - **As usinas ASSISTIDAS levam o comentário do BD_Thopen** (Levi: "Para as usinas assistidas tem que puxar os
+    comentários conforme BD_Thopen, os comentários a parte são só para o resto"; a lista é a de 06/11, as dez da exceção,
+    `disp_comentarios.ASSISTIDAS`), qualquer que seja a conta do número: Aruanã, Lyon, Sapopema e Segredo seguem o
+    número das OS (ou o da exceção) com o comentário do BD (`fonte_disp` = "bd_comentarios").
+  - **As outras, o relato do COS**: o Nexus monta o comentário de cada usina × dia para o cliente
+    (`nexus_cos_normalizacoes` · `fato_comentario_dia`, `relato_do_dia`, uma linha por parada, sem o texto livre do
+    time); o `fonte_operacao` lê só `usina_id`, `dia` e o relato, e o `operacao_mes.cos_por_dia` liga pelo de-para. Vence
+    a frase seca das OS no mesmo dia; o dia sem relato fica com a das OS (Levi: "Os dados das normalizações ainda não
+    subiram no dashboard thopen").
+  - **O dia abaixo de 100% sem detalhe nenhum não vira linha** (Levi: "Indisponibilidade registrada sem o detalhe da
+    parada." não deve aparecer, e a lista desses dias vai ao COS): nem na tabela de Comentários, nem na frase dos dias
+    ocultos (dizer que "não teve parada" seria falso), e a célula fica vazia na tabelinha da Disponibilidade.
+  Prova: `tests/test_thopen_comentarios_cos.py`.
 
 ## Dados
 

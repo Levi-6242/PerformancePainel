@@ -27,7 +27,7 @@ COOLDOWN = 60                                                 # s sem tentar de 
 CACHE = os.environ.get("THOPEN_OPERACAO_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cache_operacao.json.gz")
 SISTEMA_5080 = "BD_Thopen · Dados Gerais Usinas"
-VERSAO_CACHE = 12       # 30/10/2026: as cabines do Nexus (a fração da cabine nos comentários do BD_Thopen)
+VERSAO_CACHE = 13       # 09/11/2026: o comentário do dia do COS (fato_comentario_dia)
 # (workbook, aba) → (chave em `dados`, campos que ficam)
 ABAS = {
     ("falhas_performance", "strings_episodios"): ("strings_episodios",
@@ -80,6 +80,10 @@ ABAS = {
     # as cabines de cada usina no cadastro de equipamentos do Nexus (30/10/2026): o "desligamento de cabine" do comentário
     # do BD_Thopen conta 1 ÷ nº de cabines da usina (disp_comentarios.py)
     ("nexus_estrutura_usina", "dim_cabine"): ("dim_cabine", ("usina_id", "nome", "potencia_kwp", "excluido")),
+    # o comentário de cada dia que o COS escreve para o cliente (09/11/2026, Levi: "Os dados das normalizações ainda não
+    # subiram no dashboard thopen"): o Nexus monta o relato da Ronda COS por usina × dia (regras fixas, sem o texto livre
+    # do time; nexus/cos/normalizacoes_banco.comentarios_do_dia) e o 5080 só mostra (operacao_mes.cos_por_dia)
+    ("nexus_cos_normalizacoes", "fato_comentario_dia"): ("comentario_cos_dia", ("usina_id", "dia", "relato_do_dia")),
 }
 _lock = threading.Lock()
 _estado = {"dados": None, "ts": 0.0, "erro": None, "carregando": False, "proxima": 0.0, "disco_lido": False}

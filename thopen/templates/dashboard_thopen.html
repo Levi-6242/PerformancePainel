@@ -1419,8 +1419,11 @@ function _cmtPorDia(tbl, usina, ano, mes, d, op){
   const com={};
   // 30/10/2026: a usina que segue os comentários do BD_Thopen mostra todo dia com comentário, mesmo em 100%
   const bd=op.fonte_disp==='bd_comentarios';
+  // 09/11/2026 (Levi: o "Indisponibilidade registrada sem o detalhe da parada." não deve aparecer): o dia abaixo de 100%
+  // sem o detalhe da parada não vira linha; a lista desses dias vai ao COS
   Object.keys(pd).forEach(n=>{ const r=pd[n]; if(r.disp==null||(r.disp>=100&&!(bd&&r.os&&r.os.length))) return;
-    com[n]=r.os==null?_CMT_SEM_PUB:(r.os.length?r.os.join('\n'):'Indisponibilidade registrada sem o detalhe da parada.'); });
+    if(r.os!=null&&!r.os.length) return;
+    com[n]=r.os==null?_CMT_SEM_PUB:r.os.join('\n'); });
   // rodada 5 (Levi, 13/10/2026): Usina | Data | Comentário | Disponibilidade — uma linha por dia abaixo de 100%. Ronda,
   // trackers e strings ficam na tabela ao lado
   const dias=Object.keys(com).map(Number).sort((a,b)=>a-b);
@@ -1505,8 +1508,11 @@ function _cmtNada(dias, pd, op, ano, mes, tipo){
   const comDisp=Object.keys(pd).filter(n=>pd[n].disp!=null).map(Number);
   const ate=comDisp.length?Math.max(...comDisp)
     :(op.parcial_ate?parseInt(op.parcial_ate,10)-1:new Date(ano,mes,0).getDate());
+  // o dia abaixo de 100% sem o detalhe da parada (09/11/2026) também fica fora da frase: dizer que "não teve parada"
+  // seria falso
+  const semDetalhe=n=>tipo==='cmt'&&pd[n]&&pd[n].disp!=null&&pd[n].disp<100&&pd[n].os&&!pd[n].os.length;
   const vistos=new Set(dias), ocultos=[];
-  for(let n=1;n<=ate;n++) if(!vistos.has(n)) ocultos.push(n);
+  for(let n=1;n<=ate;n++) if(!vistos.has(n)&&!semDetalhe(n)) ocultos.push(n);
   if(!ocultos.length) return '';
   const lista=_cmtFaixas(ocultos)+'/'+String(mes).padStart(2,'0'), um=ocultos.length===1;
   const ini=um?`O dia ${lista} não aparece na tabela porque não teve `:`Os dias ${lista} não aparecem na tabela porque não tiveram `;
@@ -2017,15 +2023,14 @@ function abrirDisponibilidade(){
   let h='<table class="geral dp-tab"><thead><tr><th>Data</th><th>Disponibilidade</th><th>Comentário</th></tr></thead><tbody>';
   for(let n=1;n<=ult;n++){
     const r=pd[n]||{}, v=r.disp, baixo=v!=null&&v<100;
-    const com=!baixo?'':(r.os==null?_CMT_SEM_PUB
-      :(r.os.length?r.os.map(_opEsc).join('<br>'):'Indisponibilidade registrada sem o detalhe da parada.'));
+    const com=!baixo?'':(r.os==null?_CMT_SEM_PUB:r.os.map(_opEsc).join('<br>'));
     h+=`<tr><td>${String(n).padStart(2,'0')}/${mm}</td><td class="dp-v${v!=null&&v<99?' baixa':''}">${pc(v)}</td>`
       +`<td class="dp-com">${com}</td></tr>`;
   }
   // a média com 2 casas, como o valor do card (94,66%, não 94,7%)
   const media=o.d.disponibilidade==null?'—':o.d.disponibilidade.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
   h+=`<tr class="tot"><td>Média do mês</td><td>${media}</td><td class="dp-com">`
-    +`Média dos dias, pelas paradas registradas (horas paradas de 06h a 18h, pela potência)</td></tr></tbody></table>`;
+    +`Média dos dias, pelas paradas registradas (horas paradas de 07h30 a 17h30, pela potência)</td></tr></tbody></table>`;
   $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}`;
   $('dpCorpo').innerHTML=h;
   $('dpFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('dpX').focus();

@@ -1899,11 +1899,16 @@ def api_operacao():
         r["motivo"] = "desligado"
         return jsonify(r)
     dados = _op_dados()
-    bd = _disp_bd(usina, ano, mes) if _pelo_bd(usina, ano, mes) else None
+    pelo_bd = _pelo_bd(usina, ano, mes)
+    # a usina assistida (09/11/2026) tem o comentário do BD_Thopen mesmo quando o número é o das OS
+    assistida = usina in disp_comentarios.ASSISTIDAS and _so_os_fracttal(ano, mes)
+    bd = _disp_bd(usina, ano, mes) if (pelo_bd or assistida) else None
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
-    # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (as OS ou o BD)
-    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=_disp_excecao(usina, ano, mes),
-                              **_da_parte(usina))
+    # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (o COS, as OS ou o BD)
+    disp = _disp_excecao(usina, ano, mes)
+    if disp is None and bd is not None and not pelo_bd and dados is not None:
+        disp = operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))   # o número segue o das OS
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp, **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None

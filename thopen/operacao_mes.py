@@ -622,6 +622,24 @@ def os_por_dia(dados, nome, ano, mes, trips=None, pot_kwp=None):
     return dict(out)
 
 
+def cos_por_dia(dados, nome, ano, mes):
+    """{dia: [linhas do relato]} do comentário que o COS escreveu para o cliente (fato_comentario_dia do Nexus, 09/11/2026:
+    "Eu só preciso que os comentários cheguem ao cliente pra explicar corretamente porque a disponibilidade está baixa
+    naquele dia"). Pelo usina_id do de-para (Primavera junta as duas; várias paradas no dia, uma por linha, na ordem do
+    COS). {} sem relato."""
+    ids = ids_da_usina((dados or {}).get("de_para") or [], nome)
+    out = defaultdict(list)
+    for r in (dados or {}).get("comentario_cos_dia") or []:
+        d = _no_mes(r.get("dia"), ano, mes)
+        if not d or _int(r.get("usina_id")) not in ids:
+            continue
+        for linha in str(r.get("relato_do_dia") or "").splitlines():
+            linha = linha.strip()
+            if linha and linha not in out[d]:
+                out[d].append(linha)
+    return dict(out)
+
+
 def ronda_por_dia(rondas, ids, ano, mes):
     """{dia: {sujidade, vegetacao}} — a última ronda de cada dia (Brasília) com algum nível lido, para o comentário do
     dia ("Ronda realizada: vegetação nível 3 e sujidade nível 4", Levi 09/10/2026)."""
@@ -768,7 +786,8 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
     {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026). `pot_kwp`: a
     potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026). `disp` = {dia: disp %}
-    por exceção (disp_excecao, 06/11/2026): troca só o número do dia; o comentário segue o das OS ou o do BD."""
+    por exceção (disp_excecao, 06/11/2026): troca só o número do dia; o comentário segue o das OS ou o do BD. Sem o
+    `bd`, o comentário do dia é o relato do COS (cos_por_dia, 09/11/2026) e, no dia sem relato, a frase das OS."""
     r = dict.fromkeys(CHAVES)
     r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
@@ -803,9 +822,16 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
         r["zeladoria"] = dict(SEM_CADASTRO)
     # rodada 4: Disp (%) e a ronda do dia na tabela; a disponibilidade do mês é a média dos dias — a mesma conta do
     # Gerencial (HORAS_SOL por dia, 10 h desde 05/11/2026: 100·(1 − Σh/10n) é a média dos dias)
-    dsp = disp if disp else (disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0])
+    dsp = disp if disp is not None else (disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0])
+    if bd is None:
+        # o relato do COS vence a frase seca das OS no mesmo dia (09/11/2026)
+        osd, cos = os_por_dia(dados, nome, ano, mes, trips, pot_kwp), cos_por_dia(dados, nome, ano, mes)
+        if cos:
+            osd = {**(osd or {}), **cos}
+    else:
+        osd = bd[1]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
-                               r["trackers"], os_por_dia(dados, nome, ano, mes, trips, pot_kwp) if bd is None else bd[1])
+                               r["trackers"], osd)
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
     if bd is not None:
         # o comentário da equipe vai também no dia que ficou em 100% (a falha de comunicação, que não conta)

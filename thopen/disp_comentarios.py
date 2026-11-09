@@ -28,6 +28,11 @@ from datetime import date, datetime, timedelta
 # Aruanã, Sapopema e Segredo saíram no mesmo dia (Levi: "Passam para o COS"): o COS registrou os desligamentos delas, e
 # elas seguem a régua do COS na plataforma
 USINAS = frozenset({"Rondonópolis", "AP. do Taboado", "Areia Branca", "Monte Aprazível", "Nova Iguaçu", "Cambé"})
+# as usinas ASSISTIDAS: o comentário do dia é o do BD_Thopen, qualquer que seja a conta da disponibilidade (Levi,
+# 09/11/2026: "Para as usinas assistidas tem que puxar os comentários conforme BD_Thopen, os comentários a parte são só
+# para o resto", com a lista de 06/11: as Sol Maior GD I a V são a Lyon, as Segredo 1.1 a 1.5 a Segredo). As outras
+# seguem o relato do COS e as OS. Contém as USINAS (que seguem o BD também no número)
+ASSISTIDAS = USINAS | frozenset({"Aruanã", "Lyon", "Sapopema", "Segredo"})
 # o período solar da Thopen, em horas decimais (Levi, 05/11/2026: "na verdade será das 07:30 as 17:30"), o mesmo da
 # plataforma (disponibilidade.JANELA_POR_CLIENTE) e do operacao_mes.HORAS_SOL
 SOL_INI_H, SOL_FIM_H = 7.5, 17.5

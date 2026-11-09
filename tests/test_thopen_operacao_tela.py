@@ -423,7 +423,9 @@ def test_comentario_de_outubro_em_diante_e_so_das_os_do_fracttal():
     # disponibilidade!"): o dia abaixo de 100% leva só as OS que formaram a disponibilidade dele (por_dia[].os, a
     # parcela de cada OS na conta do Gerencial); a linha da OS não tem mais estilo próprio
     n = corpo("_cmtPorDia")
-    assert "com[n]=r.os==null?_CMT_SEM_PUB:(r.os.length?r.os.join(" in n
+    assert "com[n]=r.os==null?_CMT_SEM_PUB:r.os.join(" in n
+    # 09/11/2026: o dia abaixo de 100% sem o detalhe da parada não vira linha (a lista vai ao COS)
+    assert "if(r.os!=null&&!r.os.length) return;" in n and "'Indisponibilidade registrada sem o detalhe da parada.'" not in T
     assert "doOS" not in T and "cmt-os" not in T and '<div class="cmt-an">${_opEsc(x)}</div>' in n
     assert "O registro das paradas deste dia ainda não foi publicado." in T      # os null: a parcela não chegou
     # a usina sem a disponibilidade do Gerencial não ganha um "100%" inventado; o card carregando também não
