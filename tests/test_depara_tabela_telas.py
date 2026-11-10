@@ -228,7 +228,8 @@ def test_a_tabela_abre_com_as_sugestoes_o_kwp_e_a_regra_do_registro(tmp_path):
         conta: h.includes('2.596,0 kWp ÷ 152 strings corretas'), tracejado: (h.match(/class="cel j-at sug/g) || []).length,
         lazy: (h.match(/data-lazy="reg"/g) || []).length, opcoesReg: (h.match(/<option value="9\\d"/g) || []).length,
         pend3: h.includes('falta a chave do cadastro'), conf: (h.match(/data-acao="conf"/g) || []).length};""", tmp_path)
-    assert r["linhas"] == 20 and r["grupos"] == 4 and r["col"] == 9          # uma linha por inversor, agrupada por usina
+    # uma linha por inversor, agrupada por usina; 10 colunas desde 10/11/2026 (o Supervisório numa coluna própria)
+    assert r["linhas"] == 20 and r["grupos"] == 4 and r["col"] == 10
     assert r["itaja"] and r["pharma"] and r["conta"]
     assert r["tracejado"] == 20                                                # tudo é sugestão até alguém conferir
     # as listas grandes ficam com uma opção só até a pessoa abrir (a `pv` tem 840 inversores)
@@ -273,6 +274,38 @@ def test_o_mesmo_codigo_em_dois_inversores_e_pendencia(tmp_path):
     assert r["nexus"] == "já está no Inversor 9.9 (Outra) no Nexus" and r["livre"] == ""
 
 
+def test_supervisorio_em_coluna_propria_inversor_digitavel_e_desconsiderar_o_repetido(tmp_path):
+    """Levi, 10/11/2026, no print da Nova Londrina 1 (dois "INVERSOR02" na fonte): "quando repete o inversor é pq muitas
+    vezes foi substituído, tem que ter o botão 'desconsiderar o equipamento'"; "Tire essas setas de cima e baixo para as
+    strings"; "A coluna do nome do inversor do supervisório tem que ter uma coluna própria aí a coluna inversor é
+    digitável, pode até vir preenchida mas deve dar para editar!"."""
+    r = _node("""F.linhas[0].inv_resumo.push({id: 998, nome_api: 'INVERSOR02', nome: 'INVERSOR02', ativas: 0, total: 0, esp: null, sem_visao: false});
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      const out = {};
+      const h = inst.html();
+      out.cab = h.split('<thead>')[1].split('</thead>')[0].match(/<th[^>]*>([^<]*)/g).slice(0, 3).map(x => x.replace(/<th[^>]*>/, ''));
+      out.semSetas = !/j-str[^>]*type="number"/.test(h) && /j-str[^>]*inputmode="numeric"/.test(h);
+      out.nomeDigitavel = /class="cel j-nome[^"]*" type="text"/.test(h);
+      const tr = k => h.split('data-k="' + k + '"')[1].split('</tr>')[0];
+      out.btnRepetido = tr('18749574|998').includes('desconsiderar o equipamento');
+      out.btnUnico = tr('18749574|365251').includes('desconsiderar o equipamento');
+      inst.deixarDeFora('18749574|998', true);
+      await inst.mudar('18749574|365249', 'j-nome', '  Inversor 1.1 novo ');
+      await inst.mudar('18749574|365250', 'j-str', '12');
+      ['365249', '365250', '365247', '365251'].forEach(id => inst.conferir('18749574|' + id, true));
+      await inst.salvar();
+      const it = PEDIDOS.find(p => p.url.endsWith('/salvar')).body.itens.find(i => i.usina_supervisorio === 'Itaja 1 (551)');
+      out.nomes = it.inversores.map(i => i.nome);
+      out.strings = it.inversores.map(i => i.strings);
+      out.enviados = it.inversores.map(i => i.equipamento_supervisorio);
+      return out;""", tmp_path)
+    assert r["cab"] == ["Supervisório", "Inversor", "Com corrente agora"]
+    assert r["semSetas"] and r["nomeDigitavel"]
+    assert r["btnRepetido"] and not r["btnUnico"]          # só onde o equipamento repete na fonte
+    assert "Inversor 1.1 novo" in r["nomes"] and 12 in r["strings"]
+    assert r["enviados"].count("INVERSOR02") == 1         # o repetido desconsiderado não vai
+
+
 def test_o_inversor_trocado_fica_de_fora_e_a_usina_salva(tmp_path):
     """A API PV ainda lista o inversor trocado ("INVERSOR 2.1 (old)", "INVERSOR03-Cancelado"): os dois casam o mesmo ativo
     e a usina inteira ficava presa no "inversor repetido" (Embu Guaçu 2 e 3, Indaiatuba 2 e Junco 1 na bancada de
@@ -286,7 +319,7 @@ def test_o_inversor_trocado_fica_de_fora_e_a_usina_salva(tmp_path):
       out.depois = [inst.pendencia(18749574, 999), inst.pendencia(18749574, 365249)];
       ['365249', '365250', '365247', '365251'].forEach(id => inst.conferir('18749574|' + id, true));
       out.pronto = inst.pronto(18749574);
-      out.html = inst.html().includes('fica de fora');
+      out.html = inst.html().includes('desconsiderado');
       await inst.salvar();
       const it = PEDIDOS.find(p => p.url.endsWith('/salvar')).body.itens.find(i => i.usina_supervisorio === 'Itaja 1 (551)');
       out.enviados = it.inversores.map(i => i.equipamento_supervisorio);

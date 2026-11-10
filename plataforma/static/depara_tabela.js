@@ -458,6 +458,8 @@
 .gc-dp .dp-gp.red{color:var(--dp-red)}
 .gc-dp .dp-row td{padding:8px 7px;vertical-align:middle;text-align:center}
 .gc-dp .dp-row td.w-reg{min-width:160px}.gc-dp .dp-row td.w-uf{min-width:185px}.gc-dp .dp-row td.w-cab{min-width:105px}.gc-dp .dp-row td.w-at{min-width:125px}
+.gc-dp input.cel.j-nome{min-width:120px;text-align:left}.gc-dp input.cel.j-str{width:56px;text-align:center}
+.gc-dp .dp-sup{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px}
 .gc-dp .dp-row.fora td{opacity:.55}.gc-dp .dp-row.fora td:last-child{opacity:1}
 .gc-dp .dp-row:hover td{background:var(--dp-hover,color-mix(in srgb,#0a4f52 14%,transparent))}
 .gc-dp select.cel{text-align:center;text-align-last:center}
@@ -792,7 +794,7 @@
       if (!gs || !gb) return false;
       if (gs.reg !== gb.reg || nk(gs.chave) !== nk(gb.chave)) return true;
       return g.invs.some(inv => { const a = S.sel[k(g, inv)] || {}, b = S.base[k(g, inv)] || {};
-        return ['uf', 'cab', 'ativo', 'strings', 'conf', 'fora'].some(f => (a[f] == null || a[f] === false ? null : a[f]) !== (b[f] == null || b[f] === false ? null : b[f])); });
+        return ['uf', 'cab', 'ativo', 'strings', 'conf', 'fora', 'nome'].some(f => (a[f] == null || a[f] === false ? null : a[f]) !== (b[f] == null || b[f] === false ? null : b[f])); });
     }
     // o Equipamento Supervisório que vai no pedido: o do Nexus; o inversor que o Nexus achou pelo nome sem ter o dele (os 214
     // sem Equipamento Supervisório) leva o da fonte, e o Nexus o preenche
@@ -1083,7 +1085,7 @@
         + '<span><span class="amostra cheia"></span>cheio = conferido</span><span>A usina escolhida desce para as outras linhas da mesma usina da fonte. A cabine filtra pela usina do Fracttal e o inversor pela cabine. O kWp vem da usina do Registro mestre e é o que o Nexus vai gravar: a conta é a da usina inteira.</span></div>';
     }
     function colunas() {
-      return '<th style="padding-left:22px">Inversor</th><th>Com corrente agora</th><th>Strings corretas</th><th>Usina no Registro mestre</th><th>kWp do inversor</th><th>Usina no Fracttal</th><th>Cabine</th><th>Inversor no Fracttal</th><th style="padding-right:22px">Situação</th>';
+      return '<th style="padding-left:22px">Supervisório</th><th>Inversor</th><th>Com corrente agora</th><th>Strings corretas</th><th>Usina no Registro mestre</th><th>kWp do inversor</th><th>Usina no Fracttal</th><th>Cabine</th><th>Inversor no Fracttal</th><th style="padding-right:22px">Situação</th>';
     }
     function htmlFaixa(g) {
       const c = contaDo(g), gs = S.gsel[g.pid] || {};
@@ -1092,7 +1094,7 @@
       // as duas cópias do Registro diferentes (P-c): vale o do Nexus, que é quem grava
       const div = c && c.diverge ? `<span class="amb">a cópia do Registro desta tela diz ${c.kwpCopia ? kw(c.kwpCopia) + (c.kwpDeCopia === 'contratual' ? ' (contratual)' : '') : 'sem kWp'}; o Nexus grava com ${c.kwp ? kw(c.kwp) + (c.kwp_de === 'contratual' ? ' (contratual)' : '') : 'sem kWp'}: vale o do Nexus</span>` : '';
       // sem potência real nem contratual (D-c): o Nexus não mexe no kWp de ninguém, fica o de antes
-      if (!c || !c.kwp) return `<tr class="dp-faixa"><td colspan="9"><div class="kwp-faixa"><span class="uf">${nome}</span><span class="amb">sem potência real nem contratual no Registro mestre: o Nexus não mexe no kWp desta usina (fica o de antes em cada inversor e cabine)</span>${div}</div></td></tr>`;
+      if (!c || !c.kwp) return `<tr class="dp-faixa"><td colspan="10"><div class="kwp-faixa"><span class="uf">${nome}</span><span class="amb">sem potência real nem contratual no Registro mestre: o Nexus não mexe no kWp desta usina (fica o de antes em cada inversor e cabine)</span>${div}</div></td></tr>`;
       const ufA = S.ctx.arvores[ufDoGrupo(g)];
       // as cabines desta usina da fonte: a identidade da cabine no Nexus (a CABN do pedido cai na "UG NN" da aba de mesmo número)
       const idents = [...new Set(g.invs.map(inv => { const s = S.sel[k(g, inv)] || {}; return !s.fora && s.cab && s.cab !== '-' ? cabIdent(est, s.cab) : ''; }).filter(Boolean))];
@@ -1101,7 +1103,7 @@
       const conta = c.erro ? `<span class="red">${esc(c.erro)}</span>`
         : c.fixo > 0 ? `<span class="conta">(${kw(c.kwp)} − ${kw(c.fixo)} dos ${c.semStrings} sem strings corretas, que ficam com o kWp de antes) ÷ ${nf.format(c.total)} strings corretas = <b>${kw(c.por, 3)}</b> kWp por string</span>`
           : `<span class="conta">${kw(c.kwp)} ÷ ${nf.format(c.total)} strings corretas = <b>${kw(c.por, 3)}</b> kWp por string</span>${c.semStrings ? `<span class="amb">${c.semStrings} inversor(es) sem strings corretas e sem kWp de antes: ficam sem kWp</span>` : ''}`;
-      return `<tr class="dp-faixa"><td colspan="9"><div class="kwp-faixa"><span class="uf">${nome}</span><span class="mono">${esc(est.codigo || r.codigo || '')}</span>
+      return `<tr class="dp-faixa"><td colspan="10"><div class="kwp-faixa"><span class="uf">${nome}</span><span class="mono">${esc(est.codigo || r.codigo || '')}</span>
         <span>Registro mestre <b>${kw(c.kwp)}</b>${c.kwp_de === 'contratual' ? ' <span class="amb">(contratual: sem a potência real)</span>' : ''}</span>
         ${conta}
         ${cabs.map(([rot, x]) => `<span class="cab">${esc(rot)} <b>${kw(x.kwp)}</b> <span>${x.n} inv. · ${x.strings} strings</span></span>`).join('')}
@@ -1148,7 +1150,7 @@
       const opc = '<option value="">Escolha a chave</option>' + opcoesDeChave(g).map(([c, nota]) => `<option value="${esc(c)}"${nk(c) === nk(gs.chave) ? ' selected' : ''}>${esc(c)}${esc(nota)}</option>`).join('');
       const pend = pendenciasTela(g), sl = g.invs.length - lid.length, pp = precisaPonte(g);
       const avs = S.avisosG[g.pid] || [];
-      return `<tr class="dp-grupo" data-g="${esc(g.pid)}"><td colspan="9"><div class="dp-gl"><b>${esc(g.usina)}</b>
+      return `<tr class="dp-grupo" data-g="${esc(g.pid)}"><td colspan="10"><div class="dp-gl"><b>${esc(g.usina)}</b>
         <label class="dp-ch">chave do cadastro <select class="cel j-chave${gs.chaveSug && gs.chave ? ' sug' : ''}${gs.chave ? '' : ' falta'}" data-g="${esc(g.pid)}" aria-label="Chave do cadastro de ${esc(g.usina)}">${opc}</select></label>
         <span>plant ${esc(g.plant_id)}${g.nome_api && g.nome_api !== g.usina ? ` · a API escreve “${esc(g.nome_api)}”` : ''} · ${lid.length} inversores na fonte${sl ? ` · ${sl} do cadastro sem leitura agora` : ''} · ${sv ? 'sem visão por string (as strings corretas vêm do cadastro)' : nf.format(g.strings_ativas || 0) + ' strings com corrente agora'}</span>
         ${pend.map(p => `<span class="dp-gp${/também está|é de |recusa/.test(p) ? ' red' : ''}">${esc(p)}</span>`).join('')}
@@ -1162,11 +1164,15 @@
       const key = k(g, inv), s = S.sel[key] || {}, gs = S.gsel[g.pid] || {}, a = S.ctx.arvores[s.uf], u = S.ctx.ufPor[s.uf];
       const pend = pendencia(g, inv), sug = s.conf ? '' : ' sug', nx = invNexus(S.ctx, gs.chave, inv);
       const btnConf = `<button type="button" class="btn-conf" data-acao="conf"><svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Conferido</button>`;
-      const situ = s.fora ? `<span class="st sug">${inv.sem_leitura ? 'sem leitura agora: fica como está' : 'fica de fora'}</span> <button type="button" class="btn-conf desfaz" data-acao="volta" title="${inv.sem_leitura ? 'Mandar este inversor no de-para com o que estiver na linha' : 'Ligar este inversor de novo'}">${inv.sem_leitura ? 'incluir' : 'desfazer'}</button>`
-        : soConferir(pend) ? `<span class="st amb">${esc(pend)}</span> ${btnConf}`
-          : pend ? `<span class="st ${/repetido|já está|não casa com o cadastro/.test(pend) ? 'red' : 'amb'}">${esc(pend)}</span> <button type="button" class="btn-conf desfaz" data-acao="fora" title="O inversor não vai neste de-para (o trocado que a fonte ainda lista: “(old)”, “Cancelado”); o Nexus não mexe nele">deixar de fora</button>`
-            : s.conf ? `<span class="st ok">conferido</span> <button type="button" class="btn-conf desfaz" data-acao="desfaz" title="Voltar a sugestão">desfazer</button>`
-              : btnConf;
+      // o mesmo inversor duas vezes na fonte (o substituído que ela ainda lista: a Nova Londrina 1 tem dois "INVERSOR02"):
+      // o botão de desconsiderar aparece em cada um, com ou sem pendência
+      const repete = !s.fora && g.invs.filter(o => chaveEquip(o.nome_api || o.nome) === chaveEquip(inv.nome_api || inv.nome)).length > 1;
+      const btnDesc = `<button type="button" class="btn-conf desfaz" data-acao="fora" title="Equipamento repetido na fonte (o substituído que ela ainda lista): este não vai no de-para e o Nexus não mexe nele">desconsiderar o equipamento</button>`;
+      const situ = s.fora ? `<span class="st sug">${inv.sem_leitura ? 'sem leitura agora: fica como está' : 'desconsiderado'}</span> <button type="button" class="btn-conf desfaz" data-acao="volta" title="${inv.sem_leitura ? 'Mandar este inversor no de-para com o que estiver na linha' : 'Ligar este inversor de novo'}">${inv.sem_leitura ? 'incluir' : 'desfazer'}</button>`
+        : soConferir(pend) ? `<span class="st amb">${esc(pend)}</span> ${btnConf}${repete ? ' ' + btnDesc : ''}`
+          : pend ? `<span class="st ${/repetido|já está|não casa com o cadastro/.test(pend) ? 'red' : 'amb'}">${esc(pend)}</span> <button type="button" class="btn-conf desfaz" data-acao="fora" title="O inversor não vai neste de-para (o trocado que a fonte ainda lista: “(old)”, “Cancelado”); o Nexus não mexe nele">desconsiderar o equipamento</button>`
+            : s.conf ? `<span class="st ok">conferido</span> <button type="button" class="btn-conf desfaz" data-acao="desfaz" title="Voltar a sugestão">desfazer</button>${repete ? ' ' + btnDesc : ''}`
+              : btnConf + (repete ? ' ' + btnDesc : '');
       // depois de ligado, o inversor aparece com o nome do Fracttal (Levi, 20/10: "Após ligar o de-para o nome do inversor
       // que aparece é o inversor no fractall"); o da fonte fica embaixo, pequeno
       const ligado = s.salvo && s.ativo && !(mx === undefined ? mexido(g) : mx) ? rotuloInversor(s.ativo) : '';
@@ -1191,15 +1197,23 @@
       const lendo = s.uf && !a;
       const dica = cad ? 'cadastro ' + cad : s.strDe === 'leitura' ? 'da leitura de agora' : 'sem cadastro';
       return `<tr class="dp-row${s.fora ? ' fora' : ''}" data-k="${esc(key)}" data-g="${esc(g.pid)}">
-        <td style="padding-left:22px"><span class="dp-inv">${esc(ligado || inv.nome || inv.nome_api)}<small>${ligado ? 'na fonte ' + esc([inv.nome_api, inv.nome].find(n => n && n !== ligado) || inv.nome_api || inv.nome) : inv.sem_leitura ? 'do cadastro · ' + esc(inv.nome_api) : 'id ' + esc(inv.id) + (inv.nome_api && inv.nome_api !== inv.nome ? ' · ' + esc(inv.nome_api) : '')}</small></span></td>
+        <td style="padding-left:22px"><span class="dp-inv dp-sup">${esc(inv.nome_api || inv.esup || '—')}<small>${inv.sem_leitura ? 'do cadastro, sem leitura agora' : 'id ' + esc(inv.id)}</small></span></td>
+        <td><input class="cel j-nome${s.nome != null ? '' : ' sug'}" type="text" value="${esc(nomeDaLinha(g, inv, s, ligado))}" aria-label="Nome do inversor" title="O nome do inversor no cadastro: vem preenchido, e dá para editar"><span class="dp-hint">${ligado ? 'no Fracttal: ' + esc(ligado) : ''}</span></td>
         <td style="white-space:nowrap;color:var(--color-neutral-300,#c3cad7);font-variant-numeric:tabular-nums">${corrente}</td>
-        <td><input class="cel j-str${sug}${s.strings > 0 ? '' : ' falta'}" type="number" min="1" max="99" value="${s.strings == null ? '' : esc(s.strings)}" aria-label="Strings corretas"><span class="dp-hint${(cad && cad !== s.strings) || s.strDe === 'leitura' ? ' amb' : ''}">${dica}</span></td>
+        <td><input class="cel j-str${sug}${s.strings > 0 ? '' : ' falta'}" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="${s.strings == null ? '' : esc(s.strings)}" aria-label="Strings corretas"><span class="dp-hint${(cad && cad !== s.strings) || s.strDe === 'leitura' ? ' amb' : ''}">${dica}</span></td>
         <td class="w-reg">${lazySelect('j-reg' + (gs.regSug ? ' sug' : '') + (gs.reg ? '' : ' falta'), 'reg', gs.reg || '', gs.reg ? rotuloReg(r) : 'Escolha', ` aria-label="Usina no Registro mestre" title="${esc(r ? rotuloReg(r) : '')}"`)}</td>
         <td><span class="dp-kwp">${kwpTxt}</span></td>
         <td class="w-uf">${lazySelect('j-uf' + sug + (s.uf ? '' : ' falta'), 'uf', s.uf || '', s.uf ? rotuloUF(u || {nome: s.uf, codigo: s.uf}) : 'Escolha a usina', ` aria-label="Usina no Fracttal" title="${esc(u ? u.nome + ' · ' + u.codigo : s.uf || '')}"`)}</td>
         <td class="w-cab"><select class="cel j-cab${sug}${s.cab ? '' : ' falta'}" aria-label="Cabine"${a ? '' : ' disabled'}><option value="">${a ? 'Escolha' : lendo ? 'lendo…' : '—'}</option>${cabs.map(x => `<option value="${esc(x.codigo)}"${x.codigo === s.cab ? ' selected' : ''}>${esc(x.nome)}</option>`).join('')}</select>${a && a.erro ? `<span class="dp-hint amb" title="${esc(a.erro)}">árvore não veio</span>` : ''}</td>
         <td class="w-at"><select class="cel j-at${sug}${s.ativo ? '' : ' falta'}" aria-label="Inversor no Fracttal"${s.cab ? '' : ' disabled'}><option value="">${s.cab ? (ativos.length ? 'Escolha' : 'sem inversor nesta cabine') : '—'}</option>${ativos.map(i => `<option value="${esc(i.codigo)}"${i.codigo === s.ativo ? ' selected' : ''}>${esc(i.nome)}</option>`).join('')}</select><span class="dp-hint">${s.ativo ? esc(s.ativo) : ''}</span></td>
         <td class="situ" style="padding-right:18px;max-width:170px">${situ}</td></tr>`;
+    }
+    // o nome do inversor da linha (Levi, 10/11/2026: "a coluna inversor é digitável, pode até vir preenchida mas deve dar
+    // para editar"): o digitado na tela vence; sem ele, o do cadastro (o que o Salvar já mandava), o do Fracttal ligado, o
+    // que a fonte chama de inversor
+    function nomeDaLinha(g, inv, s, ligado) {
+      if (s && s.nome != null) return s.nome;
+      return nomeDoCadastro(S.ctx, (S.gsel[g.pid] || {}).chave, inv) || ligado || (inv.nome && inv.nome !== inv.nome_api ? inv.nome : '') || '';
     }
     function htmlCorpoGrupo(g) { const mx = mexido(g); return htmlCabecalhoGrupo(g) + htmlFaixa(g) + g.invs.map(inv => htmlLinha(g, inv, mx)).join(''); }
     // um <tbody> por usina da fonte: a mudança numa usina redesenha só ela e as que a conta ou o código alcançam
@@ -1415,7 +1429,8 @@
       if (cls === 'j-reg') return aplicaReg(g, valor ? +valor : null, antes);
       if (cls === 'j-cab') { s.cab = valor; s.ativo = ''; }
       if (cls === 'j-at') s.ativo = valor;
-      if (cls === 'j-str') { s.strings = valor === '' || valor == null ? null : +valor; s.strDe = 'tela'; }
+      if (cls === 'j-str') { s.strings = valor === '' || valor == null ? null : +String(valor).replace(/\D/g, '') || null; s.strDe = 'tela'; }
+      if (cls === 'j-nome') { const v = String(valor || '').trim(); s.nome = v || null; }
       desenhar(alcance(g, antes));
     }
     function conferir(key, conf) {
@@ -1511,7 +1526,8 @@
           if (s.fora) return;
           // o `nome` do cadastro (P-i): o inversor que o Nexus cria nasce com o "Equipamento" da aba, a coluna do BD (a
           // decisão 5); vazio, o Nexus usa o da aba para a (chave, Equipamento Supervisório) e só então o do código
-          it.inversores.push({equipamento_supervisorio: esupDe(g, inv, gs.chave), nome: nomeDoCadastro(S.ctx, gs.chave, inv),
+          it.inversores.push({equipamento_supervisorio: esupDe(g, inv, gs.chave),
+            nome: s.nome != null ? s.nome : nomeDoCadastro(S.ctx, gs.chave, inv),
             strings: +s.strings, cabine_codigo_fracttal: s.cab && s.cab !== '-' ? s.cab : '', codigo_fracttal: s.ativo,
             conferido: !!s.conf}); });
       });

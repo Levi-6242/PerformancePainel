@@ -1139,6 +1139,17 @@ ao kWp da string das Falhas. Agora o `pd.read_excel(... "Equipamentos")` mora s�
 
 ## Modo de-para (20/10/2026)
 
+- **10/11/2026, três pedidos do Levi no print da Nova Londrina 1** (`static/depara_tabela.js`, prova em
+  `tests/test_depara_tabela_telas.py::test_supervisorio_em_coluna_propria_inversor_digitavel_e_desconsiderar_o_repetido`):
+  (1) "quando repete o inversor é pq muitas vezes foi substituído, tem que ter o botão 'desconsiderar o equipamento'": o
+  equipamento que repete na fonte (mesmo nome do supervisório, como os dois "INVERSOR02") ganha o botão em cada linha,
+  com ou sem pendência; é o antigo "deixar de fora" (não vai no pedido, o Nexus não mexe nele), agora com esse nome e a
+  situação "desconsiderado". (2) "Tire essas setas de cima e baixo para as strings": o campo virou texto numérico
+  (`inputmode="numeric"`, 2 dígitos). (3) "A coluna do nome do inversor do supervisório tem que ter uma coluna própria aí
+  a coluna inversor é digitável": a 1ª coluna é o Supervisório (o nome que a fonte manda e o id), a 2ª é o Inversor,
+  campo de texto que vem preenchido (o do cadastro, senão o do Fracttal ligado) e vai no Salvar como `nome` quando
+  editado (`s.nome`, também conta como mexido). A tabela tem 10 colunas.
+
 Levi, com o protótipo aprovado: "Boa, é isso mesmo. Implementa no tempo real e adapta na base o de-para para ficar nesse
 padrão de tabela e apresentar uma usina por linha". No Tempo real (fontes da API PV, só admin) e na Base · De-para de
 equipamentos, a tela liga cada inversor da fonte ao ativo do Fracttal, à cabine (sempre a CABN: "foque em cabine") e à
