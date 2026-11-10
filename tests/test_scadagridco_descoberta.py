@@ -107,12 +107,12 @@ def test_o_worker_descobre_grava_e_o_web_le(monkeypatch):
     assert sorted(c["id"] for c in gravado["extras"]["greenyellow"]) == ["castelo_do_piaui", "cedro_1", "cedro_2"]
     monkeypatch.setattr(sg, "EXTRAS", {})                              # o processo web, que não descobriu nada
     monkeypatch.setitem(app._SG_EXTRAS_MEMO, "mtime", None)
-    assert [c["id"] for c in sg.usinas("greenyellow")] == ["dermeval_lobao", "irece_2", "castelo_do_piaui", "cedro_1", "cedro_2"]
+    assert [c["id"] for c in sg.usinas("greenyellow")] == ["dermeval_lobao", "irece_2", "macaiba", "castelo_do_piaui", "cedro_1", "cedro_2"]
     # sem token, API fora ou cadastro vazio: a lista de antes fica (nunca troca por vazia)
     monkeypatch.setattr(sg, "descobrir", lambda getter=None: (_ for _ in ()).throw(ConnectionError("fora")))
     monkeypatch.setitem(app._SG_EXTRAS_MEMO, "descoberto", 0.0)
     app._sg_descobre_se_preciso(agora=20_000.0)
-    assert len(sg.usinas("greenyellow")) == 5
+    assert len(sg.usinas("greenyellow")) == 6
 
 
 _descobrir_real = sg.descobrir

@@ -76,6 +76,10 @@ def _cadastro():
     cad[app._nrm("Cascavel (Sunpower)")] = {"Inversor 1.1": 5, "Inversor 1.2": 11, "Inversor 2.1": 9}
     ug = {1: 20, 2: 20, 3: 20, 4: 18, 5: 18, 6: 18, 7: 18, 8: 20, 9: 20, 10: 20}
     cad[app._nrm("Rio do Peixe I e II")] = {f"Inversor {g}.{i}": e for g in (1, 2) for i, e in ug.items()}
+    # Macaíba (GreenYellow), Gravatá II e Iramaia II (Apolo), 10/11/2026: 14 strings em cada inversor
+    cad[app._nrm("Macaiba 1")] = {f"Inversor 1.{i}": 14 for i in range(1, 9)} | {f"Inversor 2.{i}": 14 for i in range(1, 8)}
+    for u in ("Gravatá II", "Iramaia II"):
+        cad[app._nrm(u)] = {f"Inversor 1.{i}": 14 for i in range(1, 11)}
     return cad
 
 
@@ -89,6 +93,9 @@ def api(monkeypatch):
     for u, n in (("salvales", 10), ("carosa", 10), ("sunpower", 11), ("hortina", 10), ("vitesse", 10)):
         resp[f"/api/inversores/{u}"] = _modbus_fora(n)
     resp["/api/mqtt/rio_do_peixe_1_2"] = _rio_do_peixe()
+    resp["/api/mqtt/macaiba"] = _mqtt(15)
+    resp["/api/mqtt/gravata_ii_apolo"] = _mqtt(10)
+    resp["/api/mqtt/iramaia_ii_apolo"] = _mqtt(10)
 
     def get(rota, params=None, timeout=None):
         pedidos.append((rota, dict(params or {})))
@@ -121,7 +128,7 @@ def _linha(d, usina):
 
 def test_tabela_da_greenyellow(api):
     d = api.get("/api/greenyellow/data").get_json()
-    assert sorted(r["usina"] for r in d["rows"]) == ["Demerval Lobao", "Irece 2"]
+    assert sorted(r["usina"] for r in d["rows"]) == ["Demerval Lobao", "Irece 2", "Macaiba 1"]
     ir = _linha(d, "Irece 2")
     assert ir["plant_id"] == "irece_2" and ir["qtd_inversores"] == 10 and not ir["sem_dados"]
     # 10 × 14 esperadas; as entradas 15 a 28 do Huawei (sem string ligada) não contam como falta
@@ -154,7 +161,7 @@ def test_sem_token_a_tabela_diz_e_nao_quebra(api, monkeypatch):
 
 def test_uma_usina_por_vez_e_um_pedido_por_usina(api):
     api.get("/api/greenyellow/data")
-    assert [r for r, _p in api.pedidos] == ["/api/mqtt/dermeval_lobao", "/api/mqtt/irece_2"]
+    assert [r for r, _p in api.pedidos] == ["/api/mqtt/dermeval_lobao", "/api/mqtt/irece_2", "/api/mqtt/macaiba"]
 
 
 def test_drill_nomeia_pelo_de_para_e_mostra_so_as_ligadas(api):
@@ -223,7 +230,7 @@ def test_aba_de_falhas_recebe_a_curva_do_dia(api, monkeypatch):
         (fonte, pid, usina, sorted(curvas), k.get("ids"))))
     monkeypatch.setattr(app, "_falhas_sg_ult", {"final": None})
     n = app._falhas_sg_varre(datetime(2026, 10, 6, 10, 0))
-    assert n == 2 and [r[1] for r in reg] == ["dermeval_lobao", "irece_2"] and {r[0] for r in reg} == {"greenyellow"}
+    assert n == 3 and [r[1] for r in reg] == ["dermeval_lobao", "irece_2", "macaiba"] and {r[0] for r in reg} == {"greenyellow"}
     ir = next(r for r in reg if r[1] == "irece_2")
     assert ir[2] == "Irece 2" and len(ir[3]) == 10 and ir[4]["Inversor 1.4"] == "4"
     assert app._falhas_sg_varre(datetime(2026, 10, 6, 5, 0)) == 0            # de madrugada não pergunta
@@ -256,12 +263,13 @@ def test_apolo_tabela_da_rio_do_peixe_sem_a_copia_do_14(api):
     """20 inversores na linha (o 15 é cópia do 14 e fica de fora), as esperadas do cadastro (384) e diferença 0: pela
     ordem do cadastro o 18 (18 strings) virava o 2.8 (20 esperadas) e a linha acusava −2 que não existe."""
     d = api.get("/api/apolo/data").get_json()
-    assert [r["usina"] for r in d["rows"]] == ["Rio do Peixe I e II"]
-    r = d["rows"][0]
+    assert sorted(r["usina"] for r in d["rows"]) == ["Gravatá II", "Iramaia II", "Rio do Peixe I e II"]
+    r = _linha(d, "Rio do Peixe I e II")
     assert r["plant_id"] == "rio_do_peixe_1_2" and r["qtd_inversores"] == 20 and not r["sem_dados"]
     assert r["str_esp"] == 384 and r["strings_ativas"] == 384 and r["diferenca"] == 0
     assert r["temp_media"] == pytest.approx(40.0) and r["pot_inv_med"] == pytest.approx(252.0)
-    assert [p for p, _q in api.pedidos] == ["/api/mqtt/rio_do_peixe_1_2"]          # 1 pedido, a usina inteira
+    assert "/api/mqtt/rio_do_peixe_1_2" in [p for p, _q in api.pedidos]
+    assert len(api.pedidos) == 3                                                     # 1 pedido por usina inteira
 
 
 def test_apolo_drill_nomeia_pelo_de_para_e_acusa_a_string_morta(api, monkeypatch):
@@ -448,3 +456,19 @@ def test_trk_as_duas_fontes_na_entrada_e_no_worker():
     assert 'fontes_trk["GreenYellow"] = lambda: _sg_parados_rows("greenyellow")' in src
     assert '("GreenYellow trk", _gy_trk_cache,       _build_gy_trk_payload)' in src
     assert app._persist_registry()["gy_trk"] is app._gy_trk_cache and app._SG_TRK_CACHE["greenyellow"] is app._gy_trk_cache
+
+
+# ── 10/11/2026, Levi: "Usinas da Apolo no tempo real, na nossa API já temos Iramaia e Gravata, por gentileza inserir";
+#    "Em greenyellow também temos macaíba". A descoberta não as casava pelo nome ("Gravata II Apolo", "Iramaia II apolo",
+#    "Macaíba" no supervisório) e elas entraram na lista fixa com o de-para ────────────────────────────────────────────
+def test_gravata_iramaia_e_macaiba_no_tempo_real(api):
+    apo = api.get("/api/apolo/data").get_json()
+    for u, pid in (("Gravatá II", "gravata_ii_apolo"), ("Iramaia II", "iramaia_ii_apolo")):
+        r = _linha(apo, u)
+        assert r["plant_id"] == pid and r["qtd_inversores"] == 10 and not r["sem_dados"] and r["str_esp"] == 140
+    mac = _linha(api.get("/api/greenyellow/data").get_json(), "Macaiba 1")
+    assert mac["plant_id"] == "macaiba" and mac["qtd_inversores"] == 15 and mac["str_esp"] == 210 and mac["diferenca"] == 0
+    # o de-para: equipamento N = Inversor 1.N na Apolo; na Macaíba, 1 a 8 = UG 01 e 9 a 15 = UG 02
+    assert sg.usina_cfg("apolo", "gravata_ii_apolo")["inversores"]["10"] == "Inversor 1.10"
+    m = sg.usina_cfg("greenyellow", "macaiba")["inversores"]
+    assert m["8"] == "Inversor 1.8" and m["9"] == "Inversor 2.1" and m["15"] == "Inversor 2.7"

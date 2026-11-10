@@ -1809,6 +1809,15 @@ Levi: "OS para tempo real e histórico das UFVs da Green Yellow", "separe green 
 troca à Automação). Sem token ou com token errado a API responde **302 para o login**. Tudo da API mora em
 `scadagridco.py` (puro, menos o `get()`); o `app.py` tem a linha, o drill e a curva no bloco "scadaGridco".
 
+- **Gravatá II, Iramaia II (Apolo) e Macaíba (GreenYellow), 10/11/2026** (Levi: "Usinas da Apolo no tempo real, na nossa
+  API já temos Iramaia e Gravata, por gentileza inserir"; "Em greenyellow também temos macaíba"). A descoberta casa pelo
+  NOME e o supervisório escreve "Gravata II Apolo", "Iramaia II apolo" e "Macaíba", contra "Gravatá II", "Iramaia II" e
+  "Macaiba 1" no cadastro: nunca entravam. Agora estão na lista fixa do `scadagridco.py`, com o de-para: na Apolo,
+  equipamento N = Inversor 1.N (a numeração do SmartLogger, conferida contra o BD em outubro; o padrão das strings bate);
+  na Macaíba, PROVISÓRIO pela ordem (1 a 8 = UG 01, 9 a 15 = UG 02; todos com 14 strings). A Apolo não é controlada pela
+  tela Fontes do tempo real e entra sozinha; a GreenYellow é, e a Macaíba precisa do "incluir" lá. Os trackers delas
+  (Gravatá 48, Iramaia 45, Macaíba 90 tracker_ncu) vêm pela mesma rota dos trackers, sem código novo.
+
 - **Duas fontes, dois cards na Entrada** (`greenyellow`, `salenergia`; cliente da Info Geral "Greenyellow" e "Sal
   Energia"). Tabela, drill, Curva das strings (hoje e até 45 dias), CSV, rollup do macro e a aba de Falhas. Trackers da
   Castelo do Piauí e da Cedro desde 03/11/2026 (abaixo). Sem ETM (a Castelo do Piauí manda 1 `weather` e a Cedro 4, que

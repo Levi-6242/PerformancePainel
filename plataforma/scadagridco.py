@@ -60,6 +60,16 @@ FONTES = {
             # é ela que o coletor da GreenYellow grava desde 13/10 (coleta API PV/src/coletar_greenyellow.py).
             {"id": "irece_2", "usina": "Irece 2",
              "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
+            # Macaíba (10/11/2026, Levi: "Em greenyellow também temos macaíba"). A descoberta não a achava: o supervisório
+            # a chama "Macaíba" e o cadastro "Macaiba 1". 15 equipamentos inversor ("1" a "15", 24 entradas string_N_current,
+            # 14 com corrente cada) contra 15 no cadastro (1.1 a 1.8 na UG 01, 2.1 a 2.7 na UG 02, 14 strings todos).
+            # PROVISÓRIO, pela ORDEM: todos com as mesmas 14 strings, o padrão não separa; fechar pelo valor (a energia do
+            # dia de cada equipamento contra o kWh da aba) quando houver dia em comum.
+            {"id": "macaiba", "usina": "Macaiba 1",
+             "inversores": {**{str(i): f"Inversor 1.{i}" for i in range(1, 9)},
+                            **{str(e): f"Inversor 2.{n}" for n, e in enumerate(range(9, 16), start=1)}},
+             "provisorio": "Macaíba: de-para pela ordem (1 a 8 = UG 01, 9 a 15 = UG 02); todos com 14 strings, o padrão "
+                           "não separa; fechar pelo valor"},
         ],
     },
     "salenergia": {
@@ -93,6 +103,16 @@ FONTES = {
                                                                                start=1)}},
              "provisorio": "Rio do Peixe I e II: de-para pelo padrão das strings (20/18/20 por UG), sem dia em comum com "
                            "o BD para fechar pelo valor; o equipamento 15 do supervisório é cópia do 14 e fica de fora"},
+            # Gravatá II e Iramaia II (10/11/2026, Levi: "Usinas da Apolo no tempo real, na nossa API já temos Iramaia e
+            # Gravata, por gentileza inserir"). A descoberta não as achava pelo nome: o supervisório escreve "Gravata II
+            # Apolo" e "Iramaia II apolo". 10 equipamentos inversor cada ("1" a "10", 28 entradas string_N_current), sem
+            # estação. Equipamento N = Inversor 1.N: é a numeração do SmartLogger (InverterNN = 1.N, conferida contra o BD
+            # em 21 de 21 dias de outubro) e o padrão das strings com corrente bate com o cadastro (Gravatá 20/20/18/18/18/
+            # 18/20/20/20/20; Iramaia 18 em todos).
+            {"id": "gravata_ii_apolo", "usina": "Gravatá II",
+             "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
+            {"id": "iramaia_ii_apolo", "usina": "Iramaia II",
+             "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
         ],
     },
 }
