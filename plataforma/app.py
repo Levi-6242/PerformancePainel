@@ -1941,6 +1941,41 @@ def api_depara_decidir():
     return jsonify({"ok": True, "gravadas": len(novas), "total": total})
 
 
+# ── Equipamentos desconsiderados no de-para (10/11/2026) ─────────────────────────────────────────────────────────────
+#   Levi: "quando repete o inversor é pq muitas vezes foi substituído, tem que ter o botão 'desconsiderar o equipamento'"
+#   e depois "faça o desconsiderar ficar gravado". O substituído que a fonte ainda lista (a Nova Londrina 1 tem dois
+#   "INVERSOR02") volta toda vez que a tela abre; agora o desconsiderar fica no estado da plataforma, por fonte, usina e
+#   id do inversor NA FONTE (o id não muda quando a fonte renomeia). É uma escolha da tela: não vai ao livro do de-para
+#   nem ao Nexus, que já não mexem no desconsiderado. {chave: {nome_api, usina, quem, em}}.
+@app.route("/api/admin/de-para/desconsiderados")
+def api_depara_desconsiderados():
+    with _state_lock:
+        itens = dict((_load_state() or {}).get("depara_desconsiderados") or {})
+    return jsonify({"itens": itens})
+
+
+@app.route("/api/admin/de-para/desconsiderar", methods=["POST"])
+def api_depara_desconsiderar():
+    """{"fonte", "plant_id", "inv_id", "nome_api"?, "usina"?, "desconsiderar": bool}: grava ou tira o desconsiderado."""
+    b = flask_request.get_json(silent=True) or {}
+    fonte, pid, inv = (str(b.get(c) or "").strip() for c in ("fonte", "plant_id", "inv_id"))
+    if not fonte or not pid or not inv or len(fonte + pid + inv) > 200:
+        return jsonify({"error": "mande fonte, plant_id e inv_id"}), 400
+    chave = f"{fonte}|{pid}|{inv}"
+    with _state_lock:
+        st = _load_state()
+        d = st.setdefault("depara_desconsiderados", {})
+        if b.get("desconsiderar"):
+            d[chave] = {"nome_api": str(b.get("nome_api") or "")[:80], "usina": str(b.get("usina") or "")[:120],
+                        "quem": str(session.get("nome") or session.get("user") or "")[:80],
+                        "em": datetime.now().isoformat(timespec="seconds")}
+        else:
+            d.pop(chave, None)
+        _save_state(st)
+    _dp_log(f"{chave} {'desconsiderado' if b.get('desconsiderar') else 'incluído de novo'}")
+    return jsonify({"ok": True, "chave": chave, "desconsiderado": bool(b.get("desconsiderar"))})
+
+
 @app.route("/api/admin/de-para/sugerir")
 def api_depara_sugerir():
     """O nome de cada inversor da conta oem@ PELO VALOR: o Eday de cada id × as colunas da aba da usina no BD_Performance,

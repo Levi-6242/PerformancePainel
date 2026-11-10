@@ -1144,7 +1144,11 @@ ao kWp da string das Falhas. Agora o `pd.read_excel(... "Equipamentos")` mora s�
   (1) "quando repete o inversor é pq muitas vezes foi substituído, tem que ter o botão 'desconsiderar o equipamento'": o
   equipamento que repete na fonte (mesmo nome do supervisório, como os dois "INVERSOR02") ganha o botão em cada linha,
   com ou sem pendência; é o antigo "deixar de fora" (não vai no pedido, o Nexus não mexe nele), agora com esse nome e a
-  situação "desconsiderado". (2) "Tire essas setas de cima e baixo para as strings": o campo virou texto numérico
+  situação "desconsiderado". **Gravado desde 10/11/2026** ("faça o desconsiderar ficar gravado"): o clique grava na hora
+  no estado da plataforma (`depara_desconsiderados`, chave `fonte|plant_id|id do inversor na fonte`, com nome, usina,
+  quem e quando; rotas `GET /api/admin/de-para/desconsiderados` e `POST /api/admin/de-para/desconsiderar`), e na
+  abertura seguinte o equipamento volta desconsiderado sem contar como mexido; o "desfazer" tira. Não vai ao livro do
+  de-para nem ao Nexus (que já não mexem no desconsiderado). Grava quem grava o de-para (`grava_admin`). (2) "Tire essas setas de cima e baixo para as strings": o campo virou texto numérico
   (`inputmode="numeric"`, 2 dígitos). (3) "A coluna do nome do inversor do supervisório tem que ter uma coluna própria aí
   a coluna inversor é digitável": a 1ª coluna é o Supervisório (o nome que a fonte manda e o id), a 2ª é o Inversor,
   campo de texto que vem preenchido (o do cadastro, senão o do Fracttal ligado) e vai no Salvar como `nome` quando

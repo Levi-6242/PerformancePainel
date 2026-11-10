@@ -112,6 +112,8 @@ globalThis.fetch = async (url, init) => {
     return r;
   }
   if (url.startsWith('/api/admin/de-para/decidir')) return DUBLE.decidir(body);
+  if (url.startsWith('/api/admin/de-para/desconsiderados')) return resp(200, {itens: DUBLE.desconsiderados || {}});
+  if (url.startsWith('/api/admin/de-para/desconsiderar')) return DUBLE.desconsiderar ? DUBLE.desconsiderar(body) : resp(200, {ok: true});
   return resp(404, {error: 'rota não dublada: ' + url});
 };
 globalThis.GC_NEXUS_BASE = '/nexus';
@@ -304,6 +306,29 @@ def test_supervisorio_em_coluna_propria_inversor_digitavel_e_desconsiderar_o_rep
     assert r["btnRepetido"] and not r["btnUnico"]          # só onde o equipamento repete na fonte
     assert "Inversor 1.1 novo" in r["nomes"] and 12 in r["strings"]
     assert r["enviados"].count("INVERSOR02") == 1         # o repetido desconsiderado não vai
+
+
+def test_o_desconsiderado_fica_gravado(tmp_path):
+    """Levi, 10/11/2026: "faça o desconsiderar ficar gravado". O desconsiderar grava na hora (fonte, usina e id do inversor
+    na fonte); na abertura seguinte o equipamento volta desconsiderado e não conta como mexido; o desfazer tira."""
+    r = _node("""F.linhas[0].inv_resumo.push({id: 998, nome_api: 'INVERSOR02', nome: 'INVERSOR02', ativas: 0, total: 0, esp: null, sem_visao: false});
+      const out = {};
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      inst.deixarDeFora('18749574|998', true);
+      await new Promise(r => setTimeout(r, 20));
+      out.post = PEDIDOS.filter(p => p.url.endsWith('/desconsiderar')).map(p => p.body);
+      // a abertura seguinte: o gravado volta desconsiderado
+      DUBLE.desconsiderados = {['pv|18749574|998']: {nome_api: 'INVERSOR02'}};
+      const inst2 = DT.criar({fonte: 'pv'}); await inst2.entrar(F.linhas, 'pv');
+      out.volta = inst2.html().split('data-k="18749574|998"')[1].split('</tr>')[0].includes('desconsiderado');
+      out.mexido = inst2.html().includes('pronta para salvar');
+      inst2.deixarDeFora('18749574|998', false);
+      await new Promise(r => setTimeout(r, 20));
+      out.desfaz = PEDIDOS.filter(p => p.url.endsWith('/desconsiderar')).slice(-1)[0].body.desconsiderar;
+      return out;""", tmp_path)
+    assert r["post"] == [{"fonte": "pv", "plant_id": "18749574", "inv_id": "998", "nome_api": "INVERSOR02",
+                          "usina": r["post"][0]["usina"], "desconsiderar": True}]
+    assert r["volta"] is True and r["desfaz"] is False
 
 
 def test_o_inversor_trocado_fica_de_fora_e_a_usina_salva(tmp_path):
@@ -1137,7 +1162,8 @@ def test_as_rotas_que_o_componente_chama_estao_classificadas():
     import leitura_nexus as ln
     rotas = {r.rstrip("/") for r in re.findall(r"(?<![\w])/api/[A-Za-z0-9_\-/]+", COMP.read_text(encoding="utf-8"))}
     assert rotas == {"/api/admin/de-para/fracttal/usinas", "/api/admin/de-para/fracttal/arvore", "/api/admin/de-para/registro",
-                     "/api/os-creator/fractall-usinas", "/api/admin/de-para/decidir", "/api/eu", "/api/admin/de-para/cadastro"}
+                     "/api/os-creator/fractall-usinas", "/api/admin/de-para/decidir", "/api/eu", "/api/admin/de-para/cadastro",
+                     "/api/admin/de-para/desconsiderados", "/api/admin/de-para/desconsiderar"}
     for r in rotas:
         ponte = (ln.permitido("GET", r) or ln.permitido("POST", r) or any(r.startswith(g) for g in ln.GRAVACOES)
                  or any(r == a or r.startswith(a + "/") for a in ln.ADMIN_DAS_PAGINAS))
@@ -1297,3 +1323,18 @@ def test_o_tempo_real_abre_uma_usina_por_linha_e_so_desenha_a_aberta(tmp_path):
     assert r["uma"] == 4 and r["duas"] == 10 and r["mexidos"] == 1
     i = MON.index("window.toggleDpMode=")
     assert "window.DeparaTabela.criar({fonte:f, resumo:true," in MON[i:MON.index("\n};", i)]
+
+
+def test_a_rota_grava_e_tira_o_desconsiderado(monkeypatch, tmp_path):
+    """O estado da plataforma guarda o desconsiderado por fonte, usina e id do inversor na fonte; o incluir de novo tira."""
+    monkeypatch.setattr(app, "STATE_PATH", str(tmp_path / "ufv_state.json"))
+    monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
+    app.app.config["TESTING"] = True
+    c = app.app.test_client()
+    corpo = {"fonte": "pv", "plant_id": "22854", "inv_id": "404134", "nome_api": "INVERSOR02", "usina": "Nova Londrina 1"}
+    assert c.post("/api/admin/de-para/desconsiderar", json=dict(corpo, desconsiderar=True)).get_json()["ok"]
+    itens = c.get("/api/admin/de-para/desconsiderados").get_json()["itens"]
+    assert list(itens) == ["pv|22854|404134"] and itens["pv|22854|404134"]["nome_api"] == "INVERSOR02"
+    c.post("/api/admin/de-para/desconsiderar", json=dict(corpo, desconsiderar=False))
+    assert c.get("/api/admin/de-para/desconsiderados").get_json()["itens"] == {}
+    assert c.post("/api/admin/de-para/desconsiderar", json={"fonte": "pv"}).status_code == 400

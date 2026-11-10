@@ -45,6 +45,8 @@ GRAVACOES = (
     "/api/strings/tickets/", "/api/entrada/tempo-real/atualizar", "/api/notificacoes/ler-agora",
     # o Salvar do Modo de-para do Tempo real (20/10/2026) grava a ponte da fonte depois da estrutura no Nexus
     "/api/admin/de-para/decidir",
+    # o "desconsiderar o equipamento" do Modo de-para (10/11/2026), gravado no estado da plataforma
+    "/api/admin/de-para/desconsiderar",
 )
 
 # Administração que o Tempo real chama no Modo de-para (20/10/2026: a árvore do Fracttal, o Registro mestre, o

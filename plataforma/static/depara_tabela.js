@@ -593,7 +593,7 @@
       S.ctx.nexusBase = nexusBase();
       if (S.ctx.nexusBase == null) S.ctx.nexusErro = 'fora do Nexus';
       const nomes = [...new Set(S.grupos.flatMap(g => [g.usina, g.chave_cadastro, g.nome_api]).filter(Boolean))];
-      const [ufs, reg, fr, eu, cad] = await Promise.all([
+      const [ufs, reg, fr, eu, cad, , desc] = await Promise.all([
         lerComEspera('/api/admin/de-para/fracttal/usinas').catch(e => ({__erro: e.message})),
         lerComEspera('/api/admin/de-para/registro').catch(e => ({__erro: e.message})),
         lerJson('/api/os-creator/fractall-usinas', {method: 'POST', body: {usinas: nomes}}).catch(() => ({map: {}})),
@@ -601,7 +601,11 @@
         lerJson('/api/eu').catch(e => ({__erro: e.message})),
         // o cadastro da plataforma: as chaves da aba que o Nexus não tem, os inversores sem leitura agora, os nomes
         lerJson('/api/admin/de-para/cadastro').catch(e => ({__erro: e.message})),
-        lerNexus(S.grupos.map(g => g.chave_cadastro), [])]);
+        lerNexus(S.grupos.map(g => g.chave_cadastro), []),
+        // os equipamentos desconsiderados (Levi, 10/11/2026: "faça o desconsiderar ficar gravado"): gravados na plataforma
+        lerJson('/api/admin/de-para/desconsiderados').catch(e => ({__erro: e.message}))]);
+      if (desc.__erro) S.ctx.avisos.push('Os equipamentos desconsiderados não vieram: ' + desc.__erro + ' (aparecem de novo nesta abertura).');
+      S.ctx.desconsiderados = (desc && desc.itens) || {};
       if (ufs.__erro) S.ctx.avisos.push('As usinas do Fracttal não vieram: ' + ufs.__erro + '.');
       if (reg.__erro) S.ctx.avisos.push('O Registro mestre não veio: ' + reg.__erro + '.');
       S.ctx.abre = !!eu.abre_admin; S.ctx.grava = !!eu.grava_admin;
@@ -630,6 +634,12 @@
       S.grupos.forEach(g => { ufDe[g.pid] = decideUF(g); regDe[g.pid] = sugereRegistro(g, (ufDe[g.pid] || {}).codigo, S.ctx); });
       await lerNexus([], Object.values(regDe).filter(Boolean).map(r => r.uid));
       S.grupos.forEach(g => iniciaGrupo(g, ufDe[g.pid], regDe[g.pid]));
+      // o desconsiderado gravado volta desconsiderado, e não conta como mexido (está igual ao que ficou gravado)
+      S.grupos.forEach(g => g.invs.forEach(inv => {
+        if (!S.ctx.desconsiderados[chaveDesc(g, inv)] || !S.sel[k(g, inv)]) return;
+        S.sel[k(g, inv)] = Object.assign({}, S.sel[k(g, inv)], {fora: true, conf: false});
+        S.base[k(g, inv)] = Object.assign({}, S.base[k(g, inv)], {fora: true, conf: false});
+      }));
       S.carregando = false; S.etapa = ''; desenhar();
       vigiaPendentes();
     }
@@ -1440,12 +1450,29 @@
       S.sel[key] = Object.assign({}, S.sel[key], {conf, sug: !conf});
       desenhar(alcance(g, antes));
     }
+    // a chave do desconsiderado gravado: a fonte, a usina e o id do inversor NA FONTE (o id não muda quando a fonte renomeia)
+    function chaveDesc(g, inv) { return [g.fonte, g.plant_id, inv.id].join('|'); }
     function deixarDeFora(key, fora) {
       const g = S.porPid[String(key).split('|')[0]];
       if (!g || !S.sel[key]) return;
       const antes = fotoDoGrupo(g);
       S.sel[key] = Object.assign({}, S.sel[key], {fora, conf: false});
       desenhar(alcance(g, antes));
+      const inv = g.invs.find(i => k(g, i) === key);
+      if (inv && S.ctx.grava) gravaDesconsiderado(g, inv, key, fora);
+    }
+    // grava na hora (não espera o Salvar): o desconsiderado vale nas próximas aberturas. Falhou: avisa, e na tela fica
+    async function gravaDesconsiderado(g, inv, key, fora) {
+      try {
+        await lerJson('/api/admin/de-para/desconsiderar', {method: 'POST', body: {fonte: g.fonte, plant_id: String(g.plant_id),
+          inv_id: String(inv.id), nome_api: inv.nome_api || inv.nome || '', usina: g.usina || '', desconsiderar: !!fora}});
+        const c = chaveDesc(g, inv);
+        if (fora) S.ctx.desconsiderados[c] = {nome_api: inv.nome_api || ''}; else delete S.ctx.desconsiderados[c];
+        S.base[key] = Object.assign({}, S.base[key], {fora: !!fora});
+      } catch (e) {
+        S.ctx.avisos.push(`Não deu para gravar o ${fora ? 'desconsiderar' : 'incluir'} de “${inv.nome_api || inv.nome}”: ${e.message}. Vale nesta abertura.`);
+      }
+      desenhar([g.pid]);
     }
     function conferirTodos() {
       _memo = null;
