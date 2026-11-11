@@ -125,7 +125,10 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp, ate=None):
         disp_ef = (num / den / 100.0) if den > 0 else None
     possivel_exp = (possivel * disp_ef) if (possivel is not None and disp_ef is not None) else None
 
+    # o PR (11/11/2026): a geração e o IPOA medido dos MESMOS dias (os que entram com medição)
+    real_medido = sum(g for _, g, med in entram if med is not None)
     return {"dias": n, "dias_meta": n_meta, "furos": furos, "meta": meta, "meta_ipoa": meta_ipoa, "real": real,
+            "real_medido": real_medido, "ipoa_medido": sum(medidos),
             "dias_medidos": len(medidos), "cobertura": cobertura, "ipoa_ajustado": ipoa_aj, "dif_ipoa": dif_ipoa,
             "possivel": possivel, "disp_efetiva": disp_ef, "possivel_exp": possivel_exp,
             "dif_possivel": _razao(real, possivel), "dif_possivel_exp": _razao(real, possivel_exp),

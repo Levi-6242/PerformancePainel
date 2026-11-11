@@ -557,6 +557,43 @@ def _ghi_das_linhas(hdr, rows):
     return out
 
 
+def _chuva_por_dia(usina):
+    """{data: chuva (mm)} da coluna "Chuva (mm)" da aba diária do BD_Thopen (11/11/2026, o quadrinho da chuva do mês no
+    Diário). O mesmo leitor do GHI; as fontes sem a coluna (Polaris, Copel, Matrix) dão `{}` e o Diário não mostra."""
+    key = ("chuva", usina)
+    if key in _state["df"]:
+        return _state["df"][key]
+    wb = _wb()
+    entry = _state["daily"].get(usina) or _state["daily"].get(_BD_ALIAS.get(usina, ""))
+    out = {}
+    if entry:
+        hdr, rows = _cols(_range_rows(wb[entry[0]], entry[1]))
+        iD, iC = _ci(hdr, "data"), _ci(hdr, "chuva")
+        if iD is not None and iC is not None:
+            for r in rows:
+                d, v = r[iD], _num(r[iC])
+                if isinstance(d, (dt.datetime, dt.date)) and v is not None:
+                    out[d.date() if isinstance(d, dt.datetime) else d] = v
+    _state["df"][key] = out
+    return out
+
+
+def _chuva_do_mes(usina, recs):
+    """{total_mm, dias_chuva, dias, maior_dia, maior_mm} da chuva nos dias JÁ coletados do mês (com geração ou IPOA): o BD
+    nasce com o mês pré-criado e a chuva 0 do dia que ainda não veio não é "não choveu". None sem a coluna ou sem dia."""
+    try:
+        chuva = _chuva_por_dia(usina)
+    except Exception:        # noqa: BLE001 — o quadrinho da chuva nunca derruba o Diário
+        return None
+    vals = {r["data"]: chuva[r["data"]] for r in recs
+            if r["data"] in chuva and ((r.get("ger") or 0) > 0 or r.get("ipoa") is not None)}
+    if not vals:
+        return None
+    d, mm = max(vals.items(), key=lambda kv: (kv[1], kv[0]))
+    return {"total_mm": round(sum(vals.values()), 1), "dias_chuva": sum(1 for v in vals.values() if v > 0),
+            "dias": len(vals), "maior_dia": d.day if mm > 0 else None, "maior_mm": round(mm, 1)}
+
+
 def _ghi_por_dia(usina):
     """O GHI do dia da aba diária do BD_Thopen (20/10/2026: a reserva da ETM na geração possível, quando o IPOA falta ou
     é < 0,3). Leitor próprio de propósito: o `_daily_records` é usado pela plataforma e não muda de formato. As fontes
@@ -1043,6 +1080,18 @@ def _pode(usina):
     return _CARTEIRA_DE.get(_NOME_CANON.get(usina, usina)) in set(u["carteiras"])
 
 
+# o Portfólio (Levi, 11/11/2026: "Em capa quero um botão 'Portifólio' terá todas as usinas de todas as carteiras ordenado
+# por ordem de carteira"): não é uma carteira, é a soma das carteiras que a conta vê, na ordem de CARTEIRA_ORDEM
+PORTFOLIO = "Portfólio"
+
+
+def _carteiras_do_pedido(carteira):
+    """As carteiras de um pedido: a própria, ou as que a conta vê quando é o Portfólio."""
+    if carteira == PORTFOLIO:
+        return _carteiras_vistas()
+    return [carteira] if carteira in CARTEIRAS else []
+
+
 def _carteiras_vistas():
     if not _login_ligado():
         return list(CARTEIRA_ORDEM)
@@ -1093,7 +1142,7 @@ def _portao():
     fora = jsonify({"ok": False, "erro": "Esta usina não está no seu acesso."}), 403
     if ep in _POR_USINA and not _pode(request.args.get("usina", "")):
         return fora
-    if ep in ("geral", "registros", "registros_xlsx", "api_zeladoria")             and request.args.get("carteira", "Thopen") not in _carteiras_vistas():
+    if ep in ("geral", "registros", "registros_xlsx", "api_zeladoria")             and request.args.get("carteira", "Thopen") not in _carteiras_vistas() + [PORTFOLIO]:
         return fora
     if ep == "api_contestar" and not _pode(str((request.get_json(silent=True) or {}).get("usina") or "").strip()):
         return fora
@@ -1402,7 +1451,7 @@ def diario():
     coment = [{"data": _drange(g), "com": g["com"]} for g in grupos]
 
     out = {"usina": usina, "ano": ano, "mes": mes, "pontos": pontos,
-           "meta_dia": meta_dia, "kpis": kpis, "comentarios": coment}
+           "meta_dia": meta_dia, "kpis": kpis, "comentarios": coment, "chuva": _chuva_do_mes(usina, recs)}
     if info is not None:
         out["possivel_info"] = info
     return jsonify(out)
@@ -1538,7 +1587,20 @@ def _resumo_usina(usina, ano, mes, ate=None):
              "disp": disp, "fc": fc}
     if _so_os_fracttal(ano, mes):
         linha.update(_resumo_possivel(usina, ano, mes, recs, produzida, meta, irr_esp, ate))
+    linha["pr"] = _pr(linha, produzida, irr_med, pot_kwp, _so_os_fracttal(ano, mes))
     return linha
+
+
+def _pr(linha, produzida, irr_med, pot_kwp, so_os):
+    """O PR da Visão Geral (Levi, 11/11/2026: "Em visão geral antes de Disponibilidade Irradiação (%) quero o cálculo do
+    PR"): energia ÷ (potência × irradiação medida). De 10/2026 em diante só dos dias com geração E irradiação medida (a
+    régua do IPOA da geração possível); a usina "sem ETM" fica sem PR (a irradiação dela não sustenta a conta). Antes de
+    outubro, a produzida e a irradiação do mês do BD_Thopen, como as outras colunas."""
+    if so_os:
+        if linha.get("sem_etm") or not pot_kwp or not linha.get("pr_ipoa"):
+            return None
+        return linha["pr_real"] / (pot_kwp * linha["pr_ipoa"])
+    return (produzida / (pot_kwp * irr_med)) if (produzida is not None and pot_kwp and irr_med) else None
 
 
 def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, ate=None):
@@ -1556,12 +1618,13 @@ def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, at
             "possivel": p["possivel"], "dif_possivel": p["dif_possivel"], "possivel_exp": p["possivel_exp"],
             "dif_possivel_exp": p["dif_possivel_exp"], "sem_etm": p["sem_etm"], "motivo": p["motivo"],
             "cobertura": p["cobertura"], "dias": p["dias"], "dias_medidos": p["dias_medidos"],
-            "furos": [d.strftime("%d/%m") for d in p["furos"]]}
+            "furos": [d.strftime("%d/%m") for d in p["furos"]], "pr_real": p["real_medido"], "pr_ipoa": p["ipoa_medido"]}
 
 
 # a geração possível saiu da Visão Geral (Levi, 05/11/2026: "plataforma Thopen ainda tem os dados de geração possível,
 # dif possível, possível com expurgo. Lembra de tirar"): a rota não manda os números, nem nas linhas nem no Total
-TOTAL_SEM_POSSIVEL = ("possivel", "dif_possivel", "possivel_exp", "dif_possivel_exp", "real_etm", "real_exp")
+TOTAL_SEM_POSSIVEL = ("possivel", "dif_possivel", "possivel_exp", "dif_possivel_exp", "real_etm", "real_exp",
+                      "pr_real", "pr_ipoa")   # as duas do PR ficam por dentro (o PR vai pronto, 11/11/2026)
 
 
 def _sem_possivel(d):
@@ -1592,19 +1655,22 @@ def geral():
     disponiveis = {_NOME_CANON.get(u, u) for u in
                    (set(_state["daily"].keys()) | set(_polaris_records().keys())
                     | set(_sheet_records().keys()))} - FORA_DO_RELATORIO
-    nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
-                    if u in disponiveis and u not in EXCLUIR_GERAL})
-    # o último dia coletado da carteira: até ele, o dia sem dado de uma usina é furo (a coleta parada aparece)
-    ate = _ultimo_coletado(nomes, ano, mes) if _so_os_fracttal(ano, mes) else None
-    linhas = [r for r in (_resumo_usina(u, ano, mes, ate) for u in nomes) if r["produzida"] is not None]
-    # Usinas da carteira que aparecem ABAIXO do Total (não entram no cálculo). Ex.: Piancó.
-    fora_nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
-                         if u in disponiveis and u in EXCLUIR_GERAL})
-    fora = [r for r in (_resumo_usina(u, ano, mes, ate) for u in fora_nomes) if r["produzida"] is not None]
+    linhas, fora = [], []
+    # o Portfólio (11/11/2026) junta as carteiras na ordem delas; cada linha diz a sua carteira (a tela agrupa)
+    for cart in _carteiras_do_pedido(carteira):
+        nomes = sorted({u for u in CARTEIRAS.get(cart, []) if u in disponiveis and u not in EXCLUIR_GERAL})
+        # o último dia coletado da carteira: até ele, o dia sem dado de uma usina é furo (a coleta parada aparece)
+        ate = _ultimo_coletado(nomes, ano, mes) if _so_os_fracttal(ano, mes) else None
+        linhas += [dict(r, carteira=cart) for r in (_resumo_usina(u, ano, mes, ate) for u in nomes)
+                   if r["produzida"] is not None]
+        # Usinas da carteira que aparecem ABAIXO do Total (não entram no cálculo). Ex.: Piancó.
+        fora_nomes = sorted({u for u in CARTEIRAS.get(cart, []) if u in disponiveis and u in EXCLUIR_GERAL})
+        fora += [dict(r, carteira=cart) for r in (_resumo_usina(u, ano, mes, ate) for u in fora_nomes)
+                 if r["produzida"] is not None]
     today = dt.date.today()
     corte = (today if (ano == today.year and mes == today.month)
              else dt.date(ano, mes, monthrange(ano, mes)[1]))
-    nome_carteira = next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
+    nome_carteira = PORTFOLIO if carteira == PORTFOLIO else next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
     out = {"carteira": nome_carteira, "ano": ano, "mes": mes,
            "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora}
     if _so_os_fracttal(ano, mes):
@@ -1612,8 +1678,12 @@ def geral():
         # delas, a meta só das usinas com meta, o IPOA ponderado pela potência; a Disponibilidade, a média simples de
         # sempre (até 20/10 o Total era somado no navegador)
         dv = [r["disp"] for r in linhas if r.get("disp") is not None]
+        # o PR do Total: a geração dos dias medidos sobre a potência × o IPOA medido, das usinas com PR (11/11/2026)
+        cpr = [r for r in linhas if r.get("pr") is not None]
+        den = sum(r["pot_kwp"] * r["pr_ipoa"] for r in cpr)
         out.update(regra="possivel", total=dict(_sem_possivel(geracao_possivel.portfolio(linhas)),
-                                                disp=(sum(dv) / len(dv)) if dv else None),
+                                                disp=(sum(dv) / len(dv)) if dv else None,
+                                                pr=(sum(r["pr_real"] for r in cpr) / den) if den else None),
                    linhas=[_sem_possivel(r) for r in linhas], fora=[_sem_possivel(r) for r in fora])
     return jsonify(out)
 
@@ -1630,7 +1700,7 @@ def _registros(carteira, ano, mes):
                     | set(_sheet_records().keys()))} - FORA_DO_RELATORIO
     so_os, hoje = _so_os_fracttal(ano, mes), dt.date.today()
     usinas = []
-    for u in sorted(x for x in set(CARTEIRAS.get(carteira, [])) if x in disponiveis):
+    for u in [x for c in _carteiras_do_pedido(carteira) for x in sorted(set(CARTEIRAS.get(c, []))) if x in disponiveis]:
         recs = {r["data"]: r for r in _daily_records(u) if (r["data"].year, r["data"].month) == (ano, mes)}
         dsp = (_disp_dias(u, ano, mes) or {}) if so_os else {}
         # o BD nasce com o mês pré-criado: o dia ainda não coletado vem com geração 0 e nada mais (em 23/10/2026 a
@@ -1665,7 +1735,7 @@ def _carteira_ano_mes():
         ano, mes = int(request.args.get("ano", "")), int(request.args.get("mes", ""))
     except ValueError:
         ano = mes = 0
-    if carteira not in CARTEIRAS or not 1 <= mes <= 12 or not 2000 <= ano <= 2100:
+    if (carteira not in CARTEIRAS and carteira != PORTFOLIO) or not 1 <= mes <= 12 or not 2000 <= ano <= 2100:
         return None, None, None, (jsonify({"ok": False, "erro": "carteira, ano ou mês inválido"}), 400)
     return carteira, ano, mes, None
 
@@ -1715,7 +1785,7 @@ def api_zeladoria():
     (usina × semana; zeladoria_cliente) para as usinas da carteira que a conta vê, na semana escolhida (?semana=2026-W43;
     sem ela, a mais nova). O nome da usina no 5080 sai do de-para do sistema do 5080 pelo usina_id do Nexus."""
     carteira = request.args.get("carteira", "")
-    if carteira not in CARTEIRAS:
+    if carteira not in CARTEIRAS and carteira != PORTFOLIO:
         return jsonify({"ok": False, "erro": "carteira inválida"}), 400
     vazio = {"disponivel": False, "carteira": carteira}
     if not fonte_zeladoria.ligada():
@@ -1723,7 +1793,8 @@ def api_zeladoria():
     d, op = fonte_zeladoria.dados(), fonte_operacao.dados()
     if d is None or op is None:
         return jsonify(dict(vazio, motivo="carregando"))
-    usinas = [u for u in _usinas_disponiveis() if _CARTEIRA_DE.get(u) == carteira and _pode(u)]
+    carts = set(_carteiras_do_pedido(carteira))
+    usinas = [u for u in _usinas_disponiveis() if _CARTEIRA_DE.get(u) in carts and _pode(u)]
     atu = zeladoria_cliente.ultima_atualizacao(d) or {}
     r = zeladoria_cliente.montar(d.get("linhas"), zeladoria_cliente.nomes_por_id(op.get("de_para")), usinas,
                                  semana=(request.args.get("semana") or "").strip() or None,

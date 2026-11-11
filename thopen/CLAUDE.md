@@ -185,6 +185,22 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
     parada." não deve aparecer, e a lista desses dias vai ao COS): nem na tabela de Comentários, nem na frase dos dias
     ocultos (dizer que "não teve parada" seria falso), e a célula fica vazia na tabelinha da Disponibilidade.
   Prova: `tests/test_thopen_comentarios_cos.py`.
+- **Portfólio, PR e chuva (11/11/2026)**, três pedidos do Levi:
+  - **Portfólio** ("Em capa quero um botão 'Portifólio' terá todas as usinas de todas as carteiras ordenado por ordem de
+    carteira"): um botão depois das carteiras (só quando a conta vê mais de uma). Não é carteira: é a soma das que a
+    conta vê, na ordem de `CARTEIRA_ORDEM` (`PORTFOLIO`, `_carteiras_do_pedido`). A Visão Geral faz carteira a carteira
+    (o último dia coletado é o de cada uma) e a tela põe a faixa com o nome da carteira; o seletor agrupa as usinas por
+    carteira; Registros, Zeladoria, Capa e o PDF da carteira aceitam.
+  - **PR (%)** ("o cálculo do PR"; depois, "bote a coluna de PR depois de Diferença Produção"): logo depois da
+    Diferença Produção. De
+    10/2026 em diante, energia ÷ (potência × IPOA medido) só nos dias com geração E irradiação medida (a régua do IPOA,
+    `geracao_possivel.periodo`: `real_medido`, `ipoa_medido`); "sem ETM" fica sem PR. Antes de outubro, a produzida e a
+    irradiação do mês. O Total pondera pela potência × IPOA.
+  - **A chuva do mês** no canto inferior direito do gráfico do Diário ("Emoji sutil de chuva"): a coluna "Chuva (mm)" da
+    aba diária do BD_Thopen (`_chuva_por_dia`), só dos dias já coletados (o 0 do dia pré-criado não é "não choveu");
+    total, dias com chuva e, no mouse, o dia de maior chuva. Sem a coluna (Polaris, Copel, Matrix), não aparece; a
+    leitura nunca derruba o Diário.
+  Prova: `tests/test_thopen_portfolio_pr_chuva.py`.
 
 ## Dados
 
