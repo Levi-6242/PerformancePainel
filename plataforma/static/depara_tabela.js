@@ -36,7 +36,11 @@
   // ════════════════════════════════════════════ a regra (pura: o node testa) ════════════════════════════════════════════
   const ROMANO = {I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12};
   const FONTE_CLIENTE = {pv: 'thopen', semp: 'semp', alveslima: 'alves lima', '2capi': '2c', owen: '2c'};
-  const MAX_POR_PEDIDO = 50;             // o MAX_DEPARA do Nexus: chaves (e usinas) por pedido
+  const MAX_POR_PEDIDO = 50;             // o MAX_DEPARA do Nexus: chaves por Salvar (e o estado num Nexus de antes de 11/11)
+  // o estado num pedido só (11/11/2026): em lotes de 50, um atrás do outro, a Base fazia 3 pedidos para as ~150 chaves, e
+  // cada um custa no servidor a conferência da marca do livro no banco (0,6 a 2,3 s no ar). O Nexus aceita MAX_ESTADO; a
+  // parte da URL fica abaixo de MAX_URL_ESTADO (o proxy mais curto aceita 8 KB na linha do pedido)
+  const MAX_ESTADO = 400, MAX_URL_ESTADO = 7000;
   const NEXUS_ESTADO = '/t/base/equipamentos/depara/estado', NEXUS_SALVAR = '/t/base/equipamentos/depara/salvar';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
@@ -558,9 +562,8 @@
       if (nb == null) return;
       chaves = [...new Set((chaves || []).filter(c => c && !(nk(c) in S.ctx.chaveUsina) && !String(c).includes('|')).map(nk))];
       usinas = [...new Set((usinas || []).filter(u => u && !S.ctx.nexus[u]))];
-      const pedidos = [];
-      for (let i = 0; i < Math.max(chaves.length, usinas.length); i += MAX_POR_PEDIDO)
-        pedidos.push([chaves.slice(i, i + MAX_POR_PEDIDO), usinas.slice(i, i + MAX_POR_PEDIDO)]);
+      const max = S.ctx.estadoMax || MAX_ESTADO, lc = lotesEstado(chaves, max), lu = lotesEstado(usinas.map(String), max);
+      const pedidos = Array.from({length: Math.max(lc.length, lu.length)}, (_, i) => [lc[i] || [], lu[i] || []]);
       for (const [cs, us] of pedidos) {
         const q = [cs.length ? 'chaves=' + cs.map(encodeURIComponent).join('|') : '', us.length ? 'usinas=' + us.join(',') : ''].filter(Boolean).join('&');
         try {
@@ -568,8 +571,26 @@
           (d.usinas || []).forEach(guardaEstado);
           (d.chaves_sem_usina || []).forEach(c => { S.ctx.chaveUsina[nk(c)] = null; });
           S.ctx.lido.nexus = new Date().toISOString();
-        } catch (e) { S.ctx.nexusErro = e.message; }
+        } catch (e) {
+          // o Nexus de antes de 11/11/2026 (o do PC, ou o servidor antes do deploy) recusa mais de 50 por pedido com 400:
+          // volta aos lotes de 50 e pede este de novo
+          if (e.status === 400 && max > MAX_POR_PEDIDO && Math.max(cs.length, us.length) > MAX_POR_PEDIDO) {
+            S.ctx.estadoMax = MAX_POR_PEDIDO;
+            await lerNexus(cs, us);
+          } else S.ctx.nexusErro = e.message;
+        }
       }
+    }
+    // os itens em lotes de até `max`, com a parte da URL de cada lote abaixo de MAX_URL_ESTADO
+    function lotesEstado(itens, max) {
+      const out = []; let cur = [], tam = 0;
+      itens.forEach(x => {
+        const t = encodeURIComponent(x).length + 1;
+        if (cur.length && (cur.length >= max || tam + t > MAX_URL_ESTADO)) { out.push(cur); cur = []; tam = 0; }
+        cur.push(x); tam += t;
+      });
+      if (cur.length) out.push(cur);
+      return out;
     }
     function guardaEstado(u) {
       S.ctx.nexus[u.usina_id] = u;

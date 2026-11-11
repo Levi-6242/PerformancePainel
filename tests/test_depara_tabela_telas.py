@@ -1338,3 +1338,56 @@ def test_a_rota_grava_e_tira_o_desconsiderado(monkeypatch, tmp_path):
     c.post("/api/admin/de-para/desconsiderar", json=dict(corpo, desconsiderar=False))
     assert c.get("/api/admin/de-para/desconsiderados").get_json()["itens"] == {}
     assert c.post("/api/admin/de-para/desconsiderar", json={"fonte": "pv"}).status_code == 400
+
+
+# ── o estado do Nexus num pedido só (11/11/2026) ─────────────────────────────────────────────────────────────────────
+_MUITAS = """for (let n = 1; n <= 120; n++) F.linhas.push(r(19000000 + n, 'Usina ' + n + ' (' + n + ')', [500000 + n], ['INVERSOR01'], [null], {chave_cadastro: 'Chave ' + n + ' (' + n + ')'}));
+const pedidosEstado = () => PEDIDOS.filter(p => p.url.startsWith('/nexus/t/base/equipamentos/depara/estado') && p.url.includes('chaves='))
+  .map(p => decodeURIComponent(new URLSearchParams(p.url.split('?')[1]).get('chaves')).split('|'));
+"""
+
+
+def test_a_tabela_pede_todas_as_chaves_ao_nexus_num_pedido_so(tmp_path):
+    """Medido no ar em 11/11/2026: a Base pedia o estado em 3 lotes de 50 chaves, um atrás do outro, cada um com a
+    conferência da marca do livro no banco (0,6 a 2,3 s). O Nexus aceita a frota inteira num pedido (`MAX_ESTADO`)."""
+    r = _node(_MUITAS + """const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      const ps = pedidosEstado(); return {n: ps.length, chaves: ps.flat().length, aviso: /não veio|Nexus:/.test(inst.html())};""", tmp_path)
+    assert r["n"] == 1, f"{r['n']} pedidos de estado para as chaves"
+    assert r["chaves"] == 121                                           # as outras 3 a tela já conhece
+
+
+def test_o_nexus_de_antes_recusa_o_pedido_grande_e_a_tabela_volta_aos_lotes_de_50(tmp_path):
+    """O Nexus do PC (5070) ou o do servidor antes do deploy recusa mais de 50 chaves com 400: a tela não pode perder o
+    estado por isso."""
+    r = _node(_MUITAS + """DUBLE.estado = url => { const q = new URLSearchParams(url.split('?')[1]);
+        const chaves = (q.get('chaves') || '').split('|').filter(Boolean), us = (q.get('usinas') || '').split(',').filter(Boolean).map(Number);
+        if (chaves.length > 50 || us.length > 50) return resp(400, {ok: false, motivo: 'No máximo 50 chaves e 50 usinas por pedido.'});
+        const out = [], sem = [];
+        chaves.forEach(c => { const u = Object.values(F.nexus).find(x => x.chaves.some(y => y.usina_supervisorio === c)); if (u) { if (!out.includes(u)) out.push(u); } else sem.push(c); });
+        us.forEach(id => { if (F.nexus[id] && !out.includes(F.nexus[id])) out.push(F.nexus[id]); });
+        return resp(200, {ok: true, usinas: out, chaves_sem_usina: sem}); };
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      const ps = pedidosEstado(); const aceitos = ps.filter(c => c.length <= 50);
+      return {tamanhos: ps.map(c => c.length), cobertas: new Set(aceitos.flat()).size, itaja: !!inst.html().match(/324,5 kWp/)};""", tmp_path)
+    assert r["tamanhos"][0] == 121 and all(t <= 50 for t in r["tamanhos"][1:]), r["tamanhos"]
+    assert r["cobertas"] == 121 and r["itaja"]
+
+
+def test_o_pedido_do_estado_fica_abaixo_do_teto_da_url(tmp_path):
+    """Chave de nome longo (com acento, que a URL triplica) não passa dos 7 KB da linha do pedido: vira mais de um lote."""
+    r = _node("""for (let n = 1; n <= 120; n++) F.linhas.push(r(19000000 + n, 'U' + n, [500000 + n], ['INVERSOR01'], [null],
+        {chave_cadastro: 'Usina de São João da Conceição ' + n + ' — ampliação ' + n + ' (' + n + ')'}));
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      const ps = PEDIDOS.filter(p => p.url.includes('/depara/estado') && p.url.includes('chaves='));
+      return {n: ps.length, maior: Math.max(...ps.map(p => p.url.split('?')[1].length)),
+        chaves: ps.flatMap(p => decodeURIComponent(new URLSearchParams(p.url.split('?')[1]).get('chaves')).split('|')).length};""",
+              tmp_path)
+    assert r["n"] >= 2 and r["maior"] <= 7000 + 20 and r["chaves"] == 121, r
+
+
+def test_400_chaves_cabem_num_pedido_e_a_401a_vai_no_seguinte(tmp_path):
+    r = _node("""for (let n = 1; n <= 400; n++) F.linhas.push(r(19000000 + n, 'U' + n, [500000 + n], ['INVERSOR01'], [null], {chave_cadastro: 'C' + n}));
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      return PEDIDOS.filter(p => p.url.includes('/depara/estado') && p.url.includes('chaves='))
+        .map(p => decodeURIComponent(new URLSearchParams(p.url.split('?')[1]).get('chaves')).split('|').length);""", tmp_path)
+    assert r == [400, 1], r

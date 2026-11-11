@@ -1322,7 +1322,9 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
 - **O Nexus na mesma origem**: a tela roda dentro da moldura do Nexus (porta única), e o Nexus é a página de CIMA; o prefixo
   dele é o que vem antes do `/t/` no caminho dela (`/nexus/t/performance/tempo-real` → `/nexus`; na raiz, vazio), e o pedido
   leva o cookie `nexus_sessao` (caminho `/nexus`). Estado: `GET <prefixo>/t/base/equipamentos/depara/estado?chaves=A|B&usinas=93`
-  (até 50 de cada por pedido). **Fora da moldura não há Nexus**: a tela mostra e sugere, e o Salvar fica desligado dizendo
+  (até 400 de cada num pedido só, abaixo de 7 KB de URL, desde 11/11/2026: em lotes de 50, um atrás do outro, a Base fazia
+  3 pedidos para as ~150 chaves, e no servidor cada um custa a conferência da marca do livro no banco, 0,6 a 2,3 s; o Nexus
+  de antes recusa mais de 50 com 400 e a tela volta aos lotes de 50; o Salvar segue em lotes de 50). **Fora da moldura não há Nexus**: a tela mostra e sugere, e o Salvar fica desligado dizendo
   "abra pelo Nexus". Na bancada, `window.GC_NEXUS_BASE` força o prefixo.
 - **As sugestões** (contrato e `levantamento/cobertura.md`): usina do Fracttal pela "Usina Fractall" da aba, pelo código no
   nome, pelo nome-base com o número e pelas irmãs do mesmo código-base; vence a que casa mais ativos DIFERENTES pelo CÓDIGO
