@@ -58,7 +58,7 @@ CACHE = os.environ.get("GRIDCO_API_CACHE") or os.path.join(_AQUI, "cache_bd_thop
 _ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$")
 _lock = threading.Lock()
 COOLDOWN = 60      # s sem bater na API depois de uma falha
-_cache = {"ts": 0.0, "wb": None, "erro": None, "origem": None, "proxima": 0.0}
+_cache = {"ts": 0.0, "wb": None, "erro": None, "origem": None, "proxima": 0.0, "recarregando": False}
 
 
 def _token():
@@ -241,13 +241,46 @@ def _le_cache():
         return None
 
 
+def _recarrega_em_fundo():
+    """A recarga vencida do TTL fora da requisicao (Levi, 11/11/2026: "quando fica muito tempo aberto para de ler os
+    dados, fica tudo branco"). Ate ali a 1a requisicao depois dos 10 min baixava as 106 abas DENTRO dela e sob o
+    `_lock` (~15 s medidos no PC em 11/11; ~130 s em 08/10), e todas as outras da tela esperavam na fila: os quadros
+    ficavam em branco e, atras do proxy, o pedido podia cair em 502/504. Agora a tela segue com a leitura de antes e
+    a nova entra quando fica pronta. Falha = a carencia de sempre (COOLDOWN), sem tocar no que esta em memoria."""
+    t0 = time.time()
+    try:
+        pacote = _baixa(_token())
+        wb = _workbook_de(pacote)
+        with _lock:
+            _cache.update(ts=t0, wb=wb, erro=None, origem="api", proxima=0.0)
+        print("[fonte_api] %s: %d aba(s) em %.1fs (em segundo plano)"
+              % (WORKBOOK, len(wb.sheetnames), time.time() - t0), flush=True)
+        _grava_cache(pacote, t0)
+    except Exception as e:      # noqa: BLE001 — a tela segue com o que ja tinha
+        with _lock:
+            _cache["erro"] = "%s: %s" % (type(e).__name__, e)
+            _cache["proxima"] = time.time() + COOLDOWN
+        print("[fonte_api] FALHOU em segundo plano (%s)" % _cache["erro"], flush=True)
+    finally:
+        with _lock:
+            _cache["recarregando"] = False
+
+
 def workbook(forcar=False):
     """Workbook em memoria vindo da API. Se ela nao responder, devolve a ultima leitura boa —
     da memoria, ou do cache em disco quando o processo acabou de subir. None so' quando nao ha'
-    nem uma coisa nem outra — e ai' o dashboard nao tem o que servir, e diz isso na cara."""
+    nem uma coisa nem outra — e ai' o dashboard nao tem o que servir, e diz isso na cara.
+
+    Vencido o TTL com um workbook em memoria, a recarga vai para segundo plano e a requisicao leva o de antes
+    (`_recarrega_em_fundo`, 11/11/2026). So espera a rede quem nao tem nada (a subida) e o Atualizar (`forcar`)."""
     with _lock:
         agora = time.time()
         if not forcar and _cache["wb"] is not None and (agora - _cache["ts"]) < TTL:
+            return _cache["wb"]
+        if not forcar and _cache["wb"] is not None:
+            if not _cache["recarregando"] and agora >= _cache["proxima"]:
+                _cache["recarregando"] = True
+                threading.Thread(target=_recarrega_em_fundo, name="bd_thopen_recarga", daemon=True).start()
             return _cache["wb"]
         # CARENCIA depois de uma falha: sem ela, com a API PENDURADA (nao recusando, pendurada)
         # cada acesso do usuario pagaria 3 tentativas x 30 s = 90 s antes de mostrar a tela. Com

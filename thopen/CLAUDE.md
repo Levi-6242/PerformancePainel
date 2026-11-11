@@ -213,8 +213,13 @@ monta o mesmo workbook em memória a partir da Gridco Performance API (`row_numb
 a ser `date`) — por isso todos os leitores continuam sendo código de worksheet.
 
 - `GRIDCO_API_TTL` (600 s) é o intervalo de recarga; `/api/t/reload` (botão Atualizar) derruba o cache na hora.
-- **A recarga roda DENTRO da requisição, sob o `_lock` do `_wb()`**: o 1º acesso depois do TTL esperou **~130 s**
-  (medido em 08/10/2026; a docstring do `fonte_api` diz ~4 s, medido na migração). Problema conhecido, à parte.
+- **A recarga vencida vai para segundo plano (11/11/2026**, Levi: "quando fica muito tempo aberto para de ler os dados,
+  fica tudo branco"): até ali o 1º acesso depois do TTL baixava as 106 abas dentro da requisição e sob o `_lock` (~130 s
+  em 08/10; ~15 s no PC em 11/11, 10 de download e 5,5 de montar) e a tela inteira esperava na fila. Agora a
+  requisição leva a leitura de antes e `_recarrega_em_fundo` troca quando fica pronta; só esperam a rede a subida (sem
+  nada em memória) e o Atualizar. Na tela, o 5xx (502/504 do proxy, em HTML) vira erro e o pedido que falha sem
+  tratamento acende o aviso "Os dados não chegaram agora" com o Tentar de novo (`tentarDeNovo`), no lugar dos quadros
+  em branco. Prova: `tests/test_thopen_recarga_em_fundo.py`.
 - **Se a API cair** há dois degraus e só dois: o workbook já em memória e o **cache em disco**
   `cache_bd_thopen.json.gz` (`GRIDCO_API_CACHE`), a última leitura boa, com a idade real na tela (`/api/t/fonte`,
   `/api/t/versao`); 60 s sem tentar de novo depois de uma falha. **Não há fallback para `.xlsx`**, nem

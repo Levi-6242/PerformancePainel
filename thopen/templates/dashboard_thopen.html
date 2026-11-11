@@ -84,6 +84,12 @@
   table.geral th:first-child, table.geral td:first-child{ text-align:left; font-weight:600; }
   table.geral td{ text-align:right; white-space:nowrap; }
   table.geral tr.tot{ background:#eceef2; font-weight:800; }
+  .aviso-falha{ position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:60; max-width:92vw;
+    background:#fff7ed; color:#7c2d12; border:1px solid #fdba74; border-radius:10px; padding:9px 14px;
+    font-size:13px; box-shadow:0 6px 18px rgba(0,0,0,.12); }
+  .aviso-falha button{ margin-left:8px; border:0; border-radius:6px; padding:5px 10px; background:var(--ora);
+    color:#fff; font-weight:700; cursor:pointer; }
+  @media print{ .aviso-falha{ display:none !important; } }
   /* a chuva do mês (Levi, 11/11/2026: "gostaria que ela ficasse do lado de irradiação do mês, corta a largura pela
      metade"; "deixa sempre aparecendo [...] mesmo com dados nulos"): o card de Irradiação e o da Chuva lado a lado */
   #irrChuva{ display:flex; gap:14px; }
@@ -809,6 +815,10 @@
     </div>
   </div>
 
+  <!-- o aviso do pedido que falhou (11/11/2026): no lugar dos quadros em branco calados -->
+  <div class="aviso-falha hidden" id="avisoFalha" role="alert">Os dados não chegaram agora: o servidor demorou para
+    responder. <button type="button" onclick="tentarDeNovo()">Tentar de novo</button></div>
+
   <!-- ───────────── CAPA ───────────── -->
   <div class="wrap hidden" id="pageCapa">
     <div class="capa">
@@ -841,7 +851,21 @@ const $=id=>document.getElementById(id);
 // Login por pessoa (14/10/2026): o app pode estar debaixo de um caminho (/performance no servidor da T.I.) — toda
 // chamada sai da RAIZ; e quem entrou (null com o login desligado). Sessão que terminou (401): volta para a entrada
 const RAIZ={{ raiz|tojson }}, USUARIO={{ usuario|tojson }};
-const get=u=>fetch(u).then(r=>{ if(r.status===401){ location.href=RAIZ+'/login'; throw new Error('sessão'); } return r.json(); });
+// 11/11/2026 (Levi: "quando fica muito tempo aberto para de ler os dados, fica tudo branco"): o 5xx (o proxy devolve
+// 502/504 em HTML) vira erro com nome, e o pedido que falha sem tratamento acende o aviso com o Tentar de novo — antes o
+// r.json() quebrava calado e os quadros ficavam em branco até recarregar a página
+const get=u=>fetch(u).then(r=>{ if(r.status===401){ location.href=RAIZ+'/login'; throw new Error('sessão'); }
+  if(r.status>=500) throw new Error('servidor '+r.status); return r.json(); });
+function _avisoFalha(mostra){ const a=$('avisoFalha'); if(a) a.classList.toggle('hidden',!mostra); }
+window.addEventListener('unhandledrejection', e=>{ const m=String((e.reason&&e.reason.message)||e.reason||'');
+  if(m!=='sessão') _avisoFalha(true); });
+async function tentarDeNovo(){
+  _avisoFalha(false);
+  try{ await loadUsina();
+    if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa();
+    else if(PAGE==='registros') renderRegistros(); else if(PAGE==='zeladoria') renderZeladoria();
+  }catch(e){ _avisoFalha(true); }
+}
 const CFG={displayModeBar:false,responsive:true};
 const BASE={paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{color:'#33363d',size:11},
   margin:{l:54,r:16,t:14,b:36}};
