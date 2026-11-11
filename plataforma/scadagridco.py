@@ -118,6 +118,22 @@ FONTES = {
 }
 
 
+# Axis pelo scadaGridco (11/11/2026, Levi: "Foi incluída Marialva no ScadaGridCo, pode inserir em Axis do tempo real").
+# A Axis da SunOp está sem token de API desde julho; a Marialva (cliente Axis na Info Geral) passou a chegar pelo gateway
+# MQTT do supervisório, com 8 inversores ("1" a "8", 28 entradas string_N_current) contra 8 no cadastro (1.1 a 1.8, 17/18
+# strings). Equipamento N = Inversor 1.N, PROVISÓRIO pela ordem (como na Gravatá e na Iramaia); conferir pelo valor quando
+# houver dia em comum com o BD. Ela aparece na aba e no card da AXIS do tempo real (as rotas /api/axis/* juntam esta fonte),
+# não num card próprio.
+FONTES["axisscada"] = {
+    "rotulo": "Axis",
+    "via": "mqtt",
+    "usinas": [
+        {"id": "marialva", "usina": "Marialva", "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 9)},
+         "provisorio": "Marialva: de-para pela ordem (equipamento N = Inversor 1.N); fechar pelo valor"},
+    ],
+}
+
+
 # Usinas DESCOBERTAS na API (11/10/2026, Levi: "Na API que está puxando as UFVs da GreenYellow não está aparecendo todas
 # as UFVs"): a lista acima era fixa, e o supervisório já tinha a Castelo do Piauí (16 inversores) e a "Cedro 1 e 2" (20)
 # lendo. O app classifica cada usina de `/api/usinas` pelo CLIENTE do cadastro (Info Geral) e pendura aqui as que não estão
@@ -510,6 +526,68 @@ def _paginas(rota, params, getter):
         if not apos:
             break
     return regs
+
+
+# ── A estação (ETM) da usina (11/11/2026) ───────────────────────────────────────────────────────────────────────────
+# Levi: "GreenYellow e Apolo não estão mostrando ETM, tá certo isso??". O supervisório manda a estação como o equipamento
+# `weather` do gateway MQTT (POA, GHI, POA traseira e chuva), e a plataforma não lia: as abas de ETM dessas fontes ficavam
+# vazias. A Castelo do Piauí, a Cedro (4 estações), a Demerval Lobão, a Irecê 2 e a Macaíba têm; a Apolo (Rio do Peixe,
+# Gravatá II, Iramaia II) não tem estação na API, e a Sal Energia é Modbus sem leitura. O histórico vem do /api/telemetria
+# com `tipo=weather` (o mesmo de 1 em 1 minuto dos inversores); o "-" do ponto sem sensor é sem leitura, nunca zero.
+TIPOS_ESTACAO = ("weather",)
+
+
+def estacoes(fonte, pid, getter=None) -> list:
+    """Os equipamentos de estação da usina no supervisório (1 pedido); Modbus não tem estação na API."""
+    if via(fonte, pid) != "mqtt":
+        return []
+    getter = getter or get
+    d = getter(f"/api/mqtt/{scada_id(fonte, pid)}") or {}
+    return [str(e.get("equipamento") or e.get("indice")) for e in (d.get("equipamentos") or [])
+            if e.get("tipo") in TIPOS_ESTACAO]
+
+
+def _hora_do_registro(r):
+    if isinstance(r.get("ts"), (int, float)):
+        return _dt_local(r["ts"])
+    try:
+        return datetime.strptime(str(r.get("data_hora") or "")[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def serie_estacao(registros) -> dict:
+    """{"serie": [(hora, poa, ghi)], "poari": [(hora, poa traseira)], "chuva": bool}: a série no formato do diagnóstico
+    da ETM das outras fontes (`_diagnostico_etm`). `chuva` = o pluviômetro mandou algum número no dia."""
+    out = {"serie": [], "poari": [], "chuva": False}
+    for r in sorted(registros, key=lambda r: r.get("ts") or 0):
+        if r.get("communication_fault") not in (None, COM_OK):
+            continue                                     # leitura ruim do gateway: lacuna, não zero
+        h = _hora_do_registro(r)
+        p = r.get("pontos") or r.get("measurements") or {}
+        if h is None:
+            continue
+        poa, ghi = _num(p.get("irradiance_poa")), _num(p.get("irradiance_ghi"))
+        if poa is None and ghi is None:
+            continue
+        out["serie"].append((h, poa, ghi))
+        out["poari"].append((h, _num(p.get("irradiance_poa_rear"))))
+        if _num(p.get("accumulated_rain")) is not None or _num(p.get("hourly_accumulated_rain")) is not None:
+            out["chuva"] = True
+    return out
+
+
+def etm_do_dia(fonte, pid, dia=None, getter=None) -> list:
+    """[{estacao, serie, poari, chuva}] de cada estação da usina no dia (um pedido de lista + as páginas de cada uma)."""
+    getter = getter or get
+    dia = dia or hoje()
+    out = []
+    for e in estacoes(fonte, pid, getter):
+        regs = _paginas("/api/telemetria", {"usina": scada_id(fonte, pid), "desde": dia, "ate": dia, "tipo": "weather",
+                                            "equipamento": e}, getter)
+        s = serie_estacao([r for r in regs if str(r.get("equipamento")) == e and r.get("tipo", "weather") == "weather"])
+        out.append(dict(s, estacao=e))
+    return out
 
 
 def curva_inversor(fonte, pid, equip, dia, apos_ts=None, getter=None) -> dict:

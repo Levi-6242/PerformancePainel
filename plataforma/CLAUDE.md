@@ -1826,6 +1826,19 @@ Levi: "OS para tempo real e histórico das UFVs da Green Yellow", "separe green 
 troca à Automação). Sem token ou com token errado a API responde **302 para o login**. Tudo da API mora em
 `scadagridco.py` (puro, menos o `get()`); o `app.py` tem a linha, o drill e a curva no bloco "scadaGridco".
 
+- **ETM pelo scadaGridco, 11/11/2026** (Levi: "GreenYellow e Apolo não estão mostrando ETM, tá certo isso??"): a estação
+  vem como o equipamento `weather` do gateway MQTT, e a plataforma não lia. Agora `scadagridco.etm_do_dia` busca a série
+  do dia no `/api/telemetria` com `tipo=weather` (o "-" do ponto sem sensor é sem leitura, a leitura com
+  `communication_fault` ruim é lacuna) e `_sg_etm_build` aplica o MESMO `_diagnostico_etm` das outras fontes; rota
+  `/api/<greenyellow|salenergia|apolo>/etm/analise`, cache de 15 min montado pelo worker. Têm estação: Castelo do Piauí,
+  Cedro (4 estações; vale a de leitura mais recente para a Cedro 1 e a 2), Demerval Lobão, Irecê 2 e Macaíba. A Apolo
+  não tem estação na API (aba vazia, certo assim) e a Sal Energia é Modbus sem leitura. `pluviometro` diz se o
+  pluviômetro mandou número no dia (na Macaíba vem "-").
+- **Marialva no Axis, 11/11/2026** (Levi: "Foi incluída Marialva no ScadaGridCo, pode inserir em Axis do tempo real"):
+  fonte `axisscada` (rótulo "Axis") no `scadagridco.py`, equipamento N = Inversor 1.N, provisório. Não tem aba nem card
+  próprios: `/api/axis/data` junta as linhas dela (`_axis_com_scadagridco`), o drill e a curva da Axis (`/api/axis/plant`
+  e `/api/axis/curva`) vão ao scadaGridco quando a usina é dele, e o rollup a soma no card da Axis. Usina nova do cliente
+  Axis no supervisório entra pela descoberta (`_SG_FONTE_DO_CLIENTE["axis"]`).
 - **Gravatá II, Iramaia II (Apolo) e Macaíba (GreenYellow), 10/11/2026** (Levi: "Usinas da Apolo no tempo real, na nossa
   API já temos Iramaia e Gravata, por gentileza inserir"; "Em greenyellow também temos macaíba"). A descoberta casa pelo
   NOME e o supervisório escreve "Gravata II Apolo", "Iramaia II apolo" e "Macaíba", contra "Gravatá II", "Iramaia II" e

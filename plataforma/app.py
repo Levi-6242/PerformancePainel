@@ -8379,8 +8379,10 @@ def api_sunop_data():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
     build = (lambda: _build_sunop_espelho(inst)) if _sunop_espelho_ligado(inst) else (lambda: _build_sunop_payload(inst))
-    return jsonify(_com_sunop_pausa(_servir_tabela_strings(
-        _swr(_si(inst)["cache"], build, force), _sem_geracao_padrao)))
+    d = _swr(_si(inst)["cache"], build, force)
+    if inst == "axis":
+        d = _axis_com_scadagridco(d)              # a Marialva pelo scadaGridco (11/11/2026)
+    return jsonify(_com_sunop_pausa(_servir_tabela_strings(d, _sem_geracao_padrao)))
 
 
 def _com_sunop_pausa(d):
@@ -8642,6 +8644,8 @@ def _sunop_plant_get(plant_name, force=False, inst: str = "gridco"):
 @app.route("/api/axis/plant/<plant_name>")
 def api_sunop_plant(plant_name):
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    if inst == "axis" and _sg.usina_cfg("axisscada", plant_name):
+        return api_sg_plant("axisscada", plant_name)          # a Marialva: o drill do scadaGridco (11/11/2026)
     force = flask_request.args.get("force", "0") == "1"
     try:
         inversores = _sunop_plant_get(plant_name, force, inst)
@@ -10049,6 +10053,8 @@ _sunop_curva_cache = {}   # (plant_name, dia, inv) -> {"ts", "payload"} — curv
 @app.route("/api/axis/curva/<plant_name>")
 def api_sunop_curva(plant_name):
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    if inst == "axis" and _sg.usina_cfg("axisscada", plant_name):
+        return api_sg_curva("axisscada", plant_name)          # a Marialva: a curva do scadaGridco (11/11/2026)
     dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
     if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
@@ -15708,7 +15714,8 @@ _sg.SOBREPOR = _dp_sg_inversores          # De-para de equipamentos: o decidido 
 _gy_cache  = {"payload": None, "ts": 0.0}
 _sal_cache = {"payload": None, "ts": 0.0}
 _apo_cache = {"payload": None, "ts": 0.0}  # Apolo (Rio do Peixe I e II, 29/10/2026)
-_SG_CACHE  = {"greenyellow": _gy_cache, "salenergia": _sal_cache, "apolo": _apo_cache}
+_axs_cache = {"payload": None, "ts": 0.0}  # Axis pelo scadaGridco (a Marialva, 11/11/2026): servida nas rotas /api/axis/*
+_SG_CACHE  = {"greenyellow": _gy_cache, "salenergia": _sal_cache, "apolo": _apo_cache, "axisscada": _axs_cache}
 _sg_curvas = _sg.CurvasDoDia()           # curva de cada inversor: hoje aos pedaços (apos_ts), dia passado por 6 h
 SG_HIST_DIAS = 45                        # a API guarda 45 dias; antes disso a curva diz que não há, sem ir à rede
 
@@ -15725,7 +15732,7 @@ SG_HIST_DIAS = 45                        # a API guarda 45 dias; antes disso a c
 SG_DESCOBRIR_A_CADA_S = 3600
 _SG_EXTRAS_PATH = _p_dado("sg_usinas_descobertas.json")
 _SG_EXTRAS_MEMO = {"mtime": None, "descoberto": 0.0}
-_SG_FONTE_DO_CLIENTE = {"greenyellow": "greenyellow", "sal energia": "salenergia", "apolo": "apolo"}
+_SG_FONTE_DO_CLIENTE = {"greenyellow": "greenyellow", "sal energia": "salenergia", "apolo": "apolo", "axis": "axisscada"}
 
 
 def _sg_classifica(descobertas) -> dict:
@@ -15947,11 +15954,91 @@ def _build_apo_payload():
     return _sg_build("apolo")
 
 
+def _build_axs_payload():
+    return _sg_build("axisscada")
+
+
+def _axis_com_scadagridco(d):
+    """A tabela da Axis com as usinas dela que chegam pelo scadaGridco (a Marialva, 11/11/2026): a SunOp da Axis está
+    sem token, e a Axis do tempo real é UMA aba e UM card. Só junta o que já está montado (a cache)."""
+    extra = list(((_swr(_axs_cache, _build_axs_payload) or {}).get("rows")) or [])
+    if not extra or not isinstance(d, dict):
+        return d
+    nomes = {r.get("usina") for r in d.get("rows") or []}
+    rows = list(d.get("rows") or []) + [r for r in extra if r.get("usina") not in nomes]
+    s = dict(d.get("summary") or {})
+    s["total_usinas"] = len(rows)
+    return dict(d, rows=rows, summary=s)
+
+
 @app.route("/api/<any(greenyellow, salenergia, apolo):fonte>/data")
 def api_sg_data(fonte):
     force = flask_request.args.get("force", "0") == "1"
     return jsonify(_servir_tabela_strings(_swr(_SG_CACHE[fonte], lambda: _sg_build(fonte), force),
                                           _sem_geracao_padrao))
+
+
+# ── A ETM das fontes do scadaGridco (11/11/2026) ───────────────────────────────────────────────────────────────────
+#   Levi: "GreenYellow e Apolo não estão mostrando ETM, tá certo isso??". Não estava: a estação vinha na API (equipamento
+#   `weather`) e a plataforma não lia. A análise é a MESMA das outras fontes (`_diagnostico_etm`, com o POA-RI fora da
+#   régua). Usina sem estação na API não entra na aba (não é "sem dados": não tem estação). A Cedro tem 4 estações e o
+#   supervisório a junta (cedro_1 e cedro_2 apontam para a "cedro"): vale a estação com a leitura mais recente e a curva
+#   mais completa, para as duas.
+_gy_etm_cache  = {"payload": None, "ts": 0.0, "_ttl": 900}
+_sal_etm_cache = {"payload": None, "ts": 0.0, "_ttl": 900}
+_apo_etm_cache = {"payload": None, "ts": 0.0, "_ttl": 900}
+_SG_ETM_CACHE  = {"greenyellow": _gy_etm_cache, "salenergia": _sal_etm_cache, "apolo": _apo_etm_cache}
+
+
+def _sg_etm_build(fonte: str) -> dict:
+    rows, por_scada = [], {}
+    for cfg in _sg.usinas(fonte):
+        if not _cob_entra(fonte, cfg["id"]):
+            continue
+        sid = _sg.scada_id(fonte, cfg["id"])
+        if sid not in por_scada:
+            try:
+                por_scada[sid] = _sg.etm_do_dia(fonte, cfg["id"])
+            except _sg.SemAcesso:
+                raise
+            except Exception as e:                               # noqa: BLE001 — a usina sai como sem dados
+                print(f"[scadaGridco] ETM de {sid}: {type(e).__name__}: {e}")
+                por_scada[sid] = None
+        ests = por_scada[sid]
+        if ests == []:
+            continue                                             # sem estação na API: fora da aba
+        base = {"usina": cfg["usina"], "plant_id": cfg["id"], "flags": [], "severidade": 3,
+                "spark": {"labels": [], "poa": [], "ghi": []}, "ultima_leitura": None, "sem_dados": True}
+        melhor = None
+        for est in ests or []:
+            diag = _diagnostico_etm(est["serie"], poari=est["poari"]) if est["serie"] else None
+            if not diag or diag.get("ultima_leitura") is None:
+                continue
+            chave = (diag["ultima_leitura"], len(est["serie"]))
+            if melhor is None or chave > melhor[0]:
+                melhor = (chave, diag, est)
+        if melhor is None:
+            rows.append(dict(base, estacoes=len(ests or [])))
+            continue
+        _ch, diag, est = melhor
+        rows.append({"usina": cfg["usina"], "plant_id": cfg["id"], "sem_dados": False, **diag,
+                     "estacao": est["estacao"], "estacoes": len(ests), "pluviometro": bool(est["chuva"])})
+    rows.sort(key=lambda r: (0 if r.get("sem_dados") else 1 if r.get("severidade") == 0 else
+                             2 if r.get("severidade") == 1 else 3, r["usina"]))
+    return {"rows": rows, "fonte": fonte,
+            "summary": {"total": len(rows), "criticos": sum(1 for r in rows if r.get("severidade") == 0),
+                        "atencao": sum(1 for r in rows if r.get("severidade") == 1),
+                        "sem_dados": sum(1 for r in rows if r.get("sem_dados"))},
+            "cache_ts": datetime.now().strftime("%H:%M:%S")}
+
+
+@app.route("/api/<any(greenyellow, salenergia, apolo):fonte>/etm/analise")
+def api_sg_etm_analise(fonte):
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        return jsonify(_swr(_SG_ETM_CACHE[fonte], lambda: _sg_etm_build(fonte), force))
+    except _sg.SemAcesso as e:
+        return jsonify({"rows": [], "aviso": str(e), "summary": {"total": 0}}), 200
 
 
 @app.route("/api/<any(greenyellow, salenergia, apolo):fonte>/plant/<pid>")
@@ -17623,6 +17710,8 @@ def _portfolio_rollup() -> list:
         print(f"[macro] SunOp/Athon indisponível: {e}")
     try:                                      # Axis (SunOp axis) — SÓ cache
         for r in (_axis_cache.get("payload") or {}).get("rows", []):
+            add("Axis", r)
+        for r in (_axs_cache.get("payload") or {}).get("rows", []):   # a Marialva pelo scadaGridco (11/11/2026)
             add("Axis", r)
     except Exception as e:
         print(f"[macro] Axis indisponível: {e}")
@@ -21622,7 +21711,7 @@ def _comentarios_usinas_conhecidas() -> dict:
     caches = (("pv", "thopen-pv", _cache), ("so", "athon", _sunop_cache), ("so", "axis", _axis_cache),
               ("ax", "axis", _axis_cache), ("se", "renogrid", _se_cache), ("semp", "semp", _semp_cache),
               ("al", "alveslima", _alveslima_cache), ("c2", "2capi", _2capi_cache), ("gy", "greenyellow", _gy_cache),
-              ("sal", "salenergia", _sal_cache), ("apo", "apolo", _apo_cache))
+              ("sal", "salenergia", _sal_cache), ("apo", "apolo", _apo_cache), ("ax", "axis", _axs_cache))
     for prefixo, fonte, c in caches:
         try:
             por(prefixo, fonte, (c.get("payload") or {}).get("rows"))
@@ -25476,8 +25565,11 @@ def _prewarm_loop():
             ("GreenYellow",    _gy_cache,            _build_gy_payload),      # scadaGridco: 1 pedido por usina
             ("Sal Energia",    _sal_cache,           _build_sal_payload),
             ("Apolo",          _apo_cache,           _build_apo_payload),
+            ("Axis scadaGridco", _axs_cache,         _build_axs_payload),     # a Marialva (11/11/2026)
             ("GreenYellow trk", _gy_trk_cache,       _build_gy_trk_payload),    # Castelo do Piauí e Cedro (03/11/2026)
             ("Apolo trackers", _apo_trk_cache,       _build_apo_trk_payload),   # os 96 da Rio do Peixe (03/11/2026)
+            ("GreenYellow ETM", _gy_etm_cache,       lambda: _sg_etm_build("greenyellow")),   # a estação (11/11/2026)
+            ("Apolo ETM",      _apo_etm_cache,       lambda: _sg_etm_build("apolo")),
             ("PG ETM",         _pg_etm_cache,        _build_pg_etm_payload),
             ("PG ETM análise", _pg_analise_cache,    _build_pg_analise_payload),
             ("PG trackers",    _pg_trk_cache,        _pg_trackers_overview),
@@ -25605,8 +25697,11 @@ def _persist_registry():
         "gy":            _gy_cache,
         "sal":           _sal_cache,
         "apo":           _apo_cache,
+        "axs":           _axs_cache,
         "apo_trk":       _apo_trk_cache,
         "gy_trk":        _gy_trk_cache,
+        "gy_etm":        _gy_etm_cache,
+        "apo_etm":       _apo_etm_cache,
         "pg_etm":        _pg_etm_cache,
         "pg_analise":    _pg_analise_cache,
         "pg_trk":        _pg_trk_cache,
