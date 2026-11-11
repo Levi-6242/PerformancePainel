@@ -138,6 +138,20 @@ def test_etm_o_que_a_plataforma_nao_le_e_sem(freeze_now):
         assert {c["v"] for c in app._comm_etm(f, None, None).values()} == {"sem"}, f
 
 
+def test_etm_do_scadagridco_pela_estacao_do_supervisorio(freeze_now):
+    """11/11/2026 (b1e802a): a estação `weather` do scadaGridco entrou no tempo real. A GreenYellow com estação tem POA,
+    GHI e POA RI pela análise do dia; o pluviômetro vazio ("-") é ✗; a usina que não está na análise montada não tem
+    estação no supervisório (✗ com prova, a Apolo)."""
+    freeze_now(AGORA)
+    an = [{"usina": "Usina Teste", "plant_id": 101, "sem_dados": False, "ultima_leitura": "2026-11-11 11:58",
+           "spark": {"poa": [800.0], "ghi": [600.0], "poari": [40.0]}, "pluviometro": False,
+           "sensores": {"poa": {"status": "ok"}, "ghi": {"status": "ok"}, "poari": {"status": "ok"}}}]
+    gy = app._comm_etm("GreenYellow", an, an)
+    assert [gy[k]["v"] for k in ("poa", "ghi", "poari", "chuva")] == ["tem", "tem", "tem", "nao"]
+    assert app._comm_etm("GreenYellow", [dict(an[0], pluviometro=True)], [dict(an[0], pluviometro=True)])["chuva"]["v"] == "tem"
+    assert {c["v"] for c in app._comm_etm("Apolo", [], []).values()} == {"nao"}
+
+
 def test_etm_montada_antes_do_pluviometro_e_sem(freeze_now):
     freeze_now(AGORA)
     r = _etm()

@@ -6508,10 +6508,14 @@ _COMM_ETM = {"API PV": ("_etm_cache", "_etm_analise_cache"),
              "2C": ("_2capi_etm_cache", "_2capi_etm_analise_cache"),
              "Thopen": ("_pg_etm_cache", "_pg_analise_cache"),
              "Athon": ("_sunop_etm_cache", "_sunop_analise_cache"),
-             "Axis": ("_axis_etm_cache", "_axis_analise_cache")}
-_COMM_SG_SEM_ETM = "a plataforma ainda não lê a estação (weather) do scadaGridco no tempo real"
+             "Axis": ("_axis_etm_cache", "_axis_analise_cache"),
+             # o scadaGridco (11/11/2026): a estação `weather` do gateway, só a análise do dia (`_sg_etm_build`)
+             "GreenYellow": ("_gy_etm_cache", "_gy_etm_cache"), "Apolo": ("_apo_etm_cache", "_apo_etm_cache")}
+# o scadaGridco lista a estação por usina: a usina que não está na análise montada NÃO TEM estação no supervisório (✗ com
+# prova), e o pluviômetro vem do `pluviometro` da análise (o "-" do ponto sem sensor)
+_COMM_SG = frozenset({"GreenYellow", "Apolo"})
 _COMM_ETM_FORA = {"RenoGrid": "a plataforma não lê estação meteorológica da SolarEdge por usina",
-                  "GreenYellow": _COMM_SG_SEM_ETM, "Sal Energia": _COMM_SG_SEM_ETM, "Apolo": _COMM_SG_SEM_ETM}
+                  "Sal Energia": "a Sal Energia é Modbus e o supervisório não lê os inversores nem a estação dela"}
 # a consulta da estação no banco da Thopen não traz POA-RI: a 3ª coluna de lá é a temperatura do módulo
 _COMM_POARI_FORA = {"Thopen": "a consulta da estação no banco da Thopen não traz POA-RI (a 3ª coluna é a temperatura "
                               "do módulo)"}
@@ -6642,6 +6646,8 @@ def _comm_etm(fonte, vg, an, agora=None) -> dict:
     vg, an = vg or [], an or []
     vivos = [r for r in vg if not r.get("sem_dados")]
     an_vivos = [r for r in an if not r.get("sem_dados")]
+    if fonte in _COMM_SG and not vg and not an:
+        return {k: _comm("nao", "o supervisório não tem estação desta usina") for k in ("poa", "ghi", "poari", "chuva")}
     if not vivos and not an_vivos:
         m = ("a estação não mandou leitura hoje (a fonte responde igual quando a usina não tem estação)"
              if (vg or an) else "a fonte não lista estação para esta usina")
@@ -6671,7 +6677,14 @@ def _comm_etm(fonte, vg, an, agora=None) -> dict:
 
     out["poa"], out["ghi"] = _sensor("poa"), _sensor("ghi")
     out["poari"] = _comm("sem", _COMM_POARI_FORA[fonte]) if fonte in _COMM_POARI_FORA else _sensor("poari")
-    if fonte not in _COMM_CHUVA_API_PV:
+    if fonte in _COMM_SG:
+        if velha:
+            out["chuva"] = _comm("sem", m_velha)
+        elif any(r.get("pluviometro") for r in an_vivos):
+            out["chuva"] = _comm("tem", f"leitura das {_comm_hm(ult)}")
+        else:
+            out["chuva"] = _comm("nao", "a estação manda o pluviômetro vazio (\"-\")")
+    elif fonte not in _COMM_CHUVA_API_PV:
         out["chuva"] = _comm("sem", "a plataforma não lê pluviômetro desta fonte")
     else:
         ch = [r.get("chuva_status") for r in vivos if "chuva_status" in r]
@@ -12197,7 +12210,8 @@ def _etm_leitura_por_pid() -> dict:
     """{plant_id: leitura mais nova da ESTAÇÃO} das análises de ETM em cache — nenhuma chamada nova."""
     out = {}
     for nome in ("_etm_analise_cache", "_semp_etm_analise_cache", "_alveslima_etm_analise_cache",
-                 "_2capi_etm_analise_cache", "_pg_etm_analise_cache", "_sunop_etm_analise_cache", "_axis_etm_analise_cache"):
+                 "_2capi_etm_analise_cache", "_pg_analise_cache", "_sunop_analise_cache", "_axis_analise_cache",
+                 "_gy_etm_cache", "_apo_etm_cache"):     # os nomes certos (11/11/2026: eram "_pg_etm_analise_cache"...)
         c = globals().get(nome)
         for r in ((c or {}).get("payload") or {}).get("rows") or [] if isinstance(c, dict) else []:
             ul = r.get("ultima_leitura")

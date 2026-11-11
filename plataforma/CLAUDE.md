@@ -2466,7 +2466,11 @@ inversor desligado, usina desligada, usina sem comunicação" (Performance > Tem
   `fetch_etm_plant` passou a guardar `chuva`/`chuva_status` (`chuTotal` ou `Chu`) da MESMA resposta do day_meteo — o
   valor não é confiável, só a presença. Até o 1º ciclo da ETM depois do deploy a coluna sai `sem`. Não lidos (ficam
   `sem` com o motivo): POA-RI do banco da Thopen (a 3ª coluna de lá é a temperatura do módulo), pluviômetro da SunOp e do
-  banco, ETM da SolarEdge e do scadaGridco (`weather` não entra no tempo real), trackers da SolarEdge.
+  banco, ETM da SolarEdge e da Sal Energia (Modbus sem leitura), trackers da SolarEdge. A GreenYellow e a Apolo leem a
+  estação `weather` do scadaGridco desde 11/11/2026 (`_gy_etm_cache`/`_apo_etm_cache`): POA, GHI e POA RI pela análise,
+  o pluviômetro pelo `pluviometro` dela ("-" = ✗), e a usina que não está na análise montada = ✗ "o supervisório não
+  tem estação desta usina" (a Apolo inteira). O `_etm_leitura_por_pid` (régua da usina desligada) passou a ler as
+  análises certas da SunOp, da Axis e do banco (os nomes estavam errados e ela nunca as via) e as do scadaGridco.
 - **Nexus**: a rota cai no prefixo `/api/entrada/tempo-real` da chave de leitura (`leitura_nexus._GET`); nada a mudar lá.
 - Prova: `python -m pytest -q tests/test_entrada_comunicacao.py`.
 ## SunOp: a lista de usinas quando o catálogo não vem (05/11/2026)
