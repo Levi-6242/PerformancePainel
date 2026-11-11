@@ -196,9 +196,12 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
     10/2026 em diante, energia ÷ (potência × IPOA medido) só nos dias com geração E irradiação medida (a régua do IPOA,
     `geracao_possivel.periodo`: `real_medido`, `ipoa_medido`); "sem ETM" fica sem PR. Antes de outubro, a produzida e a
     irradiação do mês. O Total pondera pela potência × IPOA.
-  - **A chuva do mês** no canto inferior direito do gráfico do Diário ("Emoji sutil de chuva"): a coluna "Chuva (mm)" da
+  - **A chuva do mês** num card ao lado da Irradiação no Mês, cada um com metade da largura (Levi: "do lado de
+    irradiação do mês, corta a largura pela metade"; antes um selo embaixo do gráfico), com os mm e os dias de chuva (o
+    emoji do título saiu: "tira esse emoji de chuva"): a coluna "Chuva (mm)" da
     aba diária do BD_Thopen (`_chuva_por_dia`), só dos dias já coletados (o 0 do dia pré-criado não é "não choveu");
-    total, dias com chuva e, no mouse, o dia de maior chuva. Sem a coluna (Polaris, Copel, Matrix), não aparece; a
+    no mouse, o dia de maior chuva. Sempre à vista (Levi: "mesmo com dados nulos, aparece só com '-'"): sem a coluna
+    (Polaris, Copel, Matrix) ou com o mês todo em 0 (parece falta do pluviômetro), "—"; a
     leitura nunca derruba o Diário.
   Prova: `tests/test_thopen_portfolio_pr_chuva.py`.
 

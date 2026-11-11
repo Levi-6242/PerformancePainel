@@ -96,5 +96,11 @@ def test_a_tela():
     # o PR logo depois da Diferença Produção (Levi, 11/11/2026: "bote a coluna de PR depois de Diferença Produção")
     assert "<th>Diferença Produção (%)</th><th>PR (%)</th><th>Irradiação Esperada (kWh/m²)</th>" in T
     assert "const PORT='Portfólio';" in T and "CARTS.length>1?" in T and 'class="grupo"' in T
-    assert "Chuva no mês:" in T and 'id="chuvaSelo"' in T and "_chuvaSelo(d);" in T and "🌧️" in T
+    # a chuva no card ao lado da Irradiação no Mês (11/11/2026, "corta a largura pela metade"), não embaixo do gráfico
+    assert 'id="irrChuva"' in T and 'id="chuvaCard"' in T and "_chuvaCard(d);" in T
+    assert "🌧" not in T                       # o emoji saiu (Levi, 11/11/2026: "tira esse emoji de chuva")
+    assert 'id="chuvaMm"' in T and 'id="chuvaDias"' in T and "Dias de chuva" in T and "chuvaSelo" not in T
+    assert ".com-op #irrChuva{ grid-area:irr; }" in T
+    # sempre à vista, com "—" sem dado ou com o mês todo em 0 ("deixa sempre aparecendo [...] aparece só com '-'")
+    assert '<div class="card" id="chuvaCard">' in T and "$('chuvaMm').textContent='—'" in T
     assert "d.chuva.total_mm>0" in T          # o mês todo em 0 (sem pluviômetro) não vira "0,0 mm"
