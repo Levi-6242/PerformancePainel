@@ -6316,7 +6316,9 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
         x["ultima_leitura"] = max(uls) if uls else x.get("ultima_leitura")
         grupos.append(x)
     out = dict(data, grupos=grupos, strings_ts=datetime.now().strftime("%H:%M:%S"))
-    m.update(ts=time.time(), epoch=epoch, data=out)
+    # `vivo` fica junto: o book de status da UFV (/api/entrada/tempo-real/comunicacao, 11/11/2026) lê a MESMA linha do
+    # rollup que deu o status do card, em vez de montar o rollup de novo
+    m.update(ts=time.time(), epoch=epoch, data=out, vivo=vivo)
     return out
 
 
@@ -6471,6 +6473,313 @@ def api_entrada_tempo_real_atualizar():
     c = _ENTRADA_TR_CACHE
     return jsonify({"ok": True, "disparou": disparou, "renovando": c["building"],
                     "cache_ts": (c["data"] or {}).get("cache_ts"), "min_intervalo_s": _ENTRADA_TR_MIN_FORCA_S})
+
+
+# ── Comunicação: o book de status da UFV (11/11/2026) ─────────────────────────────────────────────────────────────────
+# Levi, 11/11/2026, em Performance > Tempo real: "Ao clicar em comunicação quero os checks que te pedi daquela vez
+# strings, POA, GHI, POA RI, PLUVIÔMETRO, TRACKERS. Tem que mostrar uma tabelinha mostrando o que tem e o que não tem!"
+# e "criar um book de status da UFV, se está funcionando, problema de string, inversor desligado, usina desligada, usina
+# sem comunicação". Uma linha por UFV dos cards da Entrada, com o status e as seis colunas.
+#
+# SÓ o que já está em memória: a linha do rollup que deu o status do card (`_entrada_tr_strings_ao_vivo`), as tabelas de
+# ETM de cada fonte e as abas de trackers que o worker monta. Nenhuma chamada às fontes: a SunOp é paga e tem teto
+# diário, e o Nexus abre esta tela sem montar cache. Não dispara a montagem da Entrada (quem abre a tela já dispara).
+#
+# Cada coluna tem três valores, cada um com o porquê (`obs`):
+#   "tem" = a fonte manda o dado desta usina e chegou leitura (com `alerta` quando a régua de lá acusa: POA/GHI medindo
+#           zero com sol, valor de erro);
+#   "nao" = a fonte não manda: a estação responde SEM o sensor, a lista de trackers da fonte não tem a usina, a usina não
+#           tem visão por string;
+#   "sem" = sem leitura agora, ou a plataforma não lê esse dado daquela fonte. Nunca "nao" chutado: sem prova, é "sem".
+COMM_COLUNAS = (("strings", "Strings"), ("poa", "POA"), ("ghi", "GHI"), ("poari", "POA RI"),
+                ("chuva", "Pluviômetro"), ("trackers", "Trackers"))
+# o status da UFV, na ordem de gravidade da tabela. Régua: a do macro (`_macro_status`), sem nada novo — ver
+# `_comm_status_ufv`. "Sem sol" não estava na lista do Levi; é o mesmo "Sem sol" da tabela de strings: de noite a usina
+# não é julgada ao vivo, e chamá-la de "Funcionando" seria afirmar o que ninguém mediu.
+COMM_STATUS = (("sem_comm", "Usina sem comunicação"), ("desligada", "Usina desligada"),
+               ("inversor", "Inversor desligado"), ("string", "Problema de string"),
+               ("funcionando", "Funcionando"), ("sem_sol", "Sem sol"))
+_COMM_STATUS_ROT = dict(COMM_STATUS)
+_COMM_STATUS_ORDEM = {k: i for i, (k, _r) in enumerate(COMM_STATUS)}
+# fonte do card → (tabela de ETM da visão geral, pré-análise do dia). As duas já moram em memória (worker → snapshot).
+_COMM_ETM = {"API PV": ("_etm_cache", "_etm_analise_cache"),
+             "SEMP": ("_semp_etm_cache", "_semp_etm_analise_cache"),
+             "Alves Lima": ("_alveslima_etm_cache", "_alveslima_etm_analise_cache"),
+             "2C": ("_2capi_etm_cache", "_2capi_etm_analise_cache"),
+             "Thopen": ("_pg_etm_cache", "_pg_analise_cache"),
+             "Athon": ("_sunop_etm_cache", "_sunop_analise_cache"),
+             "Axis": ("_axis_etm_cache", "_axis_analise_cache")}
+_COMM_SG_SEM_ETM = "a plataforma ainda não lê a estação (weather) do scadaGridco no tempo real"
+_COMM_ETM_FORA = {"RenoGrid": "a plataforma não lê estação meteorológica da SolarEdge por usina",
+                  "GreenYellow": _COMM_SG_SEM_ETM, "Sal Energia": _COMM_SG_SEM_ETM, "Apolo": _COMM_SG_SEM_ETM}
+# a consulta da estação no banco da Thopen não traz POA-RI: a 3ª coluna de lá é a temperatura do módulo
+_COMM_POARI_FORA = {"Thopen": "a consulta da estação no banco da Thopen não traz POA-RI (a 3ª coluna é a temperatura "
+                              "do módulo)"}
+# o pluviômetro só é lido da API PV (o `chuva` do fetch_etm_plant); SunOp e banco: a plataforma não lê
+_COMM_CHUVA_API_PV = frozenset({"API PV", "SEMP", "Alves Lima", "2C"})
+# fonte do card → as abas de trackers dela (as mesmas da aba Trackers do Monitoramento). A SEMP e a Alves Lima entram na
+# varredura da conta principal (`_build_pv_trk_payload`) e também têm a aba própria (`_pv_trk_fonte_cache`).
+_COMM_TRK = {"API PV": ("_pv_trk_cache",), "SEMP": ("_pv_trk_cache", "semp"), "Alves Lima": ("_pv_trk_cache", "alveslima"),
+             "2C": ("_2c_trk_cache",), "Thopen": ("_pg_trk_cache",), "Athon": ("_sunop_trk_cache",),
+             "Axis": ("_axis_trk_cache",), "GreenYellow": ("_gy_trk_cache",), "Apolo": ("_apo_trk_cache",)}
+_COMM_TRK_NAO = {"Sal Energia": "a Sal Energia é Modbus e não manda tracker (_sg_trk_grupos)"}
+
+
+def _comm(v, obs="", alerta=""):
+    d = {"v": v, "obs": obs}
+    if alerta:
+        d["alerta"] = alerta
+    return d
+
+
+def _comm_hm(ts) -> str:
+    s = str(ts or "")
+    return s[11:16] if len(s) >= 16 else s
+
+
+def _comm_rows_do_cache(nome):
+    """As linhas de um cache `{"payload": {"rows": [...]}}` (pelo nome global, ou a aba própria da conta da API PV), ou
+    None quando ele ainda não foi montado — "não montado" é "sem leitura", nunca "a fonte não manda"."""
+    if nome in ("semp", "alveslima"):
+        p = (_pv_trk_fonte_cache.get(nome) or {}).get("payload")
+    else:
+        c = globals().get(nome)
+        p = c.get("payload") if isinstance(c, dict) else None
+    if not isinstance(p, dict) or not isinstance(p.get("rows"), list):
+        return None
+    return p
+
+
+def _comm_indice(rows):
+    """({plant_id: [linhas]}, {nome da usina: [linhas]}) — o nome pela mesma régua do macro."""
+    por_pid, por_nome = {}, {}
+    for r in rows or []:
+        if r.get("plant_id") not in (None, ""):
+            por_pid.setdefault(str(r["plant_id"]), []).append(r)
+        n = _nrm(_macro_usina_nome(r.get("usina") or ""))
+        if n:
+            por_nome.setdefault(n, []).append(r)
+    return por_pid, por_nome
+
+
+def _comm_achar(idx, u) -> list:
+    """As linhas do índice desta usina: pelo plant_id dela e de cada fatia (Indaiatuba 1 a 4 numa linha só), senão pelo
+    nome. O nome muda de uma rota para outra ("Sete Lagoa" x "Sete Lagoas"); o id não."""
+    if not idx:
+        return []
+    pids = {str(u.get("plant_id"))} | {str(p.get("plant_id")) for p in (u.get("partes") or [])}
+    out, vistos = [], set()
+    for pid in pids:
+        for r in idx[0].get(pid, []):
+            if id(r) not in vistos:
+                vistos.add(id(r))
+                out.append(r)
+    if not out:
+        out = list(idx[1].get(_nrm(_macro_usina_nome(u.get("usina") or "")), []))
+    return out
+
+
+def _comm_status_ufv(r, agora=None) -> dict:
+    """O status da UFV pela régua do macro (`_macro_status`), sem régua nova:
+      sem_comm                          → Usina sem comunicação (inclui a telemetria parada do `_guarda_telemetria_parada`)
+      desligada (com motivo)            → Usina desligada
+      sem_producao (potência ~0 de dia) → Usina desligada  [escolha a confirmar com o Levi: a régua chama de "sem produção"]
+      critico/atencao com inversor parado (inv_off > 0) → Inversor desligado (o macro só põe crítico por inversor de dia)
+      critico/atencao pelo resto (strings abaixo; inversor fora do padrão D-1, que o macro põe no degrau da falha de
+                                  string) → Problema de string
+      ok com o sol baixo no estado      → Sem sol (o "Sem sol" da tabela: nada se julga ao vivo)
+      ok                                → Funcionando (a causa, "Baixa irradiância" ou "Sem visão por string", vai junto)"""
+    st = r.get("status")
+    causa = r.get("causa") or ""
+    off = r.get("inv_off")
+    if st == "sem_comm":
+        k = "sem_comm"
+        det = causa if causa.startswith("Telemetria parada") else ""
+    elif st in ("desligada", "sem_producao"):
+        k, det = "desligada", causa
+    elif st in ("critico", "atencao"):
+        if not _inv_padrao_status_de(r) and isinstance(off, (int, float)) and off > 0:
+            k = "inversor"
+        else:
+            k = "string"
+        det = causa
+    elif _macro_sol_baixo(r, agora):
+        k, det = "sem_sol", "nada a julgar ao vivo"
+    else:
+        k, det = "funcionando", ("" if causa in ("", "Normal") else causa)
+    return {"chave": k, "rotulo": _COMM_STATUS_ROT[k], "detalhe": det}
+
+
+def _comm_strings(r) -> dict:
+    """Strings: a fonte manda a corrente por string desta usina e chegou leitura (a linha do rollup)."""
+    st = r.get("status")
+    if st == "sem_comm":
+        return _comm("sem", "usina sem comunicação")
+    if r.get("sem_visao"):
+        return _comm("nao", "sem visão por string: a fonte não manda a corrente de cada string desta usina")
+    ult = r.get("ultima_leitura")
+    idade = _macro_idade_h(ult)
+    if idade is None:
+        return _comm("sem", "sem leitura dos inversores")
+    if idade * 60 > USINA_DESL_VELHA_MIN:
+        return _comm("sem", f"sem leitura desde {_comm_hm(ult)}" + (" (usina desligada)" if st == "desligada" else ""))
+    if any(isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool) for k in ("str_esp", "strings_ativas")):
+        return _comm("tem", f"leitura das {_comm_hm(ult)}")
+    return _comm("sem", "a linha da usina veio sem a contagem de strings")
+
+
+def _comm_etm(fonte, vg, an, agora=None) -> dict:
+    """POA, GHI, POA RI e pluviômetro de uma usina, das linhas de ETM dela (`vg` = visão geral, a última leitura de cada
+    estação; `an` = pré-análise do dia, a curva). `vg`/`an` = None quando a tabela da fonte ainda não foi montada."""
+    out = {}
+    if fonte in _COMM_ETM_FORA:
+        m = _COMM_ETM_FORA[fonte]
+        return {k: _comm("sem", m) for k in ("poa", "ghi", "poari", "chuva")}
+    if fonte not in _COMM_ETM:
+        return {k: _comm("sem", "fonte sem tabela de ETM na plataforma") for k in ("poa", "ghi", "poari", "chuva")}
+    if vg is None and an is None:
+        return {k: _comm("sem", "a tabela de ETM desta fonte ainda não foi montada") for k in ("poa", "ghi", "poari", "chuva")}
+    vg, an = vg or [], an or []
+    vivos = [r for r in vg if not r.get("sem_dados")]
+    an_vivos = [r for r in an if not r.get("sem_dados")]
+    if not vivos and not an_vivos:
+        m = ("a estação não mandou leitura hoje (a fonte responde igual quando a usina não tem estação)"
+             if (vg or an) else "a fonte não lista estação para esta usina")
+        return {k: _comm("sem", m) for k in ("poa", "ghi", "poari", "chuva")}
+    ult = max((str(r.get("ultima_leitura")) for r in vivos + an_vivos if r.get("ultima_leitura")), default="")
+    idade = _usina_idade_min(ult, agora)
+    velha = idade is None or idade > USINA_DESL_VELHA_MIN
+    m_velha = f"estação sem leitura desde {_comm_hm(ult)}" if ult else "estação sem carimbo de leitura"
+
+    def _sensor(s):
+        st_vg = [r.get(f"{s}_status") for r in vivos]
+        sens = [((r.get("sensores") or {}).get(s) or {}).get("status") for r in an_vivos]
+        curva = any(v is not None for r in an_vivos for v in ((r.get("spark") or {}).get(s) or []))
+        manda = "ok" in st_vg or "erro" in st_vg or "ok" in sens or "zerado" in sens or curva
+        if not manda:
+            if st_vg and all(x == "sem" for x in st_vg):
+                return _comm("nao", "a estação manda leitura sem este sensor")
+            return _comm("sem", "o sensor não reportou hoje")
+        if velha:
+            return _comm("sem", m_velha)
+        alerta = ""
+        if "zerado" in sens and "ok" not in sens:
+            alerta = "medindo zero com sol"
+        elif "erro" in st_vg and "ok" not in st_vg:
+            alerta = "valor de erro na última leitura"
+        return _comm("tem", f"leitura das {_comm_hm(ult)}", alerta)
+
+    out["poa"], out["ghi"] = _sensor("poa"), _sensor("ghi")
+    out["poari"] = _comm("sem", _COMM_POARI_FORA[fonte]) if fonte in _COMM_POARI_FORA else _sensor("poari")
+    if fonte not in _COMM_CHUVA_API_PV:
+        out["chuva"] = _comm("sem", "a plataforma não lê pluviômetro desta fonte")
+    else:
+        ch = [r.get("chuva_status") for r in vivos if "chuva_status" in r]
+        if not ch:
+            out["chuva"] = _comm("sem", "a leitura do pluviômetro entra no próximo ciclo da ETM")
+        elif "ok" not in ch:
+            out["chuva"] = _comm("nao", "a estação manda leitura sem pluviômetro (Chu/chuTotal)")
+        elif velha:
+            out["chuva"] = _comm("sem", m_velha)
+        else:
+            out["chuva"] = _comm("tem", f"leitura das {_comm_hm(ult)}; o valor da API PV não é confiável, só a presença")
+    return out
+
+
+def _comm_trackers(fonte, u, idx, falhou=frozenset()) -> dict:
+    """Trackers: a lista de trackers da fonte (a mesma da aba Trackers) tem esta usina e chegou leitura. `idx` = None
+    quando nenhuma aba da fonte foi montada ainda."""
+    if fonte in _COMM_TRK_NAO:
+        return _comm("nao", _COMM_TRK_NAO[fonte])
+    if fonte not in _COMM_TRK:
+        return _comm("sem", "a plataforma não lê trackers desta fonte")
+    if idx is None:
+        return _comm("sem", "a aba de trackers desta fonte ainda não foi montada")
+    rows = _comm_achar(idx, u)
+    if not rows:
+        if str(u.get("plant_id")) in falhou:
+            return _comm("sem", "a leitura de trackers desta usina falhou na última montagem")
+        return _comm("nao", "a lista de trackers da fonte não tem esta usina")
+    total = sum(int(r.get("total") or 0) for r in rows)
+    if all(r.get("sem_comunicacao") for r in rows):
+        return _comm("sem", "trackers sem comunicação agora")
+    ult = max((str(r.get("ultima_leitura")) for r in rows if r.get("ultima_leitura")), default="")
+    return _comm("tem", (f"{total} tracker" + ("" if total == 1 else "s")) + (f", leitura das {_comm_hm(ult)}" if ult else ""))
+
+
+def _entrada_comunicacao(fonte_id=None, agora=None) -> dict:
+    """O book de status da UFV: por card da Entrada (ou só o de `fonte_id`), uma linha por usina com o status e as seis
+    colunas. Só memória (ver o bloco acima)."""
+    c = _ENTRADA_TR_CACHE
+    if c["data"] is None:
+        return {"aquecendo": True, "grupos": [], "colunas": [list(x) for x in COMM_COLUNAS],
+                "status": [list(x) for x in COMM_STATUS]}
+    agora = agora or datetime.now()
+    data = _entrada_tr_strings_ao_vivo(c["data"], c["ts"])
+    m = _ENTRADA_TR_VIVO
+    vivo = (m.get("vivo") or {}) if m.get("data") is data else {}
+    etm_idx, trk_idx = {}, {}
+
+    def _etm_de(fonte):
+        if fonte not in etm_idx:
+            nomes = _COMM_ETM.get(fonte)
+            idx = (None, None)
+            if nomes:
+                pv, pa = _comm_rows_do_cache(nomes[0]), _comm_rows_do_cache(nomes[1])
+                idx = (_comm_indice(pv["rows"]) if pv else None, _comm_indice(pa["rows"]) if pa else None)
+            etm_idx[fonte] = idx
+        return etm_idx[fonte]
+
+    def _trk_de(fonte):
+        if fonte not in trk_idx:
+            rows, falhou, algum = [], set(), False
+            for nome in _COMM_TRK.get(fonte) or ():
+                p = _comm_rows_do_cache(nome)
+                if p is None:
+                    continue
+                algum = True
+                rows.extend(p["rows"])
+                falhou |= {str(x) for x in (p.get("falhou") or [])}
+            trk_idx[fonte] = (_comm_indice(rows) if algum else None, frozenset(falhou))
+        return trk_idx[fonte]
+
+    grupos, total = [], {k: 0 for k, _r in COMM_STATUS}
+    for g in data.get("grupos") or []:
+        if fonte_id and (g.get("fonte_id") or "") != fonte_id:
+            continue
+        fonte = g.get("fonte") or ""
+        vg_idx, an_idx = _etm_de(fonte)
+        t_idx, t_falhou = _trk_de(fonte)
+        cont = {k: 0 for k, _r in COMM_STATUS}
+        linhas = []
+        for u in g.get("usinas") or []:
+            # a linha do rollup (status, causa, inversores, visão por string, fatias); sem ela, a da Entrada
+            r = vivo.get((g.get("cliente"), fonte, str(u.get("plant_id")))) or u
+            st = _comm_status_ufv(r, agora)
+            cont[st["chave"]] += 1
+            ck = {"strings": _comm_strings(r)}
+            ck.update(_comm_etm(fonte, _comm_achar(vg_idx, r) if vg_idx else None,
+                                _comm_achar(an_idx, r) if an_idx else None, agora))
+            ck["trackers"] = _comm_trackers(fonte, r, t_idx, t_falhou)
+            linhas.append({"usina": u.get("usina") or r.get("usina"), "plant_id": u.get("plant_id"),
+                           "estado": u.get("estado"), "status": st, "ultima_leitura": r.get("ultima_leitura"),
+                           "checks": ck})
+        linhas.sort(key=lambda x: (_COMM_STATUS_ORDEM.get(x["status"]["chave"], 9), _nrm(x["usina"] or "")))
+        for k, n in cont.items():
+            total[k] += n
+        grupos.append({"cliente": g.get("cliente"), "fonte": fonte, "fonte_id": g.get("fonte_id") or "",
+                       "n_usinas": len(linhas), "sem_leitura": not linhas, "contagem": cont, "usinas": linhas})
+    return {"aquecendo": False, "atualizado": data.get("strings_ts") or data.get("cache_ts"),
+            "cache_ts": data.get("cache_ts"), "colunas": [list(x) for x in COMM_COLUNAS],
+            "status": [list(x) for x in COMM_STATUS], "contagem": total, "grupos": grupos}
+
+
+@app.route("/api/entrada/tempo-real/comunicacao")
+def api_entrada_comunicacao():
+    """O book de status da UFV (o clique em Comunicação da Entrada). ?fonte=<id do card> = só aquele card. Só lê o que
+    está em memória: não dispara a montagem da Entrada nem chama fonte nenhuma."""
+    fid = (flask_request.args.get("fonte") or "").strip() or None
+    return jsonify(_entrada_comunicacao(fid))
 
 
 @app.route("/gerencial")
@@ -6793,6 +7102,17 @@ def fetch_etm_plant(token: str, plant: dict) -> dict:
     poa   = _pick_irr(cj, "IrPOA",    "piraPOA1",   "Ir1", "Ir")
     ghi   = _pick_irr(cj, "IrGHI",    "piraGHI1")
     poari = _pick_irr(cj, "IrPOA_RI", "piraPOA_RI1", "RadPoaRI")
+    # Pluviômetro (11/11/2026, o book de status da UFV: Levi quer ver na Comunicação quem TEM pluviômetro). Mesma resposta
+    # do day_meteo, nenhuma chamada a mais: `chuTotal` (acumulado) ou `Chu` (por leitura). Só diz se a estação manda o
+    # campo; o valor não é confiável (docs/api-pv-operation.md: `Chu` constante, `chuTotal` com saltos 0 → 715 → 0).
+    chuva = None
+    for _k in ("chuTotal", "Chu"):
+        try:
+            if cj.get(_k) not in (None, "-", ""):
+                chuva = float(cj.get(_k))
+                break
+        except (TypeError, ValueError):
+            continue
     return {
         "usina": nome, "plant_id": pid,
         "poa":   round(poa,   2) if poa   is not None else None,
@@ -6801,6 +7121,7 @@ def fetch_etm_plant(token: str, plant: dict) -> dict:
         "poa_status":   _sensor_status(poa),
         "ghi_status":   _sensor_status(ghi),
         "poari_status": _sensor_status(poari),
+        "chuva": chuva, "chuva_status": "ok" if chuva is not None else "sem",
         "sem_dados": False,
         "ultima_leitura": rec.get("tsleitura_new"),
     }

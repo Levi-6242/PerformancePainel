@@ -315,6 +315,69 @@
     .card:hover .m5 .faixa-iqr,.card:hover .m5 .med{animation:none}
     .card:hover .m2 .cursor,.card:hover .m3 .barra{animation:none}
   }
+
+  /* ── Comunicação: o book de status da UFV (11/11/2026) ─────────────────────
+     Levi: "Ao clicar em comunicação quero os checks [...] strings, POA, GHI, POA RI, PLUVIÔMETRO, TRACKERS. Tem que
+     mostrar uma tabelinha mostrando o que tem e o que não tem!". Abre por cima da tela, com o fundo desfocado (o mesmo
+     da janela do de-para). Status por cor, sem emoji: verde tem, âmbar tem com alerta, vermelho não tem, cinza sem
+     leitura agora. */
+  .g-comm{display:inline-flex;align-items:center;gap:5px;cursor:pointer;border-bottom:1px dashed rgba(255,255,255,.22);transition:color .2s,border-color .2s}
+  .g-comm i{font-style:normal;color:var(--n500);transition:transform .2s,color .2s}
+  .g-comm:hover,.g-comm:focus-visible{color:var(--accent);border-color:var(--accent);outline:none}
+  .g-comm:hover i,.g-comm:focus-visible i{color:var(--accent);transform:translateX(2px)}
+  .u-resumo .m.comm-abre{cursor:pointer;transition:border-color .2s,transform .2s}
+  .u-resumo .m.comm-abre:hover{border-color:rgba(163,217,0,.4);transform:translateY(-2px)}
+  .u-resumo .m.comm-abre:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .comm-ver{color:var(--n300);font-weight:600}
+  .u-resumo .m.comm-abre:hover .comm-ver{color:var(--accent)}
+  .tr-meta button.atualiza.comm{margin-left:6px}
+  .gc-comm{position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+           display:flex;align-items:center;justify-content:center;padding:28px}
+  .gc-comm .cx{position:relative;width:min(1320px,100%);max-height:100%;display:flex;flex-direction:column;border-radius:14px;
+           background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);box-shadow:0 24px 64px rgba(0,0,0,.55)}
+  .gc-comm .cab{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:20px 24px 14px;border-bottom:1px solid var(--divider)}
+  .gc-comm .cab h2{font-size:22px;margin:4px 0 0}
+  .gc-comm .cab .quando{font-family:var(--f-data);font-size:12px;color:var(--n500);text-align:right;white-space:nowrap;padding-top:6px}
+  .gc-comm .fecha{width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:var(--surface);color:var(--text);font-size:20px;line-height:28px;cursor:pointer;flex:none}
+  .gc-comm .fecha:hover{border-color:var(--accent);color:var(--accent)}
+  .gc-comm .filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 24px;border-bottom:1px solid var(--divider)}
+  .gc-comm select{background:var(--surface);color:var(--text);border:1px solid var(--divider);border-radius:8px;padding:6px 10px;font:600 13px var(--f-ui);margin-right:8px}
+  .gc-comm .chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--divider);background:transparent;color:var(--n300);border-radius:999px;padding:4px 11px;font:600 12px var(--f-ui);cursor:pointer}
+  .gc-comm .chip b{font-family:var(--f-data);font-weight:500;color:var(--text)}
+  .gc-comm .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--n500)}
+  .gc-comm .chip[data-k=""]::before{display:none}
+  .gc-comm .chip.on{border-color:var(--accent);color:var(--text);background:rgba(163,217,0,.08)}
+  .gc-comm .chip[disabled]{opacity:.4;cursor:default}
+  .gc-comm .chip[data-k=funcionando]::before{background:var(--ok)}
+  .gc-comm .chip[data-k=string]::before{background:var(--amber)}
+  .gc-comm .chip[data-k=inversor]::before,.gc-comm .chip[data-k=desligada]::before,.gc-comm .chip[data-k=sem_comm]::before{background:var(--red)}
+  .gc-comm .corpo{overflow:auto;flex:1;min-height:120px}
+  .gc-comm table{width:100%;border-collapse:collapse;font-size:13px}
+  .gc-comm th{position:sticky;top:0;z-index:1;background:var(--surface-2);text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--n500);padding:10px 12px;border-bottom:1px solid var(--divider);white-space:nowrap}
+  .gc-comm th.ck{text-align:center}
+  .gc-comm td{padding:9px 12px;border-bottom:1px solid var(--divider);vertical-align:middle}
+  .gc-comm td.nome{font-weight:700;color:var(--text);min-width:180px}
+  .gc-comm td.nome small{display:block;font-weight:500;color:var(--n500);font-size:11.5px;margin-top:2px;max-width:360px}
+  .gc-comm td.hora{font-family:var(--f-data);color:var(--n400);white-space:nowrap}
+  .gc-comm tr.grp td{background:rgba(255,255,255,.025);font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;font-weight:700;color:var(--n400);padding:8px 12px}
+  .gc-comm tr.grp td span{color:var(--n500);font-weight:600;letter-spacing:.06em;margin-left:8px}
+  .gc-comm td.ck{text-align:center;cursor:help;width:92px}
+  .gc-comm td.ck svg{width:16px;height:16px;vertical-align:middle}
+  .gc-comm .ck-tem{color:var(--ok)}.gc-comm .ck-tem.alerta{color:var(--amber)}
+  .gc-comm .ck-nao{color:var(--red)}.gc-comm .ck-sem{color:var(--n500);font-family:var(--f-data)}
+  .gc-comm .pill{white-space:nowrap}
+  .pill.st-funcionando{color:var(--ok)}.pill.st-funcionando::before{background:var(--ok)}
+  .pill.st-string{color:var(--amber)}.pill.st-string::before{background:var(--amber)}
+  .pill.st-inversor,.pill.st-desligada,.pill.st-sem_comm{color:var(--red);border-color:rgba(242,85,90,.35)}
+  .pill.st-inversor::before,.pill.st-desligada::before,.pill.st-sem_comm::before{background:var(--red)}
+  .pill.st-sem_sol{color:var(--n400)}
+  .gc-comm .pe{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 22px;padding:12px 24px;border-top:1px solid var(--divider);color:var(--n500);font-size:12px}
+  .gc-comm .pe .leg{display:inline-flex;flex-wrap:wrap;align-items:center;gap:14px}
+  .gc-comm .pe .leg span{display:inline-flex;align-items:center;gap:5px}
+  .gc-comm .pe span{font-family:var(--f-ui)}   /* o .pe do rodapé da página põe a fonte de dado no span */
+  .gc-comm .pe svg{width:13px;height:13px}
+  .gc-comm .msg{padding:40px;text-align:center;color:var(--n400)}
+  .gc-comm .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
 <body>
@@ -702,6 +765,9 @@
       else if (d.cache_epoch && d.ttl_s) s += "<span class='prox'> · próxima " + hhmm(d.cache_epoch + d.ttl_s) + "</span>";
       var ocupado = atualizando || !!d.renovando;
       s += "<br><button type='button' class='atualiza' data-atualizar" + (ocupado ? " disabled" : "") + ">" + (ocupado ? "atualizando…" : "Atualizar") + "</button>";
+      // Comunicação (11/11/2026): o book de status da UFV, por cima da tela (ver gcCommAbre). No nível 2 abre "todas";
+      // no 3, a fonte aberta.
+      s += " <button type='button' class='atualiza comm' data-comm='" + escAttr(fonteSel || "") + "' title='Status de cada usina e o que a fonte manda: strings, POA, GHI, POA RI, pluviômetro e trackers'>Comunicação</button>";
       return s;
     }
     // Só resposta OK vira número (10/10/2026, porta única). A sessão aberta pelo Nexus vale 12 h; depois o 401
@@ -757,7 +823,8 @@
         return "<" + tag + " class='m" + (view ? " aba" : "") + "'" + extra + "><div class='rot'>" + rot + "</div><div class='val" + (cls || "") + "'>" + val + "</div><div class='sub'>" + sub + "</div></" + tag + ">";
       };
       var maisAberto = !!(document.getElementById("us-mais-lista") && !document.getElementById("us-mais-lista").hidden);
-      res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar" + (g.usinas_desligadas > 0 ? " · " + fmt(g.usinas_desligadas) + " desligada" + (g.usinas_desligadas === 1 ? "" : "s") : ""), g.usinas_sem_comm > 0 ? " ruim" : " bom")   // primeiro: vale a qualquer hora
+      // "Sem comunicação" abre a Comunicação desta fonte (11/11/2026): o book de status das usinas, por cima da tela
+      res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar" + (g.usinas_desligadas > 0 ? " · " + fmt(g.usinas_desligadas) + " desligada" + (g.usinas_desligadas === 1 ? "" : "s") : "") + "<br><b class='comm-ver'>ver a comunicação ›</b>", g.usinas_sem_comm > 0 ? " ruim" : " bom").replace("<div class='m'>", "<div class='m comm-abre' role='button' tabindex='0' data-comm='" + fonteSel + "' title='Status de cada usina e o que a fonte manda'>")   // primeiro: vale a qualquer hora
         + (noite ? mostr("Strings", "sem sol", "volta ao amanhecer", " mudo", "strings") : mostr("Strings faltando", strVal(g), strSub(g, " · "), strCls(g), "strings"))
         // ETM: o número são ALARMES do mês (IPOA/GHI medido em zero no BD_Performance); avisos (sensor travado, GHI que
         // não reporta, PR anômalo) ficam no subtítulo — régua de 10/09 (Levi: "alarmar apenas GHI e IPOA zerados").
@@ -794,7 +861,11 @@
           : noite
             ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>estacionados</div><div class='sub'>volta ao amanhecer</div></div>"
             : "<div class='m'><div class='rot'>Trackers parados</div><div class='val" + cls(g.trk_parados, false) + "'>" + fmt(g.trk_parados) + "</div><div class='sub'><b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? "<br>da leitura " + (g.trk_lido_em ? "das " + g.trk_lido_em : "anterior") : "") + "</div></div>";
-        var comm = g.sem_leitura ? "<span class='mudo'>sem leitura de nenhuma usina</span>" : (g.usinas_sem_comm > 0 ? "<span class='ruim'>" + fmt(g.usinas_sem_comm) + " sem comunicação</span>" : "<span>comunicação ok</span>");
+        // o rodapé "N sem comunicação" é o clique da Comunicação deste card (11/11/2026): abre o book de status das usinas
+        // dele por cima da tela, sem trocar de página (o card inteiro continua levando à fonte)
+        var comm = g.sem_leitura ? "<span class='mudo'>sem leitura de nenhuma usina</span>"
+          : "<span class='g-comm" + (g.usinas_sem_comm > 0 ? " ruim" : "") + "' role='button' tabindex='0' data-comm='" + idF + "' title='Comunicação: status de cada usina e o que a fonte manda'>"
+            + (g.usinas_sem_comm > 0 ? fmt(g.usinas_sem_comm) + " sem comunicação" : "comunicação ok") + "<i aria-hidden='true'>›</i></span>";
         if (g.sem_leitura) { strings = "<div class='m'><div class='rot'>Strings</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte sem dado agora</div></div>"; trk = "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte sem dado agora</div></div>"; }
         return "<a class='g" + (g.sem_leitura ? " vazio-dado" : "") + "' href='" + alvo + "' style='animation-delay:" + (i * 45) + "ms'>"
           + "<div class='g-cab'><h3>" + g.cliente + "</h3><span class='n'>" + fmt(g.n_usinas) + " usina" + (g.n_usinas === 1 ? "" : "s") + "</span></div>"
@@ -987,6 +1058,133 @@ window.addEventListener('message',function(ev){
     _gcOsProxima();
   }
 });
+</script>
+<script>
+// ── Comunicação: o book de status da UFV (11/11/2026) ─────────────────────────────────────────────────────────────
+// Levi, 11/11/2026: "Ao clicar em comunicação quero os checks que te pedi daquela vez strings, POA, GHI, POA RI,
+// PLUVIÔMETRO, TRACKERS. Tem que mostrar uma tabelinha mostrando o que tem e o que não tem!" e "criar um book de status
+// da UFV, se está funcionando, problema de string, inversor desligado, usina desligada, usina sem comunicação".
+// Abre por três portas: o rodapé "N sem comunicação" de cada card (nível 2, aquele card), o botão Comunicação do
+// cabeçalho (nível 2: todas; nível 3: a fonte aberta) e o card "Sem comunicação" do nível 3. Uma linha por UFV; o porquê
+// de cada marca vai no título da célula. Dado: /api/entrada/tempo-real/comunicacao, só o que a plataforma já tem em
+// memória (sem chamar fonte nenhuma).
+(function () {
+  var C = { d: null, fonte: "", filtro: "" };
+  var SVG_TEM = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'><path d='M5 12.5l4.5 4.5L19 7.5'/></svg>";
+  var SVG_NAO = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.6' stroke-linecap='round' aria-hidden='true'><path d='M6.5 6.5l11 11M17.5 6.5l-11 11'/></svg>";
+  var ROT_V = { tem: "Tem", nao: "Não tem", sem: "Sem leitura agora" };
+  function esc(t) {
+    return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  // a hora; leitura de outro dia leva a data junto (a desligada de ontem não pode parecer das 15:40 de hoje)
+  function hm(ts) {
+    var s = String(ts || ""); if (s.length < 16) return s || "—";
+    var d = new Date(), hoje = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+    return (s.slice(0, 10) === hoje ? "" : s.slice(8, 10) + "/" + s.slice(5, 7) + " ") + s.slice(11, 16);
+  }
+  function cel(c) {
+    c = c || { v: "sem", obs: "" };
+    var v = ROT_V[c.v] ? c.v : "sem";
+    var dica = ROT_V[v] + (c.obs ? ": " + c.obs : "") + (c.alerta ? " · atenção: " + c.alerta : "");
+    var ico = v === "tem" ? SVG_TEM : v === "nao" ? SVG_NAO : "—";
+    return "<td class='ck ck-" + v + (c.alerta ? " alerta" : "") + "' title='" + esc(dica) + "'>" + ico + "<span class='sr'>" + esc(dica) + "</span></td>";
+  }
+  function janela() {
+    var m = document.getElementById("gc-comm");
+    if (m) return m;
+    m = document.createElement("div");
+    m.id = "gc-comm"; m.className = "gc-comm";
+    m.setAttribute("role", "dialog"); m.setAttribute("aria-modal", "true"); m.setAttribute("aria-label", "Comunicação das usinas");
+    m.innerHTML = "<div class='cx'><div class='cab'><div><div class='kicker'><i></i>Comunicação · status de cada usina</div><h2 id='gc-comm-tit'>Todas as fontes</h2></div>"
+      + "<div style='display:flex;gap:14px;align-items:flex-start'><div class='quando' id='gc-comm-quando'></div><button type='button' class='fecha' aria-label='Fechar a janela'>×</button></div></div>"
+      + "<div class='filtros' id='gc-comm-filtros'></div><div class='corpo' id='gc-comm-corpo'><div class='msg'>carregando…</div></div>"
+      + "<div class='pe'><span class='leg'><span style='color:var(--ok)'>" + SVG_TEM + " tem</span><span style='color:var(--amber)'>" + SVG_TEM + " tem, com alerta</span><span style='color:var(--red)'>" + SVG_NAO + " não tem (a fonte não manda)</span><span>— sem leitura agora</span></span>"
+      + "<span>Passe o mouse na marca para ver o porquê. Montado do que a plataforma já tem em memória, sem chamar as fontes.</span></div></div>";
+    m.addEventListener("click", function (ev) {
+      if (ev.target === m || ev.target.closest(".fecha")) { fecha(); return; }
+      var ch = ev.target.closest(".chip");
+      if (ch && !ch.disabled) { C.filtro = ch.getAttribute("data-k") || ""; desenha(); }
+    });
+    m.addEventListener("change", function (ev) {
+      if (ev.target.id === "gc-comm-fonte") { C.fonte = ev.target.value; C.filtro = ""; desenha(); }
+    });
+    document.body.appendChild(m);
+    document.documentElement.style.overflow = "hidden";        // a tela de baixo não rola com a janela aberta
+    return m;
+  }
+  function fecha() {
+    var m = document.getElementById("gc-comm"); if (m) m.remove();
+    document.documentElement.style.overflow = "";
+  }
+  function msg(t) { var c = document.getElementById("gc-comm-corpo"); if (c) c.innerHTML = "<div class='msg'>" + esc(t) + "</div>"; }
+  function desenha() {
+    var d = C.d; if (!d || !document.getElementById("gc-comm")) return;
+    var todos = d.grupos || [];
+    var grupos = todos.filter(function (g) { return !C.fonte || g.fonte_id === C.fonte; });
+    if (C.fonte && !grupos.length) { C.fonte = ""; grupos = todos; }
+    var um = C.fonte ? grupos[0] : null;
+    document.getElementById("gc-comm-tit").textContent = um ? um.cliente + " · " + um.fonte : "Todas as fontes";
+    document.getElementById("gc-comm-quando").textContent = "status das " + (d.atualizado || "—") + " · cards das " + (d.cache_ts || "—");
+    var cont = {}, n = 0;
+    (d.status || []).forEach(function (s) { cont[s[0]] = 0; });
+    grupos.forEach(function (g) { (g.usinas || []).forEach(function (u) { cont[u.status.chave] = (cont[u.status.chave] || 0) + 1; n++; }); });
+    var sel = "<select id='gc-comm-fonte' aria-label='Card'><option value=''>Todas as fontes</option>" + todos.map(function (g) {
+      return "<option value='" + esc(g.fonte_id) + "'" + (g.fonte_id === C.fonte ? " selected" : "") + ">" + esc(g.cliente + " · " + g.fonte) + " (" + (g.n_usinas || 0) + ")</option>";
+    }).join("") + "</select>";
+    var chips = "<button type='button' class='chip" + (!C.filtro ? " on" : "") + "' data-k=''>Todas <b>" + n + "</b></button>" + (d.status || []).map(function (s) {
+      var k = s[0], q = cont[k] || 0;
+      return "<button type='button' class='chip" + (C.filtro === k ? " on" : "") + "' data-k='" + k + "'" + (q ? "" : " disabled") + ">" + esc(s[1]) + " <b>" + q + "</b></button>";
+    }).join("");
+    document.getElementById("gc-comm-filtros").innerHTML = sel + chips;
+    var cols = d.colunas || [];
+    var cab = "<tr><th>Usina</th><th>Status</th>" + cols.map(function (c) { return "<th class='ck'>" + esc(c[1]) + "</th>"; }).join("") + "<th>Última leitura</th></tr>";
+    var linhas = "", algum = false;
+    grupos.forEach(function (g) {
+      var us = (g.usinas || []).filter(function (u) { return !C.filtro || u.status.chave === C.filtro; });
+      if (!us.length) return;
+      algum = true;
+      if (!um) linhas += "<tr class='grp'><td colspan='" + (cols.length + 3) + "'>" + esc(g.cliente) + "<span>" + esc(g.fonte) + " · " + us.length + " usina" + (us.length === 1 ? "" : "s") + "</span></td></tr>";
+      us.forEach(function (u) {
+        var st = u.status || {};
+        linhas += "<tr><td class='nome'>" + esc(u.usina) + (st.detalhe ? "<small>" + esc(st.detalhe) + "</small>" : "") + "</td>"
+          + "<td><span class='pill st-" + esc(st.chave) + "'>" + esc(st.rotulo) + "</span></td>"
+          + cols.map(function (c) { return cel((u.checks || {})[c[0]]); }).join("")
+          + "<td class='hora'>" + esc(hm(u.ultima_leitura)) + "</td></tr>";
+      });
+    });
+    document.getElementById("gc-comm-corpo").innerHTML = algum ? "<table><thead>" + cab + "</thead><tbody>" + linhas + "</tbody></table>"
+      : "<div class='msg'>" + (n ? "Nenhuma usina neste filtro." : "Este card não tem usina com leitura agora.") + "</div>";
+  }
+  function abre(fid) {
+    C.fonte = fid || ""; C.filtro = "";
+    janela();
+    if (C.d) desenha(); else msg("carregando…");
+    fetch("/api/entrada/tempo-real/comunicacao", { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error(r.status === 401 ? "sessão vencida, abra a tela de novo" : "a plataforma respondeu " + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (d.aquecendo) { if (!C.d) msg("A Entrada ainda está montando as fontes pela primeira vez. Tente de novo em um minuto."); return; }
+      C.d = d; desenha();
+    }).catch(function (e) { if (!C.d) msg("Não deu para ler a comunicação: " + ((e && e.message) || "sem resposta da plataforma")); });
+  }
+  // em captura: o rodapé do card do nível 2 mora dentro do <a> do card, que levaria à fonte
+  document.addEventListener("click", function (ev) {
+    var b = ev.target.closest && ev.target.closest("[data-comm]");
+    if (!b || b.closest("#gc-comm")) return;
+    ev.preventDefault(); ev.stopPropagation();
+    abre(b.getAttribute("data-comm"));
+  }, true);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && document.getElementById("gc-comm")) { fecha(); return; }
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    var b = ev.target.closest && ev.target.closest("[data-comm][role=button]");
+    if (!b) return;
+    ev.preventDefault(); ev.stopPropagation();
+    abre(b.getAttribute("data-comm"));
+  }, true);
+  window.gcCommAbre = abre;
+})();
 </script>
 </body>
 </html>

@@ -2440,6 +2440,35 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   tracker é o catálogo do App.
 - Prova: `python -m pytest -q tests/test_campo_parados.py`.
 
+## Comunicação: o book de status da UFV (`/api/entrada/tempo-real/comunicacao`, 11/11/2026)
+
+Levi: "Ao clicar em comunicação quero os checks [...] strings, POA, GHI, POA RI, PLUVIÔMETRO, TRACKERS. Tem que mostrar uma
+tabelinha mostrando o que tem e o que não tem!" e "criar um book de status da UFV, se está funcionando, problema de string,
+inversor desligado, usina desligada, usina sem comunicação" (Performance > Tempo real, no Nexus).
+
+- **Onde clica** (`docs/redesign/Entrada.html`, janela por cima da tela com o fundo desfocado, Esc fecha): o rodapé
+  "N sem comunicação" / "comunicação ok" de cada card do nível 2 (aquele card), o botão **Comunicação** ao lado do
+  Atualizar (nível 2: todas; nível 3: a fonte aberta) e o card "Sem comunicação" do nível 3. Dentro: seletor de card,
+  filtro por status com a contagem, uma linha por UFV; o porquê de cada marca no título da célula.
+- **Status** (`_comm_status_ufv`), a régua do macro sem nada novo: `sem_comm` → Usina sem comunicação; `desligada` e
+  `sem_producao` → Usina desligada (sem_producao = potência ~0 com dado: **escolha a confirmar com o Levi**);
+  crítico/atenção com `inv_off` > 0 → Inversor desligado; o resto do crítico/atenção (strings abaixo e o inversor fora do
+  padrão D-1, que o macro põe no degrau da falha de string) → Problema de string; ok com o sol baixo → **Sem sol** (fora da
+  lista do Levi: de noite nada se julga ao vivo); ok → Funcionando, com a causa ("Baixa irradiância", "Sem visão").
+  O status vem da linha VIVA do rollup (`_ENTRADA_TR_VIVO["vivo"]`, guardada pelo `_entrada_tr_strings_ao_vivo`).
+- **Colunas**: `tem` (a fonte manda e chegou leitura; `alerta` = POA/GHI zerado com sol ou valor de erro), `nao` (a fonte
+  não manda: a estação responde SEM o sensor, a aba de trackers da fonte não tem a usina, sem visão por string, Sal Energia
+  é Modbus sem tracker) e `sem` (sem leitura agora, tabela não montada, ou a plataforma não lê). Nunca `nao` chutado:
+  day_meteo vazio é `sem` (a API PV responde igual para usina sem estação e estação calada); estação com mais de 2 h
+  (`USINA_DESL_VELHA_MIN`) vira `sem`, mas o sensor que ela nunca mandou continua `nao`.
+- **De onde** (só memória, nenhuma chamada às fontes, não dispara a montagem da Entrada): ETM = `_etm_cache`/`_*_etm_cache`
+  (visão geral) + pré-análises (`_COMM_ETM`); trackers = as abas de trackers (`_COMM_TRK`). Pluviômetro só da API PV: o
+  `fetch_etm_plant` passou a guardar `chuva`/`chuva_status` (`chuTotal` ou `Chu`) da MESMA resposta do day_meteo — o
+  valor não é confiável, só a presença. Até o 1º ciclo da ETM depois do deploy a coluna sai `sem`. Não lidos (ficam
+  `sem` com o motivo): POA-RI do banco da Thopen (a 3ª coluna de lá é a temperatura do módulo), pluviômetro da SunOp e do
+  banco, ETM da SolarEdge e do scadaGridco (`weather` não entra no tempo real), trackers da SolarEdge.
+- **Nexus**: a rota cai no prefixo `/api/entrada/tempo-real` da chave de leitura (`leitura_nexus._GET`); nada a mudar lá.
+- Prova: `python -m pytest -q tests/test_entrada_comunicacao.py`.
 ## SunOp: a lista de usinas quando o catálogo não vem (05/11/2026)
 
 Levi: "a API do SunOp não está comunicando??". O catálogo inteiro do serviço de dados (`/data/v2/metadata` sem usina, a
