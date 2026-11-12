@@ -1545,6 +1545,22 @@ def _disp_dias(usina, ano, mes):
             or _disp_hist_carteira(usina, ano, mes) or None)
 
 
+def _com_hist_carteira(usina, ano, mes):
+    """{data: [linhas]} da coluna Comentário da aba "Histórico Carteira", dos dias fechados (Levi, 12/11/2026: "subiu
+    mas sem os comentários de desligamentos... essas usinas que só tem no histórico puxa tudo de lá"). Vai ao card como
+    o comentário do BD (`fonte_disp` "bd_comentarios": o dia com comentário aparece mesmo em 100%)."""
+    recs = _sheet_records().get(_NOME_CANON.get(usina, usina)) or {}
+    ate = dt.date.today() - dt.timedelta(days=1)
+    out = {}
+    for d, e in recs.items():
+        if (d.year, d.month) != (ano, mes) or d > ate:
+            continue
+        linhas = [x.strip() for x in str(e.get("com") or "").splitlines() if x.strip()]
+        if linhas:
+            out[d] = linhas
+    return out
+
+
 def _disp_hist_carteira(usina, ano, mes):
     """{data: disp %} da coluna Disp da aba "Histórico Carteira" do BD_Thopen (Copel, Matrix, Caroá, Piancó), dos dias
     fechados. Só para a usina que não tem conta pelas OS nem pelas normalizações do COS no mês (Levi, 12/11/2026: a
@@ -1996,14 +2012,17 @@ def api_operacao():
     # a usina assistida (09/11/2026) tem o comentário do BD_Thopen mesmo quando o número é o das OS
     assistida = usina in disp_comentarios.ASSISTIDAS and _so_os_fracttal(ano, mes)
     bd = _disp_bd(usina, ano, mes) if (pelo_bd or assistida) else None
+    # a usina sem conta pelas OS puxa tudo do Histórico Carteira: o número e o comentário (12/11/2026)
+    if (bd is None and dados is not None and _so_os_fracttal(ano, mes) and _disp_excecao(usina, ano, mes) is None
+            and not operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))):
+        hd = _disp_hist_carteira(usina, ano, mes)
+        if hd:
+            bd = (hd, _com_hist_carteira(usina, ano, mes))
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
     # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (o COS, as OS ou o BD)
     disp = _disp_excecao(usina, ano, mes)
-    if disp is None and bd is not None and not pelo_bd and dados is not None:
+    if disp is None and assistida and not pelo_bd and dados is not None:
         disp = operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))   # o número segue o das OS
-    if (disp is None and bd is None and dados is not None and _so_os_fracttal(ano, mes)
-            and not operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))):
-        disp = _disp_hist_carteira(usina, ano, mes) or None   # sem conta pelas OS: o Disp do Histórico Carteira
     r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp, **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela

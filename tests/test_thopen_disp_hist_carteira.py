@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import dashboard_thopen as d  # noqa: E402
 
 D1, D2, D3 = dt.date(2026, 10, 1), dt.date(2026, 10, 2), dt.date(2026, 10, 3)
-HIST = {"Usina M": {D1: {"disp": 1}, D2: {"disp": 0.875}, D3: {"disp": None}, dt.date(2026, 9, 30): {"disp": 0.5}}}
+HIST = {"Usina M": {D1: {"disp": 1}, D2: {"disp": 0.875, "com": "Substituição do inversor 07" + chr(10) + "Religada às 15h"},
+                   D3: {"disp": None}, dt.date(2026, 9, 30): {"disp": 0.5, "com": "de outro mês"}}}
 
 
 @pytest.fixture
@@ -59,4 +60,11 @@ def test_o_card_leva_o_historico_sem_conta_pelas_os(dash, monkeypatch):
     monkeypatch.setattr(dash, "_CARTEIRA_DE", dict(dash._CARTEIRA_DE, **{"Usina M": "Matrix"}))
     monkeypatch.setattr(dash, "_pode", lambda u: True)
     dash.app.test_client().get("/api/t/operacao?usina=Usina M&ano=2026&mes=10")
-    assert chamou["disp"] == {D1: 100.0, D2: 87.5} and chamou["bd"] is None
+    # tudo do Histórico Carteira (12/11/2026, "puxa tudo de lá"): o número e o comentário, no modo do BD
+    assert chamou["bd"] == ({D1: 100.0, D2: 87.5}, {D2: ["Substituição do inversor 07", "Religada às 15h"]})
+    assert chamou["disp"] is None
+
+
+def test_o_comentario_do_historico_so_do_mes(dash):
+    assert dash._com_hist_carteira("Usina M", 2026, 10) == {D2: ["Substituição do inversor 07", "Religada às 15h"]}
+    assert dash._com_hist_carteira("Usina M", 2026, 9) == {dt.date(2026, 9, 30): ["de outro mês"]}
