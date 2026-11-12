@@ -1122,8 +1122,10 @@ def _op_dados():
 
 
 _POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina=
-_SO_GRID = {"comentario_extra", "reload_bd",                          # gravar e forçar a releitura
-            "atualizar_normalizacoes_pedir", "atualizar_normalizacoes_estado"}   # e o Atualizar das normalizações
+# gravar e forçar a releitura do banco. O Atualizar das normalizações saiu daqui em 12/11/2026 (pedido do time que
+# usa o dashboard: "consegue liberar pra gente conseguir colocar pra atualizar"; Levi: liberar o botão): toda conta
+# pede as normalizações ao Nexus, que espaça dois pedidos em 2 min (PEDIDO_INTERVALO_S do Nexus)
+_SO_GRID = {"comentario_extra", "reload_bd"}
 
 
 @app.before_request

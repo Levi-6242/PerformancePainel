@@ -1902,7 +1902,8 @@ if(USUARIO){
   $('usuarioNome').textContent=USUARIO.nome||USUARIO.usuario; $('usuarioSair').href=RAIZ+'/logout';
   $('usuarioBox').style.display='';      // na faixa do topo (15/10/2026); o display vai inline
   if(USUARIO.papel!=='grid'){
-    $('btnRefresh').style.display='none';
+    // 12/11/2026 (Levi: liberar o botão): o ícone fica para todos e, fora da Grid, só pede as normalizações ao Nexus
+    $('btnRefresh').title='Trazer as normalizações do COS agora';
     document.querySelectorAll('.cx-actions').forEach(e=>e.style.display='none');
     $('comExtra').readOnly=true; $('comExtra').placeholder='';
   }
@@ -1960,10 +1961,12 @@ async function refreshBD(){
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.classList.remove('girando'); btn.title=old; }
 }
-$('btnRefresh').onclick=refreshBD;
+// fora da Grid o ícone só traz as normalizações (reler o banco inteiro segue da Grid: o servidor responde 403)
+$('btnRefresh').onclick=(USUARIO&&USUARIO.papel!=='grid')?atualizarNormalizacoes:refreshBD;
 // O Atualizar das normalizações do COS (03/11/2026, Levi: "fiz umas alterações nas normalizações e precisava trazer"):
 // junto com a releitura do banco, o ícone pede ao Nexus as normalizações na hora, acompanha as etapas (o Nexus grava, a
-// plataforma refaz a disponibilidade, esta tela relê) e redesenha a usina quando chegam. O ícone só aparece para a Grid
+// plataforma refaz a disponibilidade, esta tela relê) e redesenha a usina quando chegam. Desde 12/11/2026 para todas as
+// contas (fora da Grid, só esta parte)
 const ATU_TXT={nexus:'Pedindo ao Nexus as normalizações do COS…',
   plataforma:'O Nexus gravou às %s; a plataforma refaz a disponibilidade…',
   carregando:'Disponibilidade refeita; trazendo para a tela…'};

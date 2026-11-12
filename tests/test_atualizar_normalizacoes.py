@@ -90,8 +90,15 @@ def test_passado_o_prazo_a_tela_diz_onde_parou(monkeypatch):
     assert j["etapa"] == "nexus" and j["demorou"]                                       # 16 min depois do pedido
 
 
-def test_so_a_grid_pede(monkeypatch):
-    assert {"atualizar_normalizacoes_pedir", "atualizar_normalizacoes_estado"} <= dth._SO_GRID
+def test_toda_conta_pede_e_so_a_grid_rele_o_banco(monkeypatch):
+    # 12/11/2026 (Levi: liberar o botão): o Atualizar das normalizações é de toda conta; reler o banco inteiro e gravar
+    # os Comentários adicionais seguem só da Grid
+    assert not {"atualizar_normalizacoes_pedir", "atualizar_normalizacoes_estado"} & dth._SO_GRID
+    assert {"reload_bd", "comentario_extra"} <= dth._SO_GRID
+    T = open(os.path.join(os.path.dirname(__file__), "..", "thopen", "templates", "dashboard_thopen.html"),
+             encoding="utf-8").read()
+    assert "$('btnRefresh').onclick=(USUARIO&&USUARIO.papel!=='grid')?atualizarNormalizacoes:refreshBD;" in T
+    assert "$('btnRefresh').style.display='none'" not in T
 
 
 def test_a_leitura_do_5080_guarda_a_hora_das_normalizacoes_e_se_derruba(monkeypatch):

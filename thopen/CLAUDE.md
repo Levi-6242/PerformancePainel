@@ -83,8 +83,10 @@ limite de tentativas), `livro_banco.py` (ler/acrescentar livro do banco, genéri
   usado ou de conta desativada: a tela diz qual e pede outro à Grid Co.
 - **Portão** (`before_request`): sem sessão, página → `/login` e `/api/...` → 401 (o `get` da tela volta à entrada).
   Usina ou carteira fora da conta → 403 (overview, diário, operação, rondas, geral, contestar); OS de ronda de outra
-  usina → 404. O papel `grid` vê todas as carteiras; só ele força a releitura (`/api/t/reload`) e grava os Comentários
-  adicionais (403 aos outros; a tela esconde o Atualizar e os botões). A contestação vai com o nome e o e-mail da conta.
+  usina → 404. O papel `grid` vê todas as carteiras; só ele força a releitura do banco (`/api/t/reload`) e grava os
+  Comentários adicionais (403 aos outros). O Atualizar das normalizações é de todas as contas desde 12/11/2026 (o time
+  que usa o dashboard pediu para "colocar pra atualizar"; Levi: liberar o botão): fora da Grid, o ícone só pede as
+  normalizações ao Nexus (2 a 5 min até a tela). A contestação vai com o nome e o e-mail da conta.
 - **Tentativas.** 5 erradas em 15 min por IP ou por conta = "Muitas tentativas" (em memória, um processo).
 - **Sessão.** Cookie próprio `thopen_sessao` (não colide com o `session` da plataforma nem com o `nexus_sessao`),
   caminho = o prefixo, HttpOnly, SameSite=Lax, Secure (`THOPEN_COOKIE_SEGURO=0` só em http local), 12 h. Assinado com
