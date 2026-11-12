@@ -166,3 +166,17 @@ def test_o_nome_sem_espaco_liga_a_pe_ii_da_axis(monkeypatch):
                                             "p eii": {"usina": "P EII", "cliente": "Axis"}})
     assert "axisscada" not in app._sg_classifica(sg.descobrir(get)) or \
         "pe_ii" not in {c["id"] for c in app._sg_classifica(sg.descobrir(get))["axisscada"]}
+
+
+def test_a_descoberta_nao_se_marca_antes_de_o_cadastro_carregar(monkeypatch):
+    """12/11/2026: no reinício, a 1ª montagem vinha antes do cadastro, marcava a hora e a usina nova esperava 1 h."""
+    chamadas = []
+    monkeypatch.setattr(app, "_SG_EXTRAS_MEMO", {"mtime": None, "descoberto": 0.0})
+    monkeypatch.setattr(sg, "configurado", lambda: True)
+    monkeypatch.setattr(sg, "descobrir", lambda getter=None: chamadas.append(1) or [])
+    monkeypatch.setattr(app, "INFO_GERAL", {})
+    app._sg_descobre_se_preciso(agora=5000.0)
+    assert chamadas == [] and app._SG_EXTRAS_MEMO["descoberto"] == 0.0     # sem cadastro: não roda e não marca
+    monkeypatch.setattr(app, "INFO_GERAL", INFO)
+    app._sg_descobre_se_preciso(agora=5010.0)
+    assert chamadas == [1] and app._SG_EXTRAS_MEMO["descoberto"] == 5010.0

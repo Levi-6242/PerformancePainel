@@ -16145,9 +16145,11 @@ def _sg_descobre_se_preciso(agora=None):
     agora = time.time() if agora is None else agora
     if agora - _SG_EXTRAS_MEMO["descoberto"] < SG_DESCOBRIR_A_CADA_S:
         return
-    _SG_EXTRAS_MEMO["descoberto"] = agora
+    # a hora só se marca quando a descoberta RODA (12/11/2026: no reinício, a 1ª montagem vinha antes de o cadastro carregar,
+    # marcava "descoberto agora" e a PE II da Axis, nova no supervisório, só entraria 1 h depois)
     if not INFO_GERAL or not _sg.configurado():
         return
+    _SG_EXTRAS_MEMO["descoberto"] = agora
     try:
         novas = _sg_classifica(_sg.descobrir())
     except Exception as e:                                      # noqa: BLE001 — a lista de antes segue valendo
