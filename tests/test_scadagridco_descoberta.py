@@ -139,3 +139,30 @@ def test_apolo_usina_nova_do_cliente_entra_na_fonte_apolo(monkeypatch):
     assert list(out) == ["apolo"] and [c["id"] for c in out["apolo"]] == ["ibipeba"]
     assert out["apolo"][0]["usina"] == "Ibipeba" and out["apolo"][0]["via"] == "mqtt"
     assert [c["id"] for c in sg.usinas("apolo")][0] == "rio_do_peixe_1_2"
+
+
+def test_o_nome_sem_espaco_liga_a_pe_ii_da_axis(monkeypatch):
+    """12/11/2026 (Levi: "Igor adicionou PEII de Axis. Veja se subiu"): o supervisório escreve "PE II" e "PE III", o
+    cadastro "PEII" e "PEIII". Pela chave solta, "PE II" vira "pe2" e "PEII" fica "peii": sem o nome sem espaços, as duas
+    não entravam na Axis do tempo real. Vale só quando o nome sem espaços é de UMA usina."""
+    monkeypatch.setattr(app, "INFO_GERAL", {"peii": {"usina": "PEII", "cliente": "Axis"},
+                                            "peiii": {"usina": "PEIII", "cliente": "Axis"}})
+    monkeypatch.setattr(app, "ESPERADO_INV_DISP", {"peii": {f"Inversor 1.{i}": 13 for i in range(1, 26)},
+                                                   "peiii": {f"Inversor 1.{i}": 19 for i in range(1, 11)}})
+
+    def get(rota, params=None):
+        if rota == "/api/usinas":
+            return {"pe_ii": {"inv_total": 25}, "pe_iii": {"inv_total": 10}}
+        return {"usinas": [{"usina": "pe_ii", "nome": "PE II",
+                            "equipamentos": [{"equipamento": str(i), "tipo": "inverter"} for i in range(1, 26)]},
+                           {"usina": "pe_iii", "nome": "PE III",
+                            "equipamentos": [{"equipamento": str(i), "tipo": "inverter"} for i in range(1, 11)]}]}
+    out = app._sg_classifica(sg.descobrir(get))
+    ax = {c["id"]: c for c in out["axisscada"]}
+    assert ax["pe_ii"]["usina"] == "PEII" and ax["pe_iii"]["usina"] == "PEIII"
+    assert ax["pe_ii"]["inversores"]["25"] == "Inversor 1.25" and len(ax["pe_iii"]["inversores"]) == 10
+    # duas usinas com o mesmo nome sem espaço: não liga nenhuma (não se chuta)
+    monkeypatch.setattr(app, "INFO_GERAL", {"peii": {"usina": "PEII", "cliente": "Axis"},
+                                            "p eii": {"usina": "P EII", "cliente": "Axis"}})
+    assert "axisscada" not in app._sg_classifica(sg.descobrir(get)) or \
+        "pe_ii" not in {c["id"] for c in app._sg_classifica(sg.descobrir(get))["axisscada"]}

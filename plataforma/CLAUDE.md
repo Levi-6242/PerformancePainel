@@ -1838,7 +1838,13 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   fonte `axisscada` (rótulo "Axis") no `scadagridco.py`, equipamento N = Inversor 1.N, provisório. Não tem aba nem card
   próprios: `/api/axis/data` junta as linhas dela (`_axis_com_scadagridco`), o drill e a curva da Axis (`/api/axis/plant`
   e `/api/axis/curva`) vão ao scadaGridco quando a usina é dele, e o rollup a soma no card da Axis. Usina nova do cliente
-  Axis no supervisório entra pela descoberta (`_SG_FONTE_DO_CLIENTE["axis"]`).
+  Axis no supervisório entra pela descoberta (`_SG_FONTE_DO_CLIENTE["axis"]`). **PE II e PE III, 12/11/2026** (Levi: "Igor
+  adicionou PEII de Axis. Veja se subiu"): o supervisório escreve "PE II"/"PE III" e o cadastro "PEII"/"PEIII"; pela chave
+  solta "PE II" vira "pe2" e "PEII" fica "peii", e não casavam. A descoberta compara também o nome SEM ESPAÇOS, só quando
+  ele é de uma usina só (`_sg_classifica`, `do_cadastro`). Inversor pelo nome do equipamento (N = Inversor 1.N),
+  PROVISÓRIO: o histórico delas no supervisório começa em 12/11; fechar pelo valor quando houver dia em comum com o BD. A
+  PE II manda o `serial_number` de cada inversor (25 de 25; a PE III, 0 de 10); o cadastro não tem número de série, então
+  ele ainda não serve ao de-para.
 - **Gravatá II, Iramaia II (Apolo) e Macaíba (GreenYellow), 10/11/2026** (Levi: "Usinas da Apolo no tempo real, na nossa
   API já temos Iramaia e Gravata, por gentileza inserir"; "Em greenyellow também temos macaíba"). A descoberta casa pelo
   NOME e o supervisório escreve "Gravata II Apolo", "Iramaia II apolo" e "Macaíba", contra "Gravatá II", "Iramaia II" e

@@ -16075,6 +16075,19 @@ def _sg_classifica(descobertas) -> dict:
     tem como "X 1" e "X 2" (a Cedro) vira duas usinas: a 1ª com os equipamentos do 1º grupo, a 2ª com os do 2º."""
     fixos = {c["id"] for d in _sg.FONTES.values() for c in d["usinas"]}
     por_chave = {_usina_chave_solta(v.get("usina")): v for v in INFO_GERAL.values() if v.get("usina")}
+    # o nome sem os espaços, quando é de UMA usina só (12/11/2026: o supervisório escreve "PE II" e "PE III", o cadastro
+    # "PEII" e "PEIII"; pela chave solta, "PE II" vira "pe2" e "PEII" fica "peii", e as duas da Axis não entravam)
+    juntas = {}
+    for v in INFO_GERAL.values():
+        if v.get("usina"):
+            juntas.setdefault(_usina_chave_solta(str(v["usina"]).replace(" ", "")), []).append(v)
+
+    def do_cadastro(nome):
+        v = por_chave.get(_usina_chave_solta(nome))
+        if v:
+            return v
+        achadas = juntas.get(_usina_chave_solta(str(nome or "").replace(" ", ""))) or []
+        return achadas[0] if len(achadas) == 1 else None
 
     def fonte_de(v):
         return _SG_FONTE_DO_CLIENTE.get(str((v or {}).get("cliente") or "").strip().lower())
@@ -16083,7 +16096,7 @@ def _sg_classifica(descobertas) -> dict:
     for u in descobertas or []:
         if u.get("id") in fixos:
             continue
-        v = por_chave.get(_usina_chave_solta(u.get("nome")))
+        v = do_cadastro(u.get("nome"))
         if v and fonte_de(v):
             cad = list(_sg_cadastro(v["usina"]))
             out.setdefault(fonte_de(v), []).append({"id": u["id"], "usina": v["usina"], "via": u.get("via"),
