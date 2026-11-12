@@ -13812,6 +13812,21 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
     return base
 
 
+def _trk_mantem_anteriores(rows, falhas, anterior):
+    """A usina cuja leitura de tracker a API PV NÃO devolveu agora continua na tabela com a última linha boa, na hora
+    real dela (12/11/2026, Levi: "não tá localizando os trackers de coração e tinha bugado tracker SEMP"): com a API PV
+    lenta (10 a 60 s por pedido), a leitura falhava e a usina SUMIA da aba (sobraram 10 de dezenas, sem a Coração 1 e 2
+    e com a Tucano oscilando). A tela já trata a leitura velha (mais de 2 h: "Sem dado há Xh", números congelados,
+    disponibilidade "—"); `api_fora` diz por quê. Não entra no livro de ocorrências: só leitura nova abre ou fecha."""
+    tem = {r.get("plant_id") for r in rows}
+    por_id = {r.get("plant_id"): r for r in ((anterior or {}).get("rows") or [])}
+    for pid, erro in falhas.items():
+        velha = por_id.get(pid)
+        if velha is not None and pid not in tem:
+            rows.append(dict(velha, api_fora=True, erro=erro))
+    return rows
+
+
 def _build_pv_trk_payload(fetch_curvas=False):
     plants = get_plants(get_token())
     agora = time.time()
@@ -13819,7 +13834,7 @@ def _build_pv_trk_payload(fetch_curvas=False):
     # Fica fora só quem já tem tracker por OUTRA fonte (as usinas da 2C: aba pela fonte 2C, parados pelo
     # e-mail) — ver PV_TRK_OUTRA_FONTE. Era "toda usina da conta OEM", e isso tirava a Tucano junto.
     alvo_plants = [p for p in alvo_plants if not _pv_trk_fora(p["id"])]
-    rows = []
+    rows, falhas = [], {}
     parados_livro, cobertas = [], set()          # alimenta o livro de ocorrências (tracker_watch)
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(_pv_trackers_analise, p["id"], nome_usina(p["id"], p["nome"]),
@@ -13846,8 +13861,11 @@ def _build_pv_trk_payload(fetch_curvas=False):
                                     "tracker": t.get("id"), "tracker_label": t.get("id"),
                                     "leitura": {"atual": t.get("atual"), "alvo": t.get("alvo"),
                                                 "disparidade": t.get("disparidade")}})
-            except Exception:
-                pass
+                elif r.get("fonte_ok") is False:
+                    falhas[r.get("plant_id")] = r.get("erro") or "a API PV não devolveu a leitura"
+            except Exception as e:                   # noqa: BLE001
+                falhas[futs[f]["id"]] = f"{type(e).__name__}: {str(e)[:120]}"
+    _trk_mantem_anteriores(rows, falhas, _pv_trk_cache.get("payload"))
     if _TRACKER_WATCH_OK and cobertas:               # abre/fecha as ocorrências da API PV no livro único
         try:
             _tw.sync_api_pv(parados_livro, plants_cobertas=cobertas)
@@ -13913,7 +13931,7 @@ def _pv_trk_payload_da_fonte(fonte, force=False):
     if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
         return ent["payload"]
     ids = sorted(i for i in (PV_FONTES.get(fonte) or ()) if _cob_entra(fonte, i))
-    rows = []
+    rows, falhas = [], {}
     if ids:
         # nome DA API → de-para do cadastro. Sem isto o fallback do `nome_usina` é o próprio id e a
         # tela lista "18771901" no lugar de "Sete Lagoas" (a API ainda escreve no singular).
@@ -13932,8 +13950,12 @@ def _pv_trk_payload_da_fonte(fonte, force=False):
                     if r.get("tem_trackers"):
                         _pv_trk_plant[r["plant_id"]] = {"ts": time.time(), "payload": r}
                         rows.append(r)
+                    elif r.get("fonte_ok") is False:
+                        falhas[r.get("plant_id")] = r.get("erro") or "a API PV não devolveu a leitura"
                 except Exception as e:
                     print(f"[trk/{fonte}] usina {futs[f]}: {e}")
+                    falhas[futs[f]] = f"{type(e).__name__}: {str(e)[:120]}"
+        _trk_mantem_anteriores(rows, falhas, (ent or {}).get("payload"))
     rows.sort(key=lambda x: (not x.get("sem_comunicacao"),
                              -((x.get("severos") or 0) * 10 + (x.get("leves") or 0)), x.get("usina") or ""))
     som = lambda k: sum((r.get(k) or 0) for r in rows)

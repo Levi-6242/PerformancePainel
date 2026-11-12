@@ -2391,6 +2391,16 @@ inversor continuam valendo. A marca é feita na saída e não no build porque o 
 payload em cache é do worker (só se mexe em cópia). **Rota de strings nova precisa passar por
 `_servir_com_sol`**: o teste lê o mapa `strings:{...}` do HTML e falha se faltar uma.
 
+## Trackers da API PV: a usina que não respondeu não some (12/11/2026)
+
+Levi: "Acho que a API da PV tá estranha (não tá localizando os trackers de coração e tinha bugado tracker SEMP)". A API PV
+respondia em 10 a 60 s por pedido (11-12/11/2026); a leitura de tracker da usina falhava e `_build_pv_trk_payload` (e o
+`_pv_trk_payload_da_fonte`, da SEMP) a DESCARTAVA (`except: pass`): a aba ficou com 10 usinas, sem a Coração 1 e 2.
+Agora a falha (`fonte_ok=False` da análise, ou exceção) mantém a linha anterior do payload (`_trk_mantem_anteriores`),
+com a hora real e `api_fora`/`erro`; a tela já trata leitura velha (mais de 2 h: "Sem dado há Xh"). A usina que
+RESPONDEU sem tracker segue fora, e a mantida não entra no livro de ocorrências (só leitura nova abre ou fecha). Teste:
+`tests/test_trackers_api_pv_fora.py`.
+
 ## Trackers: curva curta não é parado, e o dia anterior (28–29/09/2026)
 
 **Piso de cobertura** (`_trk_curva_curta` + `_trk_piso_cobertura`, na SAÍDA dos dois dispatchers, curso e perdas, nas
