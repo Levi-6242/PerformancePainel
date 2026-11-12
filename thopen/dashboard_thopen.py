@@ -1538,7 +1538,29 @@ def _disp_dias(usina, ano, mes):
     if _pelo_bd(usina, ano, mes):
         return _disp_bd(usina, ano, mes)[0] or None
     dados = _op_dados()
-    return (operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina)) or None) if dados else None
+    if not dados:
+        return None
+    # a usina sem nenhuma conta pelas OS no mês segue o Disp do Histórico Carteira (12/11/2026, _disp_hist_carteira)
+    return (operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))
+            or _disp_hist_carteira(usina, ano, mes) or None)
+
+
+def _disp_hist_carteira(usina, ano, mes):
+    """{data: disp %} da coluna Disp da aba "Histórico Carteira" do BD_Thopen (Copel, Matrix, Caroá, Piancó), dos dias
+    fechados. Só para a usina que não tem conta pelas OS nem pelas normalizações do COS no mês (Levi, 12/11/2026: a
+    equipe "adicionou disponibilidade de Caroá na parte de histórico de carteira e não está subindo"; a Caroá não tem a
+    disponibilidade da plataforma, e de 10/2026 em diante o dashboard só lia a conta das OS: o card e a Visão Geral
+    ficavam vazios). O Disp vem em fração (1 = 100%); célula vazia não entra. Não vale para as abas diárias: lá a coluna
+    de disponibilidade vem 0 quando não foi preenchida (a Altair de outubro saía com 0,0%)."""
+    recs = _sheet_records().get(_NOME_CANON.get(usina, usina)) or {}
+    ate = dt.date.today() - dt.timedelta(days=1)
+    out = {}
+    for d, e in recs.items():
+        v = _num(e.get("disp"))
+        if v is None or (d.year, d.month) != (ano, mes) or d > ate:
+            continue
+        out[d] = v * 100.0 if v <= 1.0 else v
+    return out
 
 
 def _disp_excecao(usina, ano, mes):
@@ -1979,6 +2001,9 @@ def api_operacao():
     disp = _disp_excecao(usina, ano, mes)
     if disp is None and bd is not None and not pelo_bd and dados is not None:
         disp = operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))   # o número segue o das OS
+    if (disp is None and bd is None and dados is not None and _so_os_fracttal(ano, mes)
+            and not operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))):
+        disp = _disp_hist_carteira(usina, ano, mes) or None   # sem conta pelas OS: o Disp do Histórico Carteira
     r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp, **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela

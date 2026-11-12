@@ -171,6 +171,12 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   segue o de cada usina (abaixo). Relido a cada 10 min e no Atualizar; banco fora = a última leitura boa, sem nenhuma = a conta de sempre. A
   carga é de fora do 5080 (a planilha não entra no repositório: é dado de cliente). Prova:
   `tests/test_thopen_disp_excecao.py`.
+- **A usina sem conta pelas OS segue o Disp do Histórico Carteira (12/11/2026**, Levi: a equipe "adicionou
+  disponibilidade de Caroá na parte de histórico de carteira e não está subindo"): a Caroá não tem a disponibilidade da
+  plataforma, e de 10/2026 em diante o dashboard só lia a conta das OS (card e Visão Geral vazios). Agora, sem conta
+  pelas OS no mês, `_disp_dias` e o card usam a coluna Disp da aba "Histórico Carteira" (fração, dias fechados;
+  `_disp_hist_carteira`). Só dessa aba: nas abas diárias a coluna vem 0 quando não foi preenchida. Prova:
+  `tests/test_thopen_disp_hist_carteira.py`.
 - **O comentário do dia, de 10/2026 em diante (09/11/2026)**, três fontes, nesta ordem:
   - **As usinas ASSISTIDAS levam o comentário do BD_Thopen** (Levi: "Para as usinas assistidas tem que puxar os
     comentários conforme BD_Thopen, os comentários a parte são só para o resto"; a lista é a de 06/11, as dez da exceção,
