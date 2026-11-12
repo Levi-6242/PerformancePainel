@@ -179,6 +179,8 @@ def test_a_aba_falhas_publica_na_hora_so_com_outra_gravacao(monkeypatch):
     monkeypatch.setattr(app, "_falhas_disp_fora_da_volta", lambda montados: feitos.append(("pacotes", set(montados))))
     monkeypatch.setattr(app, "_falhas_publicar_workbook", lambda meses, agora=False: feitos.append(("workbook", agora)))
     monkeypatch.setattr(app, "_falhas_meses", lambda hoje=None: ["2026-10", "2026-11"])
+    # os pacotes publicados levam a mesma gravação (12/11/2026): o 1º índice depois de subir não sobe de novo
+    monkeypatch.setattr(app, "_falhas_cos_em_publicado", lambda: "2026-11-03T15:29:32-03:00")
     assert app._falhas_disp_pelas_normalizacoes() is False and not feitos      # o 1º índice depois de subir: a volta leva
     assert app._falhas_disp_pelas_normalizacoes() is False and not feitos      # a mesma gravação
     idx["cos"]["atualizado_em"] = "2026-11-03T16:01:10-03:00"
@@ -228,8 +230,104 @@ def test_o_laco_confere_trinta_vezes_por_volta_mesmo_com_o_sono_que_volta_na_hor
         if len(voltas) == 2:
             raise _Parou
     monkeypatch.setattr(app, "_frac_disp_recalcular", _recalcula)
+    monkeypatch.setattr(app, "_frac_disp_carregar_volta", lambda: False)        # sem a varredura guardada: o boot varre
     monkeypatch.setattr(app, "_frac_disp_pelas_normalizacoes", lambda: conferidas.append(1))
     monkeypatch.setattr(app.time, "sleep", lambda s: None if threading.current_thread() is principal else sono(s))
     with pytest.raises(_Parou):
         app._frac_disp_loop()
     assert len(conferidas) == app.FRAC_DISP_TTL // app.FRAC_DISP_COS_CHECA_S == 30
+
+
+# ── O reinício não trava a publicação (12/11/2026: o servidor reiniciou às 13:13, 13:37, 13:44 e 14:19 e a
+# disponibilidade ficou parada desde 12:38, com o Nexus gravando às 13:57 e às 14:24) ──────────────────────────────────
+
+def test_a_varredura_guardada_volta_no_boot_so_se_e_de_hoje_e_dos_mesmos_meses(monkeypatch, tmp_path):
+    import datetime as _dt
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA_FILE", str(tmp_path / "volta.pkl.gz"))
+    monkeypatch.setattr(app, "_disp_meses_alvo", lambda hoje=None: [("2026-10", None, None), ("2026-11", None, None)])
+    v = {"wos": {12345: [{"t": 1}]}, "vereditos": {12345: "parada"}, "resumo": {"paginas": 3}, "ts": 1.5,
+         "rotulos": ["2026-10", "2026-11"], "dia": _dt.date.today(), "versao": "v1"}
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA", dict(v))
+    app._frac_disp_guardar_volta()
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA", {})
+    assert app._frac_disp_carregar_volta() is True
+    assert app._FRAC_DISP_VOLTA == v                                    # as chaves das OS voltam inteiras (pickle)
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA", {})
+    monkeypatch.setattr(app, "_disp_meses_alvo", lambda hoje=None: [("2026-11", None, None), ("2026-12", None, None)])
+    assert app._frac_disp_carregar_volta() is False and app._FRAC_DISP_VOLTA == {}       # outros meses: varre
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA_FILE", str(tmp_path / "nao_existe.pkl.gz"))
+    assert app._frac_disp_carregar_volta() is False
+
+
+def test_boot_com_a_varredura_guardada_confere_as_normalizacoes_antes_de_varrer(monkeypatch):
+    import threading
+    principal, sono = threading.current_thread(), app.time.sleep
+    passos = []
+
+    def _recalcula():
+        passos.append("varre")
+        raise _Parou
+    monkeypatch.setattr(app, "_frac_disp_carregar_volta", lambda: True)
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA", {"ts": app.time.time() - 10 * 60 - 30})  # varrida há 10,5 min
+    monkeypatch.setattr(app, "_frac_disp_recalcular", _recalcula)
+    monkeypatch.setattr(app, "_frac_disp_pelas_normalizacoes", lambda: passos.append("confere"))
+    monkeypatch.setattr(app.time, "sleep", lambda s: None if threading.current_thread() is principal else sono(s))
+    with pytest.raises(_Parou):
+        app._frac_disp_loop()
+    # a conta rápida no boot, a de minuto em minuto até completar os 30 min da varredura guardada, e só então a inteira
+    assert passos[0] == "confere" and passos[-1] == "varre"
+    assert passos.count("confere") == 1 + 19                    # os 19 minutos que faltam dos 30 (1.170 s)
+
+
+def test_boot_com_a_varredura_guardada_velha_varre_logo_depois_da_conta_rapida(monkeypatch):
+    passos = []
+
+    def _recalcula():
+        passos.append("varre")
+        raise _Parou
+    monkeypatch.setattr(app, "_frac_disp_carregar_volta", lambda: True)
+    monkeypatch.setattr(app, "_FRAC_DISP_VOLTA", {"ts": app.time.time() - 2 * app.FRAC_DISP_TTL})
+    monkeypatch.setattr(app, "_frac_disp_recalcular", _recalcula)
+    monkeypatch.setattr(app, "_frac_disp_pelas_normalizacoes", lambda: passos.append("confere"))
+    with pytest.raises(_Parou):
+        app._frac_disp_loop()
+    assert passos == ["confere", "varre"]
+
+
+def test_no_boot_a_gravacao_mais_nova_que_a_dos_pacotes_sobe_na_hora(monkeypatch):
+    idx = {"cos": {"atualizado_em": "2026-11-12T14:24:48-03:00"}}
+    monkeypatch.setattr(app, "_frac_disp_dados", lambda: idx)
+    monkeypatch.setattr(app, "_falhas_cos_visto", {"em": None})
+    monkeypatch.setattr(app, "_falhas_cos_em_publicado", lambda: "2026-11-12T12:31:02-03:00")
+    feitos = []
+    monkeypatch.setattr(app, "_falhas_disp_fora_da_volta", lambda montados: feitos.append("pacotes"))
+    monkeypatch.setattr(app, "_falhas_publicar_workbook", lambda meses, agora=False: feitos.append(("workbook", agora)))
+    monkeypatch.setattr(app, "_falhas_meses", lambda hoje=None: ["2026-11"])
+    assert app._falhas_disp_pelas_normalizacoes() is True and feitos == ["pacotes", ("workbook", True)]
+    assert app._falhas_cos_visto["em"] == idx["cos"]["atualizado_em"]
+
+
+def test_a_marca_publicada_sai_dos_pacotes_do_disco(monkeypatch):
+    pacotes = {"a10": {"disponibilidade": {"normalizacoes_em": "2026-11-12T12:31:02-03:00"}},
+               "a11": {"disponibilidade": {"normalizacoes_em": "2026-11-12T13:57:24-03:00"}}, "a12": None}
+    monkeypatch.setattr(app, "_falhas_meses", lambda hoje=None: ["10", "11", "12"])
+    monkeypatch.setattr(app, "_falhas_arquivo", lambda mes: "a" + mes)
+    monkeypatch.setattr(app, "_falhas_ler", lambda arq: pacotes.get(arq))
+    assert app._falhas_cos_em_publicado() == "2026-11-12T13:57:24-03:00"
+    monkeypatch.setattr(app, "_falhas_ler", lambda arq: {"disponibilidade": {}})
+    assert app._falhas_cos_em_publicado() is None
+
+
+def test_a_espera_do_boot_da_aba_falhas_confere_as_normalizacoes(monkeypatch):
+    import threading
+    principal, sono = threading.current_thread(), app.time.sleep
+    conferidas = []
+
+    def _recalcula():
+        raise _Parou
+    monkeypatch.setattr(app, "_falhas_recalcular", _recalcula)
+    monkeypatch.setattr(app, "_falhas_disp_pelas_normalizacoes", lambda: conferidas.append(1))
+    monkeypatch.setattr(app.time, "sleep", lambda s: None if threading.current_thread() is principal else sono(s))
+    with pytest.raises(_Parou):
+        app._falhas_loop()
+    assert len(conferidas) == app.FALHAS_BOOT_ESPERA_S // 20 == 21

@@ -28329,6 +28329,7 @@ def _frac_disp_recalcular():
         _log_arquivo("fracttal.log", f"[disp] vereditos das OS de comunicação: {type(e).__name__}: {e}")
         vereditos = {}
     if _frac_disp_montar(meses, wos, vereditos, resumo, equip, time.time(), versao):
+        _frac_disp_guardar_volta()                           # o reinício segue desta varredura (12/11/2026)
         _frac_disp_registrar(True, f"índice publicado ({', '.join(m[0] for m in meses)}; {len(wos)} OSs varridas em "
                                    f"{resumo['paginas']} páginas, até {resumo['ate']}; {resumo['esperas']} esperas "
                                    f"(cota ou rede), {resumo['espera_s']} s)", resumo)
@@ -28337,6 +28338,42 @@ def _frac_disp_recalcular():
 # A última varredura inteira, guardada no worker para a conta rápida (03/11/2026): a Thopen é só das normalizações do COS,
 # e refazer o índice pela gravação nova do Nexus não precisa varrer o Fracttal de novo (as ~175 páginas, minutos e cota)
 _FRAC_DISP_VOLTA = {}
+# ... e em disco (12/11/2026): sem ela, todo reinício (cada push na main) começava pela varredura inteira, de minutos, e
+# só depois olhava as normalizações novas. Em 12/11 o servidor reiniciou às 13:13, 13:37, 13:44 e 14:19 e a
+# disponibilidade ficou parada desde 12:38, com o Nexus gravando às 13:57 e às 14:24 (o Atualizar do Dashboard Thopen
+# esperava e desistia). Pickle: os tipos voltam como foram (as chaves das OS, a data do dia); é um cache deste worker
+_FRAC_DISP_VOLTA_FILE = _p_cache("frac_disp_volta.pkl.gz")
+
+
+def _frac_disp_guardar_volta():
+    """Grava a varredura da conta rápida (atômico). Falha aqui não segura nada: o reinício só volta a varrer antes."""
+    import gzip
+    import pickle
+    try:
+        tmp = _FRAC_DISP_VOLTA_FILE + ".tmp"
+        with gzip.open(tmp, "wb", compresslevel=1) as f:
+            pickle.dump({k: _FRAC_DISP_VOLTA.get(k) for k in ("wos", "vereditos", "resumo", "ts", "rotulos", "dia",
+                                                              "versao")}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, _FRAC_DISP_VOLTA_FILE)
+    except Exception as e:                                   # noqa: BLE001
+        _log_arquivo("fracttal.log", f"[disp] varredura não guardada em disco: {type(e).__name__}: {e}")
+
+
+def _frac_disp_carregar_volta():
+    """No boot: a varredura guardada, se é de hoje e dos mesmos meses (a conta rápida exige os dois). → True se
+    carregou."""
+    import gzip
+    import pickle
+    try:
+        with gzip.open(_FRAC_DISP_VOLTA_FILE, "rb") as f:
+            v = pickle.load(f)
+    except Exception:                                        # noqa: BLE001 — sem arquivo ou arquivo ruim: varre
+        return False
+    if (not isinstance(v, dict) or not v.get("wos") or v.get("dia") != datetime.now().date()
+            or v.get("rotulos") != [m[0] for m in _disp_meses_alvo()] or not v.get("ts")):
+        return False
+    _FRAC_DISP_VOLTA.update(v)
+    return True
 
 
 def _frac_disp_montar(meses, wos, vereditos, resumo, equip, ts, versao):
@@ -28438,18 +28475,35 @@ def _frac_disp_dados():
 
 def _frac_disp_loop():
     """Prewarm no boot + a volta inteira a cada 30 min (roda no worker, como os demais laços); entre elas, de minuto em
-    minuto, a gravação nova das normalizações do COS (_frac_disp_pelas_normalizacoes)."""
+    minuto, a gravação nova das normalizações do COS (_frac_disp_pelas_normalizacoes).
+
+    Com a varredura de hoje guardada em disco (12/11/2026, _frac_disp_carregar_volta), o boot começa pela conta rápida
+    (as normalizações gravadas enquanto o servidor reiniciava saem no 1º minuto) e a varredura inteira fica para quando a
+    guardada completar os 30 min — se já completou, vem logo depois da conta rápida."""
+    guardada = False
+    try:
+        guardada = _frac_disp_carregar_volta()
+        if guardada:
+            _frac_disp_pelas_normalizacoes()
+    except Exception as e:                                   # noqa: BLE001 — o boot de antes (varrer) segue
+        print(f"[disp] boot pela varredura guardada: {type(e).__name__}: {e}")
     while True:
-        try:
-            _frac_disp_recalcular()
-        except Exception as e:                               # ex.: o arquivo trancado na hora de gravar o índice
-            try:                                             # o status não pode seguir dizendo o "ok" da volta anterior
-                _frac_disp_registrar(False, f"laço: {type(e).__name__}: {e}")
-            except Exception:                                # noqa: BLE001
-                print(f"[disp] loop: {e}")
+        idade = time.time() - (_FRAC_DISP_VOLTA.get("ts") or 0)
+        if guardada and idade < FRAC_DISP_TTL:
+            voltas = max(1, int(FRAC_DISP_TTL - idade) // FRAC_DISP_COS_CHECA_S)
+        else:
+            try:
+                _frac_disp_recalcular()
+            except Exception as e:                           # ex.: o arquivo trancado na hora de gravar o índice
+                try:                                         # o status não pode seguir dizendo o "ok" da volta anterior
+                    _frac_disp_registrar(False, f"laço: {type(e).__name__}: {e}")
+                except Exception:                            # noqa: BLE001
+                    print(f"[disp] loop: {e}")
+            voltas = FRAC_DISP_TTL // FRAC_DISP_COS_CHECA_S
+        guardada = False
         # contado por voltas, não pelo relógio: um sono que volta na hora (o falso dos testes) não vira um giro solto
         # (03/11/2026: o laço pelo relógio girou 30 min com o sono falso e comeu a memória da máquina na suíte)
-        for _ in range(FRAC_DISP_TTL // FRAC_DISP_COS_CHECA_S):
+        for _ in range(voltas):
             time.sleep(FRAC_DISP_COS_CHECA_S)
             try:
                 _frac_disp_pelas_normalizacoes()
@@ -30086,7 +30140,14 @@ def _falhas_loop():
     """Worker, a cada 30 min. Espera o boot (o backfill das strings e a Disponibilidade assentam primeiro). Ocorrência
     desconsiderada (ou devolvida) na tela antecipa a volta: a tela some com a linha na hora, mas a visão por inversor ×
     dia e os totais só mudam com o pacote novo."""
-    time.sleep(420)
+    # a espera do boot confere as normalizações de 20 em 20 s (12/11/2026): a gravação nova do Nexus durante o reinício
+    # sobe na hora, sem esperar os 7 min e a volta inteira (os pacotes do disco bastam para a disponibilidade)
+    for _ in range(FALHAS_BOOT_ESPERA_S // 20):
+        time.sleep(20)
+        try:
+            _falhas_disp_pelas_normalizacoes()
+        except Exception as e:                          # noqa: BLE001
+            print(f"[falhas] disponibilidade pelas normalizações no boot (fica para a volta): {e}")
     while True:
         try:
             _falhas_recalcular()
@@ -30105,6 +30166,18 @@ def _falhas_loop():
 
 
 _falhas_cos_visto = {"em": None}
+FALHAS_BOOT_ESPERA_S = 420
+
+
+def _falhas_cos_em_publicado():
+    """A gravação das normalizações que os pacotes do disco levam (a última publicada), ou None sem ela."""
+    ems = []
+    for mes in _falhas_meses():
+        pac = _falhas_ler(_falhas_arquivo(mes)) or {}
+        em = (pac.get("disponibilidade") or {}).get("normalizacoes_em")
+        if em:
+            ems.append(str(em))
+    return max(ems) if ems else None
 
 
 def _falhas_disp_pelas_normalizacoes():
@@ -30115,8 +30188,13 @@ def _falhas_disp_pelas_normalizacoes():
     if not em or em == _falhas_cos_visto["em"]:
         return False
     if _falhas_cos_visto["em"] is None:
-        _falhas_cos_visto["em"] = em                    # o 1º índice depois de subir: a volta de 30 min já o leva
-        return False
+        # o 1º índice depois de subir (12/11/2026): vale o que os pacotes publicados levam. Igual, ou sem a marca nos
+        # pacotes, a volta de 30 min o leva; mais novo (o Nexus gravou durante o reinício), sobe na hora. Até ali todo
+        # 1º índice era dado como publicado, e a correção do reinício esperava a volta seguinte
+        publicado = _falhas_cos_em_publicado()
+        if publicado is None or publicado == em:
+            _falhas_cos_visto["em"] = em
+            return False
     _falhas_disp_fora_da_volta(set())
     if _falhas_publicar_workbook(_falhas_meses(), agora=True) == "espera":
         return False                                    # a publicação de há menos de 1 min: tenta na volta de 20 s

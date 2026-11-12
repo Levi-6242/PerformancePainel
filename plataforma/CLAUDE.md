@@ -1596,12 +1596,18 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   o Nexus de hora em hora, este índice de 30 em 30 min, o workbook de hora em hora e a leitura do 5080. Entre as voltas
   inteiras, o `_frac_disp_loop` confere de minuto em minuto a versão do livro do Nexus (`_disp_cos_versao`, uma leitura da
   listagem); a versão nova refaz o índice com a ÚLTIMA varredura do Fracttal, guardada no worker (`_FRAC_DISP_VOLTA`,
-  `_frac_disp_pelas_normalizacoes`: segundos, sem as ~175 páginas; dia novo ou o boot fazem a volta inteira; o "Última
-  varredura" da tela segue a hora da varredura). O índice leva a hora da gravação usada (`cos.atualizado_em`), que vai ao
+  `_frac_disp_pelas_normalizacoes`: segundos, sem as ~175 páginas; dia novo faz a volta inteira; o "Última varredura" da
+  tela segue a hora da varredura). O índice leva a hora da gravação usada (`cos.atualizado_em`), que vai ao
   pacote e à coluna `normalizacoes_em` da `atualizacao` do workbook; o laço da aba Falhas (o único que grava os pacotes)
   vê a hora nova e publica sem a hora de espera (`_falhas_disp_pelas_normalizacoes`, no máximo uma por minuto). A hora
   entra na marca do workbook: a correção que não muda número ainda avisa o 5080. Quem pede é o ícone de atualizar da
-  conta da Grid no Dashboard Thopen (o pedido no `thopen_pedidos`, que o Nexus lê; `thopen/CLAUDE.md`). Prova:
+  conta do Dashboard Thopen (de toda conta desde 12/11/2026; o pedido no `thopen_pedidos`, que o Nexus lê;
+  `thopen/CLAUDE.md`). **O reinício não trava (12/11/2026**: o servidor reiniciou às 13:13, 13:37, 13:44 e 14:19 com os
+  pushes, e a disponibilidade ficou parada desde 12:38 com o Nexus gravando às 13:57 e às 14:24): a varredura vai também
+  para o disco (`_FRAC_DISP_VOLTA_FILE`, pickle; `_frac_disp_guardar_volta` a cada volta inteira) e o boot, com a de hoje
+  e dos mesmos meses, começa pela conta rápida e só varre quando ela completar os 30 min (`_frac_disp_carregar_volta`);
+  a espera de 7 min do boot da aba Falhas confere as normalizações de 20 em 20 s, e o 1º índice depois de subir compara
+  com a marca que os pacotes do disco levam (`_falhas_cos_em_publicado`): mais novo, sobe na hora. Prova:
   `tests/test_atualizar_normalizacoes.py`.
 - **A Thopen pelas normalizações do COS (29/10/2026)**, Levi: "calcule a disponibilidade por lá [Nexus > COS >
   Normalizações] usando o de-para como referência [...] o que for falha de comunicação tem a coluna Geração Parou, se sim
