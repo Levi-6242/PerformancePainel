@@ -1844,7 +1844,8 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   ele é de uma usina só (`_sg_classifica`, `do_cadastro`). Inversor pelo nome do equipamento (N = Inversor 1.N),
   PROVISÓRIO: o histórico delas no supervisório começa em 12/11; fechar pelo valor quando houver dia em comum com o BD. A
   PE II manda o `serial_number` de cada inversor (25 de 25; a PE III, 0 de 10); o cadastro não tem número de série, então
-  ele ainda não serve ao de-para.
+  ele ainda não serve ao de-para. O drill do Monitoramento mostra o SN ao lado do nome do inversor (`serial` do drill do
+  scadaGridco; Levi, 12/11/2026: "mostre o SN do inversor no drill da Axis"), em toda fonte que o mandar.
 - **Gravatá II, Iramaia II (Apolo) e Macaíba (GreenYellow), 10/11/2026** (Levi: "Usinas da Apolo no tempo real, na nossa
   API já temos Iramaia e Gravata, por gentileza inserir"; "Em greenyellow também temos macaíba"). A descoberta casa pelo
   NOME e o supervisório escreve "Gravata II Apolo", "Iramaia II apolo" e "Macaíba", contra "Gravatá II", "Iramaia II" e

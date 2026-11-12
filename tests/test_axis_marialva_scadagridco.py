@@ -16,7 +16,8 @@ TS = time.time() - 120
 
 
 def _eq(n, vivas=17):
-    m = {"active_power": 120.0, "daily_active_energy": 900.0 + n, "temperature_internal": 41.0}
+    m = {"active_power": 120.0, "daily_active_energy": 900.0 + n, "temperature_internal": 41.0,
+         "serial_number": f"ES22400606{n:02d}"}
     for i in range(1, 29):
         m[f"string_{i}_current"] = 9.5 if i <= vivas else 0.0
     return {"equipamento": str(n), "indice": n, "tipo": "inverter", "communication_fault": 192,
@@ -69,3 +70,11 @@ def test_o_card_da_axis_conta_a_marialva(cli):
 
 def test_a_descoberta_classifica_o_cliente_axis():
     assert app._SG_FONTE_DO_CLIENTE["axis"] == "axisscada" and sg.FONTES["axisscada"]["rotulo"] == "Axis"
+
+
+def test_o_drill_da_axis_mostra_o_sn_do_inversor(cli):
+    """12/11/2026, Levi: "mostre o SN do inversor no drill da Axis" (a PE II manda o serial_number de cada inversor)."""
+    invs = {i["nome"]: i for i in cli.get("/api/axis/plant/marialva").get_json()["inversores"]}
+    assert invs["Inversor 1.3"]["serial"] == "ES2240060603"
+    mon = open(app.os.path.join(app._RAIZ, "docs", "redesign", "Monitoramento (novo design).html"), encoding="utf-8").read()
+    assert "serial:String(inv.serial||'').trim()" in mon and "SN ${_he(inv.serial)}" in mon
