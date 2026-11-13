@@ -24,6 +24,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pla
 # Os testes não leem a estrutura do Nexus no banco (o livro nexus_estrutura_usina, fase 2 de 13/10/2026): o cadastro do
 # `import app` sai só da aba, e o teste da estrutura (tests/test_estrutura_nexus.py) liga e dubla a visão à mão.
 os.environ.setdefault("ESTRUTURA_NEXUS", "0")
+# o fechamento do mês do Dashboard Thopen (13/11/2026) lê o livro real: com outubro fechado no banco, toda conta de
+# outubro dos testes (usinas fictícias) sairia sem número. Os testes dele ligam por monkeypatch
+os.environ.setdefault("THOPEN_FECHAMENTO", "0")
 
 
 # ── Trava das fontes PAGAS (10/10/2026) ──────────────────────────────────────────────────────────────────────────────

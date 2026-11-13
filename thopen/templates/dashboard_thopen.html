@@ -1002,11 +1002,18 @@ function _comGrupos(d, L, row){
     h=`<tr class="grupo"><td colspan="11">${String(r.carteira||'').replace(/</g,'&lt;')}</td></tr>`; } return h+row(r); }).join('');
 }
 
+// o mês fechado (13/11/2026, o cliente: "quando podemos confiar no valor correto da disponibilidade?"): até o dia 10 do
+// mês seguinte o mês está em apuração; depois, o número é o definitivo
+function apuracaoTxt(a){
+  if(!a) return '';
+  return a.fechado ? ` · mês fechado em ${a.fechado_em}` : ` · disponibilidade em apuração até ${a.fecha_em}`;
+}
+
 async function renderGeral(){
   const mv=$('selMes').value; if(!mv) return;
   const [a,m]=mv.split('-');
   const d=await get(`${RAIZ}/api/t/geral?carteira=${encodeURIComponent(CART||'Thopen')}&ano=${a}&mes=${m}`);
-  $('geralTitulo').textContent=`Resumo UFVs — ${d.carteira} — até ${d.corte}`;
+  $('geralTitulo').textContent=`Resumo UFVs — ${d.carteira} — até ${d.corte}${apuracaoTxt(d.apuracao)}`;
   const L=d.linhas;
   const f=v=>v==null?'':nf2.format(v);
   const pc=v=>v==null?'':(v*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
@@ -2111,7 +2118,7 @@ function abrirDisponibilidade(){
   const media=o.d.disponibilidade==null?'—':o.d.disponibilidade.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
   h+=`<tr class="tot"><td>Média do mês</td><td>${media}</td><td class="dp-com">`
     +`Média dos dias, pelas paradas registradas (horas paradas de 07h30 a 17h30, pela potência)</td></tr></tbody></table>`;
-  $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}`;
+  $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}${apuracaoTxt(o.d.apuracao)}`;
   $('dpCorpo').innerHTML=h;
   $('dpFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('dpX').focus();
 }

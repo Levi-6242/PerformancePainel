@@ -87,6 +87,21 @@ def xlsx(aba, cab, linhas):
     return buf.getvalue()
 
 
+def regravar(livro, nome, aba, cab, linhas, antes, tok):
+    """Troca a aba inteira por `linhas` (o reabrir do fechamento do mês, 13/11/2026). `antes`: quantas linhas a aba
+    tinha na leitura de quem montou `linhas`; se o livro mudou no meio, não grava (apagaria o que outro gravou)."""
+    if not tok:
+        raise GravacaoErro("sem o token de escrita do banco (GRIDCO_SQL_TOKEN)")
+    with _trava(livro):
+        if len(ler(livro, aba, tok)) != antes:
+            raise GravacaoErro("o livro %s mudou enquanto a troca era montada: nada gravado" % livro)
+        _trocar_livro(livro, xlsx(aba, cab, linhas), tok)
+        depois = ler(livro, aba, tok)
+        if len(depois) != len(linhas):
+            raise GravacaoErro("enviei %d linhas e o banco tem %d" % (len(linhas), len(depois)))
+        return len(depois)
+
+
 def acrescentar(livro, nome, aba, cab, novas, tok):
     """Soma as linhas novas ao livro (só uma aba) e confere. Devolve quantas linhas a aba tem depois."""
     if not tok:

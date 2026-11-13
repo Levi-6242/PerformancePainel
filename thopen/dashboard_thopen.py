@@ -58,6 +58,7 @@ import fonte_zeladoria       # 26/10/2026: a Zeladoria que o Nexus publica no ba
 import zeladoria_cliente     # ... e a tela da semana (puro)
 import disp_comentarios      # 30/10/2026: a disponibilidade pelos comentários do BD_Thopen (as usinas fora da Ronda COS)
 import disp_excecao          # 06/11/2026: a disponibilidade por exceção (outubro de dez usinas, da planilha do Levi)
+import disp_fechamento       # 13/11/2026: o mês fechado não muda mais (o número gravado no dia 10 do mês seguinte)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -1534,6 +1535,9 @@ def _disp_dias(usina, ano, mes):
     (06/11/2026, disp_excecao): vence as duas contas."""
     if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
         return None
+    fx = _disp_fechamento(usina, ano, mes)
+    if fx is not None:                 # o mês fechado (13/11/2026): o número gravado, e nada mais
+        return fx or None
     exc = _disp_excecao(usina, ano, mes)
     if exc:
         return exc
@@ -1579,6 +1583,63 @@ def _disp_hist_carteira(usina, ano, mes):
             continue
         out[d] = v * 100.0 if v <= 1.0 else v
     return out
+
+
+def _disp_fechamento(usina, ano, mes):
+    """{data: disp %} do mês FECHADO ({} quando a usina não tem número nele), ou None com o mês aberto (13/11/2026,
+    disp_fechamento: o cliente validou outubro num dia e no outro os números tinham mudado). Vence todas as contas."""
+    if not _so_os_fracttal(ano, mes):
+        return None
+    return disp_fechamento.por_dia(usina, ano, mes)
+
+
+def _usinas_do_5080():
+    return sorted({u for us in CARTEIRAS.values() for u in us})
+
+
+def fechar_mes(ano, mes, origem, agora=None):
+    """Fecha o mês com o número que o dashboard mostra agora (`_disp_dias` de cada usina das carteiras). Recusa sem a
+    disponibilidade da plataforma carregada: número pela metade não fecha mês. → (linhas na aba depois, linhas do mês)."""
+    if not _op_dados():
+        raise livro_banco.GravacaoErro("a disponibilidade da plataforma ainda não carregou: o mês fica aberto")
+    _wb()
+    disp_fechamento.invalidar()
+    if disp_fechamento.chave(ano, mes) in disp_fechamento.fechados():
+        raise livro_banco.GravacaoErro("%s já está fechado" % disp_fechamento.chave(ano, mes))
+    linhas = disp_fechamento.linhas_do_mes(ano, mes, _usinas_do_5080(), _disp_dias,
+                                           agora or dt.datetime.now().astimezone(), origem)
+    return disp_fechamento.fechar(ano, mes, linhas, fonte_api._token()), linhas
+
+
+_FECHAMENTO = {"iniciado": False}
+_FECHAMENTO_TRAVA = threading.Lock()
+FECHAMENTO_CONFERE_S = 3600
+
+
+def _fechamento_laco():
+    """De hora em hora: o mês que passou do dia 10 do mês seguinte e segue aberto fecha (Levi, 13/11/2026). A falha
+    (o banco fora, a plataforma sem carregar) só adia para a hora seguinte."""
+    import time as _t
+    while True:
+        try:
+            for a, m in disp_fechamento.a_fechar(dt.date.today()):
+                n, linhas = fechar_mes(a, m, "fechamento automático do dia %d" % disp_fechamento.DIA_DO_FECHAMENTO)
+                print("[fechamento] %04d-%02d fechado: %d linhas (%d na aba)" % (a, m, len(linhas), n), flush=True)
+        except Exception as e:       # noqa: BLE001
+            print("[fechamento] fica para a próxima hora:", type(e).__name__, str(e)[:160], flush=True)
+        _t.sleep(FECHAMENTO_CONFERE_S)
+
+
+@app.before_request
+def _fechamento_automatico():
+    """Liga o laço do fechamento na 1ª requisição do processo (THOPEN_FECHAMENTO=0 desliga; os testes rodam assim)."""
+    if _FECHAMENTO["iniciado"] or not disp_fechamento.ligado():
+        return None
+    with _FECHAMENTO_TRAVA:
+        if not _FECHAMENTO["iniciado"]:
+            _FECHAMENTO["iniciado"] = True
+            threading.Thread(target=_fechamento_laco, name="thopen_fechamento", daemon=True).start()
+    return None
 
 
 def _disp_excecao(usina, ano, mes):
@@ -1712,7 +1773,8 @@ def geral():
              else dt.date(ano, mes, monthrange(ano, mes)[1]))
     nome_carteira = PORTFOLIO if carteira == PORTFOLIO else next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
     out = {"carteira": nome_carteira, "ano": ano, "mes": mes,
-           "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora}
+           "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora,
+           "apuracao": disp_fechamento.situacao(ano, mes)}
     if _so_os_fracttal(ano, mes):
         # a linha Total pelo portfólio (regra 6 do Levi, 20/10/2026): a possível só das usinas com ETM contra o real
         # delas, a meta só das usinas com meta, o IPOA ponderado pela potência; a Disponibilidade, a média simples de
@@ -2021,12 +2083,15 @@ def api_operacao():
         if hd:
             bd = (hd, _com_hist_carteira(usina, ano, mes))
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
-    # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (o COS, as OS ou o BD)
-    disp = _disp_excecao(usina, ano, mes)
+    # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (o COS, as OS ou o BD). O
+    # mês fechado (13/11/2026) vence a exceção: o número é o gravado no fechamento
+    fx = _disp_fechamento(usina, ano, mes)
+    disp = fx if fx is not None else _disp_excecao(usina, ano, mes)
     if disp is None and assistida and not pelo_bd and dados is not None:
         disp = operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))   # o número segue o das OS
     r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp, **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
+    r["apuracao"] = disp_fechamento.situacao(ano, mes)       # "em apuração até 10/12" ou "fechado em 13/11"
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
     r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None
     return jsonify(r)

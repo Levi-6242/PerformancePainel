@@ -173,6 +173,19 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   segue o de cada usina (abaixo). Relido a cada 10 min e no Atualizar; banco fora = a última leitura boa, sem nenhuma = a conta de sempre. A
   carga é de fora do 5080 (a planilha não entra no repositório: é dado de cliente). Prova:
   `tests/test_thopen_disp_excecao.py`.
+- **O mês fechado não muda mais (13/11/2026**, o cliente: "estamos no dia 13/11 e os dados de Outubro estão sendo
+  alterados ainda? quando podemos confiar no valor correto da disponibilidade?"; ele validou a Polaris de outubro num
+  dia e no outro os números tinham mudado, porque cada correção do COS na Ronda refazia o mês). Decisões do Levi:
+  outubro fechou com o número de 13/11, e cada mês fecha sozinho no **dia 10 do mês seguinte**. Fechar = gravar o
+  número de cada usina das carteiras em cada dia, como `_disp_dias` mostra na hora (exceção, BD, COS ou Histórico
+  Carteira), no livro `thopen_disp_fechamento` · `disp_dia` (1 linha = usina × dia de um mês fechado;
+  `disp_fechamento.py`). Mês com linha no livro vence tudo no `_disp_dias` e no card; a usina sem linha num mês
+  fechado fica sem número (não volta para a conta). O laço do 5080 confere de hora em hora (`_fechamento_laco`, sobe na
+  1ª requisição) e não fecha sem a disponibilidade da plataforma carregada. Até fechar, a Visão Geral e a janela da
+  disponibilidade dizem "disponibilidade em apuração até 10/MM"; depois, "mês fechado em DD/MM". Na mão:
+  `python fechar_mes.py AAAA-MM --conferir` (mostra sem gravar), sem a opção fecha, e `--reabrir` tira o mês (só com o
+  OK do Levi; o cliente é avisado antes). `THOPEN_FECHAMENTO=0` desliga (os testes rodam assim, `conftest.py`). Prova:
+  `tests/test_thopen_disp_fechamento.py`.
 - **A usina sem conta pelas OS segue o Disp do Histórico Carteira (12/11/2026**, Levi: a equipe "adicionou
   disponibilidade de Caroá na parte de histórico de carteira e não está subindo"): a Caroá não tem a disponibilidade da
   plataforma, e de 10/2026 em diante o dashboard só lia a conta das OS (card e Visão Geral vazios). Agora, sem conta

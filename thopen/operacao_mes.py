@@ -67,7 +67,9 @@ CHAVES = ("disponivel", "motivo", "usina", "ano", "mes", "strings", "trackers", 
           "trip_pendente",
           # 30/10/2026: de onde vêm a disponibilidade e o comentário do dia ("os" ou "bd_comentarios": as usinas que a
           # Ronda COS não cobre, pelos comentários do BD_Thopen, disp_comentarios.py)
-          "fonte_disp")
+          "fonte_disp",
+          # 13/11/2026: o mês fechado ou em apuração (disp_fechamento.situacao): o selo da janela da disponibilidade
+          "apuracao")
 
 # Outubro de 2026 (Levi, 08/10: "adapte todas desse mês, do nosso lado, sem tocar no Fracttal"): OS de string sem
 # quantidade nem citação foi completada pela plataforma com as strings que a régua viu sem corrente naquele inversor no
