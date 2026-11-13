@@ -33,6 +33,12 @@ _GET = tuple(f"/api/{f}" for f in FONTES_API) + (
     "/api/relatorio/potencia-ativa",
 )
 
+# leituras que valem só pelo caminho EXATO (sem o "x/..."): o De-para de equipamentos lido pelo Nexus (13/11/2026, Levi:
+# "o equipamentos das usinas tem que ser junto do de para de equipamentos, pois um complementa o outro"): o diagnóstico e
+# a usina aberta, SÓ leitura. O resto da administração do de-para (o Modo de-para do Tempo real: fracttal, registro,
+# cadastro) segue fora da ponte; o /decidir é POST; no /usina vale a trava da API PV acima (nada abre a API PV na hora)
+_GET_EXATO = frozenset({"/api/admin/de-para", "/api/admin/de-para/usina"})
+
 # POSTs que só consultam (corpo com a lista de usinas): contagem de OS, de-para do Fracttal, OS da ETM
 # ESPELHADA no Nexus (`nexus/performance/ponte.py`): mudou aqui, muda lá; divergência falha fechada (403 da plataforma).
 POSTS_DE_CONSULTA = frozenset({"/api/os-performance/counts", "/api/os-creator/fractall-usinas", "/api/etm/os"})
@@ -167,7 +173,7 @@ def permitido(metodo: str, caminho: str, parametros=()) -> bool:
         return c in POSTS_DE_CONSULTA
     if m not in ("GET", "HEAD"):
         return False
-    return any(_casa(c, b) for b in _PAGINAS + _GET)
+    return c in _GET_EXATO or any(_casa(c, b) for b in _PAGINAS + _GET)
 
 
 # ── O perfil GESTOR da porta única (09/10/2026) ──────────────────────────────────────────────────────────────────────

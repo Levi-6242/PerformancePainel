@@ -216,10 +216,31 @@ def test_a_lista_cobre_as_rotas_das_paginas():
 def test_a_chave_nao_alcanca_a_administracao_do_modo_de_para():
     """O Modo de-para do Tempo real (20/10/2026) chama rotas de administração; a ponte (sem sessão, só leitura) segue sem
     alcançá-las, e a gravação da ponte da fonte está entre as gravações. O gestor admin do Nexus lê, e não grava."""
-    for c in ("/api/admin/de-para", "/api/admin/de-para/fracttal/usinas", "/api/admin/de-para/fracttal/arvore",
+    for c in ("/api/admin/de-para/fracttal/usinas", "/api/admin/de-para/fracttal/arvore",
               "/api/admin/de-para/registro", "/api/admin/de-para/cadastro"):
         assert not ln.permitido("GET", c), c
         assert ln.permitido_gestor("GET", c), c
+    # 13/11/2026 (o De-para dentro de Equipamentos das usinas, no Nexus): a ponte lê o diagnóstico e a usina aberta, só
+    # pelo caminho exato; a sugestão pelo valor (abre a API PV) e o resto seguem fora
+    for c in ("/api/admin/de-para", "/api/admin/de-para/usina"):
+        assert ln.permitido("GET", c) and ln.permitido_gestor("GET", c), c
+    assert not ln.permitido("GET", "/api/admin/de-para/sugerir")
     assert not ln.permitido("POST", "/api/admin/de-para/decidir")
     assert not ln.permitido_gestor("POST", "/api/admin/de-para/decidir")
     assert "/api/admin/de-para/decidir" in ln.GRAVACOES
+
+
+def test_a_ponte_le_o_de_para_e_nao_grava(cli, monkeypatch):
+    """13/11/2026: o Nexus mostra o De-para dentro de Equipamentos das usinas, lendo pela ponte o diagnóstico e a usina
+    aberta. Só leitura e só pelo caminho exato: a gravação e o resto da administração do de-para seguem recusados."""
+    monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": []}})
+    monkeypatch.setattr(app, "_plants_cache", {"ts": 0.0, "data": []})
+    r = cli.get("/api/admin/de-para", headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 200 and r.headers.get("X-Nexus-Leitura-Ok") == "1" and "fontes" in r.get_json()
+    r = cli.get("/api/admin/de-para/usina?fonte=2capi&id=1", headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code != 403
+    for c in ("/api/admin/de-para/registro", "/api/admin/de-para/cadastro", "/api/admin/de-para/fracttal/usinas"):
+        assert cli.get(c, headers={"X-Nexus-Leitura": CHAVE}).status_code == 403, c
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "2capi", "id": "1", "usina_supervisorio": ""},
+                 headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 403

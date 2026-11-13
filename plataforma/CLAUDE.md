@@ -1101,6 +1101,13 @@ fazia parecer que a API PV não tinha o nome (Levi: "como assim sem nome na font
   aba Equipamentos; nome que não vira coluna fica de fora, com aviso.
 - **Fica no código, de propósito**: os apelidos por nome (`PV_NOME_API_ALIAS`/`PV_ALIAS_CODIGO`: Sete Lagoa e União), que
   o resto do código usa com o nome da API — trocar por ponte mudaria o nome interno dessas usinas. A tela os mostra.
+- **O Nexus lê o De-para pela ponte (13/11/2026)**: Levi, "o equipamentos das usinas tem que ser junto do de para de
+  equipamentos, pois um complementa o outro". O Nexus mostra o De-para numa aba de Base → Equipamentos das usinas, e
+  lê `/api/admin/de-para` e `/api/admin/de-para/usina` pela chave `X-Nexus-Leitura` (`leitura_nexus._GET_EXATO`).
+  Vale só o caminho exato: o resto da administração do de-para, o Modo de-para do Tempo real, segue fora. O `/decidir`
+  é POST e a ponte recusa; o `/sugerir` abre a API PV e recusa o pedido do Nexus. No `/usina`, a trava da API PV
+  vale, então nada abre a API PV na hora. Quem decide o par continua sendo esta tela (o editor), aberta pelo Nexus
+  numa janela. Prova: `tests/test_leitura_nexus.py::test_a_ponte_le_o_de_para_e_nao_grava`.
 - `DEPARA_TELA=0` desliga numa máquina; os testes rodam desligados (`conftest._depara_desligado_por_padrao`). Testes:
   `tests/test_depara_equipamentos.py`.
 
