@@ -538,6 +538,10 @@ def _rota_publica(p: str) -> bool:
     # API de campo (integração externa): gate próprio por x-api-key no handler, fora da sessão humana.
     if p.startswith("/api/campo/"):
         return True
+    # Recoleta pela API PV do Conversor Grid Co. (app de desktop, sem sessão humana daqui): gate próprio no handler pela
+    # chave `X-Recoleta-Chave` (recoleta_apipv.py). Só lê a API PV e devolve o dado cru; nada é gravado.
+    if p.startswith("/api/recoleta/"):
+        return True
     # Relay de escrita dos tickets (OS Creator, app de desktop, sem sessão humana daqui): gate
     # próprio no handler pelo JWT do login do Fracttal — ver tickets_relay.py.
     if p.startswith("/api/tickets/"):
@@ -15253,6 +15257,86 @@ def api_2capi_trackers_chart(idusina):
 @app.route("/api/2capi/trackers/<int:idusina>/chart.csv")
 def api_2capi_trackers_chart_csv(idusina):
     return api_pv_trackers_chart_csv(idusina)
+
+
+# ── Recoleta pela API PV para o Conversor Grid Co. (13/11/2026) ─────────────────────────────────────────────────────
+# Levi: "deve ter algum campo para fazer uma recoleta pela API... seleciona a usina, o período... geração, ETM". O
+# Conversor roda no PC de cada um e não leva a senha da API PV; pede aqui, que já entra na API sozinho. Regras, custo e
+# chave em recoleta_apipv.py.
+def _recoleta_recusa():
+    import recoleta_apipv as _rc
+    esperada = _rc.chave_esperada(os.environ.get("RECOLETA_CHAVE", ""), PASSWORD)
+    if not _rc.confere(flask_request.headers.get("X-Recoleta-Chave"), esperada):
+        return jsonify({"erro": "chave da recoleta recusada"}), 401
+    if _pv_disj_aberto():
+        return jsonify({"erro": "a API PV está fora do ar agora (disjuntor aberto); tente em alguns minutos"}), 503
+    return None
+
+
+def _recoleta_post(caminho, corpo):
+    """POST na API PV com a conta principal (a do coletor), lendo a cota histórica nos cabeçalhos."""
+    for tentativa in (0, 1):
+        r = _http().post(f"{BASE_URL}{caminho}", headers={"x-access-token": get_token(force=bool(tentativa)),
+                                                          "Content-Type": "application/json"}, json=corpo, timeout=120)
+        if caminho == "/custom_query":
+            _pv_cota_le(r)
+        if r.status_code == 401 and not tentativa:
+            continue
+        if r.status_code >= 400:
+            raise RuntimeError(f"API PV HTTP {r.status_code}")
+        return r.json()
+
+
+def _recoleta_plantas():
+    """{id: nome cru da API} da conta principal (as da conta oem@ ficam fora: o coletor também não as busca)."""
+    out = {}
+    for p in get_plants(get_token()) or []:
+        try:
+            pid = int(p.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if not _pv_is_oem(pid):
+            out[pid] = (p.get("nome_api") or p.get("nome") or "").strip(), (p.get("nome") or "").strip()
+    return out
+
+
+@app.route("/api/recoleta/apipv/plantas")
+def api_recoleta_plantas():
+    """As plantas da conta principal da API PV, com o nome cru (o da aba Equipamentos) e o do cadastro."""
+    import recoleta_apipv as _rc
+    recusa = _recoleta_recusa()
+    if recusa is not None:
+        return recusa
+    try:
+        pl = _recoleta_plantas()
+    except Exception as e:
+        return jsonify({"erro": f"não consegui ler a lista de usinas da API PV ({type(e).__name__})"}), 502
+    hoje = _rc.hoje_br()
+    usadas = _rc._CONTA["n"] if _rc._CONTA["dia"] == hoje else 0
+    return jsonify({"plantas": [{"id": k, "nome": v[0], "cadastro": v[1]} for k, v in sorted(pl.items())],
+                    "max_dias": _rc.MAX_DIAS, "max_plantas": _rc.MAX_PLANTAS, "teto_dia": _rc.TETO_DIA,
+                    "restam_hoje": _rc.TETO_DIA - usadas, "cota_api": _pv_cota.get("dia")})
+
+
+@app.route("/api/recoleta/apipv", methods=["POST"])
+def api_recoleta_apipv():
+    """Geração por inversor e/ou ETM (POA e GHI em kWh/m²) de plantas × dias fechados, crus, para o Conversor comparar
+    com o BD. Nada é gravado aqui."""
+    import recoleta_apipv as _rc
+    recusa = _recoleta_recusa()
+    if recusa is not None:
+        return recusa
+    try:
+        pl = {k: v[0] for k, v in _recoleta_plantas().items()}
+    except Exception as e:
+        return jsonify({"erro": f"não consegui ler a lista de usinas da API PV ({type(e).__name__})"}), 502
+    try:
+        res = _rc.recoletar(_recoleta_post, flask_request.get_json(silent=True) or {}, pl, _rc.hoje_br(),
+                            cota_permite=_pv_cota_permite)
+    except _rc.Recusa as e:
+        return jsonify({"erro": str(e)}), e.status
+    print(f"[recoleta] {res['chamadas']} chamada(s) à API PV; restam {res['restam']} hoje")
+    return jsonify(res)
 
 
 @app.route("/api/pv/trackers/token", methods=["POST", "OPTIONS"])

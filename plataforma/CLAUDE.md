@@ -2573,6 +2573,33 @@ próprio no handler, como `/api/campo/`). E como o túnel troca de endereço a c
 lê. Sem essa publicação o app fica só-leitura, então **restart da plataforma = URL republicada**. Ele, a ronda do
 WhatsApp e o vigia dela só sobem no PC Windows (02/11/2026): no servidor não há túnel nem `C:\GridcoWhats`.
 
+## Recoleta pela API PV para o Conversor Grid Co. (13/11/2026)
+
+Levi: "deve ter algum campo para fazer uma recoleta pela API... a pessoa seleciona a usina, o período, se quer recoletar
+geração, ETM... o que não está batendo fica em amarelo". O Conversor (`coleta API PV/ferramentas/conversor`) roda no PC
+de cada um e NÃO leva a senha da API PV (o coletor já distribuiu a senha dentro de um .exe uma vez). Ele pede aqui, que
+já entra na API sozinho, recebe o dado CRU e faz o de-para (aba Equipamentos) e a comparação com o BD do lado dele.
+Nada é gravado: nem BD, nem cache.
+
+- **Rotas** (`_rota_publica` as deixa passar; gate no handler): `GET /api/recoleta/apipv/plantas` (id, nome cru da API,
+  nome do cadastro; só a conta principal, a da coleta do BD_Thopen) e `POST /api/recoleta/apipv` `{ids, ini, fim,
+  geracao, etm}` → `{plantas: {id: {nome, inversores, dias: {iso: {ger: {nome do supervisório: kWh}, ipoa, ghi, erro}}}},
+  chamadas, restam}`. Lógica pura em `recoleta_apipv.py`; a rota dá a `_recoleta_post` (conta principal, 401 renova o
+  token uma vez, lê a cota nos cabeçalhos) e a lista de plantas.
+- **Mesmas chamadas e mesma régua do coletor** (`coletar_pvoperation.py`): `plant_devices` para o nome do inversor,
+  `custom_query` energy (Eday) e meteo (dia fechado, trapézio, os mesmos campos de POA e GHI). Eday nulo não vira 0; GHI
+  todo zero é nulo (estação sem piranômetro horizontal). Só dia fechado no fuso de Brasília (`hoje_br`: o servidor é UTC).
+- **Custo**: o `custom_query` gasta a cota histórica da conta (800/dia, 200/h, a mesma da combiner e do coletor da noite).
+  Três travas: `_pv_cota_permite` (a reserva de 300/dia e 20/h da coleta da noite, antes do pedido e a cada dia),
+  `TETO_DIA` próprio (150 por dia, `RECOLETA_TETO_DIA`, em memória: o restart zera) e o tamanho do pedido
+  (`MAX_PLANTAS` 8 × `MAX_DIAS` 7; o Conversor fatia). Disjuntor da API PV aberto = 503.
+- **Chave** (`X-Recoleta-Chave`): `RECOLETA_CHAVE` do ambiente ou, sem ela, HMAC-SHA256 da senha da API PV
+  (`PV_PASSWORD`) com o rótulo fixo de `recoleta_apipv.ROTULO` — o servidor e o PC do Levi chegam à mesma chave sem
+  configuração nova, e ela não revela a senha. O Conversor a lê do arquivo "Conversor Grid Co - recoleta.txt" na pasta
+  "1. Performance" (a das versões). Trocou a senha da API PV: gerar o arquivo de novo (o CLAUDE.md do Conversor diz como).
+- Testes: `tests/test_recoleta_apipv.py` (chave, fuso, limites, nulo não vira zero, ETM em kWh/m², cota, teto, dia que
+  falha, a rota sem chave, com chave e com o disjuntor aberto). A API PV é dublada.
+
 ## OS Creator na web — proxy `/os/*` (12/09/2026)
 
 O card "Criar OS" da Entrada abre o OS Creator dentro da plataforma. O serviço NÃO mora aqui: é `os_creator/os_web`
