@@ -495,6 +495,20 @@ quebra se um `<a href="/">` novo ficar sem a marca. `/` na moldura leva a `/temp
 Entrada). Na moldura SEM sessão (venceu), em vez do login por senha dentro do Nexus: "Abra de novo pelo Nexus", 401, com
 a senha num link `target=_top` de reserva. Navegador sem `Sec-Fetch-Dest`: a tela com os dois menus, funcionando.
 
+**O sino dentro do Nexus (12/11/2026).** Sugestão de um analista da Performance pelo Início > Sugestões do Nexus
+(10/11): "Notificação com problemas de visualização [...] não sendo possível ler as informações" — com o Tempo real
+aberto no Nexus, o painel do sino (`static/notif.js`, o dos alertas de strings e inversores, contador "99+") abria como
+uma tira estreita com barra de rolagem. A causa: na moldura a marca some do cabeçalho da Entrada (`data-casca`), o grupo
+do sino e do relógio, sozinho num `space-between`, ia para a ESQUERDA, e o painel (ancorado à borda direita do sino, 390
+px) abria para fora da tela; medido a 1440 px: o sino em x 28 a 62, o painel de -328 a 62, 62 px à vista. Dois consertos:
+o último filho do cabeçalho leva `margin-left:auto` (`docs/redesign/Entrada.html`; a regra NÃO cita `modo-nexus`: sem a
+chave da porta única a página não pode falar dele, `test_porta_nexus.py`), e o painel calcula onde abre para caber onde
+quer que o sino esteja (`_gcNotifPosicao`, pura: a borda direita com a do sino; sem caber, a partir do sino; em tela
+estreita encolhe e fica a 8 px das bordas), com `color-scheme:dark` (a barra de rolagem clara era a "tira branca").
+Depois: sino em 1144 a 1178 e painel de 788 a 1178 na moldura, igual ao de fora dela; a 375 px, painel de 8 a 367, sem
+rolagem lateral. Teste: `tests/test_sino_painel_na_tela.py`. O `notif.js` e a Entrada são relidos a cada pedido: não
+precisa de restart.
+
 **`Content-Security-Policy: frame-ancestors 'self'`** em toda resposta HTML, só com a chave (spec, fase 1: "desligados
 sem a chave"); junta-se a uma CSP que já exista. Investigado em 09/10 antes de ligar: ninguém de fora emoldura a
 plataforma. A Entrada embute o `/monitor` na mesma origem; o casco `/os/` do OS Creator Web embute as próprias abas na

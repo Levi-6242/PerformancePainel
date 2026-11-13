@@ -31,6 +31,10 @@
   /* ── cabecalho ───────────────────────────────────────────────────────── */
   .topo{max-width:1480px;margin:0 auto;padding:26px 28px 0;display:flex;align-items:center;justify-content:space-between;gap:16px}
   body.largo .topo,body.largo .pe{max-width:1640px}
+  /* o grupo do sino e do relógio fica à direita mesmo sozinho (12/11/2026): dentro do Nexus a marca some (data-casca)
+     e, só com o space-between, o grupo ia para a esquerda e o painel do sino abria para fora da tela. A regra não cita o
+     modo do Nexus de propósito: sem a chave da porta única a página não pode mudar nem falar dele */
+  .topo > :last-child{margin-left:auto}
   .marca{display:flex;align-items:center;gap:14px;text-decoration:none}
   .marca img{height:26px;display:block}
   .marca span{font-size:12px;color:var(--n400);border-left:1px solid var(--divider);padding-left:14px;letter-spacing:.02em}

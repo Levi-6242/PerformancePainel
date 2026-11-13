@@ -25,9 +25,10 @@
     ".gc-sino.tem{color:#f2555a}",
     ".gc-badge{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#f2555a;color:#fff;",
     "font:700 11px/18px 'IBM Plex Mono',Consolas,monospace;text-align:center;box-shadow:0 0 0 2px #090d18}",
-    ".gc-notif-caixa{position:absolute;right:0;top:42px;width:390px;max-height:70vh;overflow:auto;z-index:90;border-radius:12px;",
+    // color-scheme: a barra de rolagem do painel escura (sem ele, o trilho claro era a "tira branca" do print de 10/11/2026)
+    ".gc-notif-caixa{position:absolute;right:0;top:42px;width:390px;max-width:calc(100vw - 16px);max-height:70vh;overflow:auto;z-index:90;border-radius:12px;",
     "background:linear-gradient(180deg,#1b2338,#161d30);border:1px solid rgba(255,255,255,.09);box-shadow:0 26px 54px rgba(0,0,0,.55);",
-    "font-family:'Inter',system-ui,sans-serif;font-size:13px;color:#e9eef6;text-align:left}",
+    "font-family:'Inter',system-ui,sans-serif;font-size:13px;color:#e9eef6;text-align:left;color-scheme:dark}",
     ".gc-notif-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.09);font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;font-weight:700;color:#767d92}",
     ".gc-notif-cab button{background:none;border:0;color:#a3d900;font:600 11px 'Inter',system-ui,sans-serif;cursor:pointer;letter-spacing:0;text-transform:none}",
     ".gc-notif-item{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06);color:inherit;text-decoration:none;transition:background .15s}",
@@ -107,6 +108,30 @@
     try { localStorage.setItem(VISTOS, JSON.stringify(vistos)); } catch (e) { }
   }
 
+  /* Onde o painel abre, para caber SEMPRE na tela (12/11/2026). O caso: dentro do Nexus a marca da plataforma some do
+     cabeçalho da Entrada (data-casca), o sino ia para a ESQUERDA e o painel, ancorado à direita do sino com 390 px,
+     abria para fora da tela: sobravam 62 px, a barra de rolagem ("Notificação com problemas de visualização [...] não
+     sendo possível ler as informações", sugestão de um analista da Performance, 10/11/2026). Função pura (o teste a roda
+     no node): recebe as bordas do sino e a largura da tela e devolve a largura do painel e o `left` dele em relação ao
+     sino. O normal segue igual: a borda direita do painel com a do sino. Sem caber para a esquerda, abre a partir do
+     sino; em tela estreita, encolhe e fica a 8 px das bordas. */
+  function _gcNotifPosicao(sinoEsq, sinoDir, tela) {
+    var MARGEM = 8, larg = Math.max(200, Math.min(390, tela - 2 * MARGEM));
+    var esq = sinoDir - larg;                                   // o normal: aberto para a esquerda do sino
+    if (esq < MARGEM) esq = Math.min(Math.max(MARGEM, sinoEsq), tela - MARGEM - larg);
+    if (esq < MARGEM) esq = MARGEM;
+    return { largura: larg, left: Math.round(esq - sinoEsq) };
+  }
+  // põe o painel no lugar: ao abrir e quando a janela muda de tamanho com ele aberto. Um ouvinte só para a página (o
+  // Monitoramento remonta o sino a cada render: o ouvinte acha o painel de agora pelo id, sem guardar o antigo)
+  function posicionar() {
+    var slot = document.getElementById("gc-sino"), caixa = slot && slot.querySelector(".gc-notif-caixa");
+    if (!caixa) return;
+    var r = slot.getBoundingClientRect(), p = _gcNotifPosicao(r.left, r.right, document.documentElement.clientWidth);
+    caixa.style.width = p.largura + "px"; caixa.style.left = p.left + "px"; caixa.style.right = "auto";
+  }
+  window.addEventListener("resize", function () { if (aberto) posicionar(); });
+
   function montar(slot) {
     slot.style.position = "relative";
     slot.innerHTML = '<button class="gc-sino" type="button" title="Strings que zeraram" aria-label="Notificações">' + SINO + '<span class="gc-badge" hidden></span></button><div class="gc-notif-caixa" hidden></div>';
@@ -116,6 +141,7 @@
       aberto = !aberto; caixa.hidden = !aberto;
       if (aberto) {
         try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) { }
+        posicionar();
         render();
       }
     });
