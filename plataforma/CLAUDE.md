@@ -547,7 +547,7 @@ Nexus o seletor não aparece. Teste: `tests/test_gerencial_filtro_responsavel.py
 13/10/2026 (Levi: "vai para a central de emissão no Nexus > Relatórios [...] Sai da parte de Performance!"): no Nexus
 eles abrem pela Central de emissão, filtrados pelo setor; aqui só muda a torre (o `/t/<torre>/<tela>` do "Entrar pelo
 Nexus"). Os dois lados conferem o mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin`
-por tela) pela assinatura `8bdc12283507094b` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
+por tela) pela assinatura `db2b2cf9380d2b67` (desde 16/11/2026, com a Sala de controle) (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
 (`/historico-plataforma`, `historico_pv.html`) foi APAGADO, rota e template (Levi: "Pode matar a seção histórico da
 plataforma!"); as APIs que ele lia (`/api/pv/trackers` e o gráfico por tracker) ficam, servem a outras telas. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
@@ -2527,6 +2527,38 @@ Agora `_sunop_plants_do_dados`: catálogo que falhou → a última lista boa do 
 por ano); sem o disco, o inventário das Fontes do tempo real (o que a SunOp devolveu da última vez); sem os dois, vazio
 (nunca inventa usina). Depois de uma falha, 30 min sem pedir o catálogo (`SUNOP_CATALOGO_ESPERA_S`). Prova:
 `tests/test_sunop_catalogo_504.py`.
+
+## Sala de controle da Performance (`/painel/sala-de-controle`, `templates/sala_controle.html`, 16/11/2026)
+
+**Para que serve.** Uma tela só para a Performance: o que está em falha agora, o que ninguém acompanha e o que apareceu
+de novo, por FONTE do tempo real. O Levi pediu a partir do "Control room" de um portal de fora e validou o desenho em 17
+rodadas num mockup com dado real (`docs/mockups/sala-de-controle/index.html`). **Tudo o que a tela tem de ser, as regras
+que ele deu e o que falta estão em `docs/sala-de-controle.md`: leia antes de mexer.** A regra dele: tudo o que o Tempo
+real faz hoje tem de estar aqui, transformado.
+
+**Entrega 1 (no código): só leitura.** A tela não tem rota de dado própria nem grava nada. Lê:
+- a lateral e os números: `/api/entrada/tempo-real` (o pendente = `strings_nao_rec`, `trk_parados - trk_com_os`, `etm_alarmes`);
+- "há quanto tempo", Insights, perda e "quando parou": `/api/painel/falhas?mes=` do mês corrente (`montar()` no template
+  refaz no navegador a conta que o mockup fazia em Python; quem já vinha parado no 1º dia do mês sai "desde antes deste mês");
+- a usina, SÓ ao abrir (`lerUsina`): as rotas da fonte dela, com as mesmas chaves do Monitoramento (`SKEY`, `VKEY`,
+  `PLANT`, trackers e ETM), mais `/api/state` (acompanhamento e comentários) e `/api/os-performance`;
+- a curva por string e a dos trackers, por dia, quando se pede (`lerCurva`, `lerTrk`); a ETM da visão geral, ao abrir a aba.
+Escondido por CSS até a entrega dele (nada de botão ou número de mentira): trancar string, digitar o acompanhamento,
+comentar, criar OS, o sino e as marcas de "nova", e as abas Abaixo dos demais, Geração e PR, Potência, Conferir fontes e
+De-para. `const ACOES = false` trava o clique da string.
+
+**Armadilhas.** (1) Toda leitura tem espera limitada (`pega`, AbortController) e a falha é dita na tela com "Tentar de
+novo". (2) Rota que falha NÃO pode ser pedida de novo dentro do desenho: na prova de 16/11 a aba ETM da visão geral
+redesenhava, pedia outra vez e travou o navegador; a falha fica marcada e só a releitura de 5 min tenta de novo.
+(3) A classe `acao` é a COR do número do cartão; a barra de Criar OS é `div.acao` (esconder `.acao` sumia com os números).
+(4) O template foi GERADO do mockup por um script na 1ª entrega (por isso ainda carrega o código das abas escondidas);
+daqui em diante se edita no template.
+
+**Como provar.** `tests/test_sala_de_controle.py` (a rota, as rotas lidas, nada embutido nem gravado, o escondido, a
+espera limitada, a falha sem laço). Na tela: `/painel/sala-de-controle`; os números do alto são os dos cartões da Entrada
+do Tempo real. Prova de 16/11 com as respostas reais das rotas (fonte Thopen · Banco de dados): 144 strings sem
+acompanhamento de 183, 667 trackers sem OS de 876; a Ipixuna 1 abre com 9 inversores, a curva de 12 strings do Inversor
+1.6 e a curva de 41 trackers. **Ainda não está no menu do Nexus** (falta a tela no mapa da porta única, dos dois lados).
 
 ## Banco da Thopen: o kWh do dia conta do começo da produção (16/11/2026)
 

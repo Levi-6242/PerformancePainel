@@ -30975,6 +30975,15 @@ def painel_falhas():
     return render_template("falhas.html")
 
 
+@app.route("/painel/sala-de-controle")
+def painel_sala_de_controle():
+    # A Sala de controle da Performance (16/11/2026; docs/sala-de-controle.md e o desenho aprovado em
+    # docs/mockups/sala-de-controle): as fontes do tempo real na lateral, a visão geral em abas e a usina com as strings,
+    # os trackers e a estação. Entrega 1: só leitura, com as rotas que já existem (a tela não tem rota de dado própria).
+    # Debaixo do /painel pelo mesmo motivo do /painel/falhas (o Caddy do app.gridco.com.br).
+    return render_template("sala_controle.html")
+
+
 @app.route("/api/painel/falhas")
 def api_painel_falhas():
     """Pacote do mês (?mes=AAAA-MM; padrão o corrente). Frio (worker ainda não publicou) → quente:false."""

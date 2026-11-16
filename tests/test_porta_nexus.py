@@ -81,11 +81,11 @@ def entrar_com_senha(cli):
 def test_o_mapa_e_a_copia_do_nexus():
     """O Nexus é o dono do mapa; esta é a cópia. O mesmo texto canônico (e a mesma assinatura) está no teste do Nexus:
     mudou lá, muda aqui, e os dois testes mudam juntos."""
-    assert len(pn.MAPA) == 16
+    assert len(pn.MAPA) == 17
     assert pn.texto_canonico_do_mapa().splitlines()[0] == "performance|tempo-real|/tempo-real|/tempo-real/<fonte> /monitor|"
     assert pn.texto_canonico_do_mapa().splitlines()[-1] == "base|de-para-equipamentos|/admin/de-para||admin"
-    assert pn.assinatura_do_mapa() == "8bdc12283507094b"
-    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 16
+    assert pn.assinatura_do_mapa() == "db2b2cf9380d2b67"
+    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 17
     # os relatórios foram para a torre Relatórios do Nexus (Central de emissão, 13/10/2026), com a Potência Ativa
     assert [t.tela for t in pn.MAPA if t.torre == "relatorios"] == ["relatorio", "relatorio-semanal", "potencia-ativa"]
 

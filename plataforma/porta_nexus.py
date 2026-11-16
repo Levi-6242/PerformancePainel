@@ -49,6 +49,8 @@ MAPA = (
     # Diagnóstico = o diagnóstico da usina, aberto pelo seletor de usina do Nexus (Levi, 09/10: "OK, cuida!")
     Tela("performance", "diagnostico", "Diagnóstico", "/painel/usina/<id>", (), False),
     Tela("performance", "strings-trackers", "Strings e trackers", "/painel/falhas", (), False),
+    # A Sala de controle (16/11/2026): a visão por fonte do tempo real que o Levi validou no mockup; entrega 1, só leitura
+    Tela("performance", "sala-de-controle", "Sala de controle", "/painel/sala-de-controle", (), False),
     Tela("performance", "gerencial", "Visão gerencial", "/gerencial", (), False),
     Tela("performance", "disponibilidade", "Disponibilidade", "/gerencial/disponibilidade", (), False),
     # Os relatórios moram na torre Relatórios do Nexus desde 13/10/2026 (Levi: "Criador de relatório e relatório semanal
