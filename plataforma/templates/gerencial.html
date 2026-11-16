@@ -52,6 +52,8 @@ a{color:var(--verde-dark);text-decoration:none}
 .row2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;align-items:start}
 .cols2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .mh{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+/* a unidade dentro de titulo em caixa-alta fica como se escreve: kWh/m2 e MWh, nunca KWH/M2 e MWH (Fillipe, 16/11/2026) */
+.un{text-transform:none}
 .mlist{display:flex;flex-direction:column;gap:6px}
 .mrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 9px;border-radius:8px;background:var(--bg-soft)}
 .mrow .nm{font-weight:500;color:var(--grafite)}.mrow .vv{font-weight:600}
@@ -180,7 +182,7 @@ function alternaTema(){ var esc=document.documentElement.getAttribute('data-them
     </div>
 
     <div class="tblwrap" id="vistaGeracao">
-      <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th><th class="r" style="cursor:pointer;color:var(--accent-700);text-decoration:underline dotted" title="Disponibilidade por OS do Fracttal (janela solar 06–18h). Clique para abrir o painel completo, com filtro de cliente/mês e exportação." onclick="window.open('/gerencial/disponibilidade','_blank')">Disponibilidade ↗</th></tr></thead><tbody></tbody></table>
+      <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada <span class="un">(MWh)</span></th><th class="r">Meta P50 <span class="un">(MWh)</span></th><th>Atingimento</th><th class="r" style="cursor:pointer;color:var(--accent-700);text-decoration:underline dotted" title="Disponibilidade por OS do Fracttal (janela solar 06–18h). Clique para abrir o painel completo, com filtro de cliente/mês e exportação." onclick="window.open('/gerencial/disponibilidade','_blank')">Disponibilidade ↗</th></tr></thead><tbody></tbody></table>
     </div>
 
     <div class="tblwrap" id="vistaQualidade" hidden>
@@ -236,7 +238,7 @@ function render(j){
       const sel=(dif==null)?'':`<span style="color:${cor};font-weight:600">${dif>=0?'+':'−'}${nf(Math.abs(dif),1)}%</span>`;
       return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin:12px 0 8px">`+
         `<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase">`+
-        `Recurso solar · ${rot} (kWh/m²)</div><div style="font-size:12px">${sel}`+
+        `Recurso solar · ${rot} <span class="un">(kWh/m²)</span></div><div style="font-size:12px">${sel}`+
         `<span style="color:var(--muted);font-size:11.5px"> · ${n||0} usinas com os dois dados</span></div></div>`+
         `<div class="brow"><div class="blab"><div class="bt">${rot} esperado</div><div class="bs">previsto no projeto</div></div>`+
         `<div class="btrack"><div class="bfill p50" style="width:${Math.max(12,E/mx*100)}%">${nf(E,1)}</div></div></div>`+

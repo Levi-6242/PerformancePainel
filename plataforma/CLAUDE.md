@@ -540,6 +540,12 @@ minúsculo, pontuação vira espaço, romano vira número): mudou num lado, muda
 sem ligação no de-para publicado ficam fora quando um responsável é escolhido (o título do seletor diz quantas). Fora do
 Nexus o seletor não aparece. Teste: `tests/test_gerencial_filtro_responsavel.py`.
 
+**A unidade em título de caixa-alta fica como se escreve (16/11/2026**, Fillipe: "Ajustar para kWh/m2", sobre o "RECURSO
+SOLAR · POA (KWH/M²)" do Gerencial). O título e o cabeçalho de tabela são `text-transform:uppercase`, que também subia a
+unidade: kWh/m² virava KWH/M² e MWh virava MWH. No `gerencial.html`, a unidade vai num `<span class="un">` (`.un{text-
+transform:none}`): o título do recurso solar e as colunas Gerada e Meta P50 da tabela de usinas. Unidade nova num título
+em caixa-alta entra do mesmo jeito.
+
 **O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 16 telas, ids do Nexus (Performance
 `tempo-real`, `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `gemeo`, `monitor-ronda` =
 "Rondas de Trackers", `comentarios` (03/11/2026, `/painel/comentarios`); Relatórios `relatorio`, `relatorio-semanal` e `potencia-ativa`; COS `acompanhamento`; Base
