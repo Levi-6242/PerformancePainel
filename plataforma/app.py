@@ -16604,7 +16604,8 @@ def _sg_trk_nome(fonte, cfg) -> str:
     return " e ".join(c["usina"] for c in cfgs) or cfg["usina"]
 
 
-_sg_trk_sem_hist = {}      # (fonte, usina no supervisório) -> por que o histórico de hoje não veio (só o agora)
+_sg_trk_sem_hist = {}      # (fonte, usina no supervisório) -> {"motivo", "ts"}: o histórico de hoje não veio (só o agora)
+SG_TRK_HIST_PAUSA_S = 30 * 60   # depois de uma falha, o histórico daquela usina só é pedido de novo meia hora depois
 
 
 def _sg_trk_curvas_dia(fonte, cfg, dia):
@@ -16617,6 +16618,12 @@ def _sg_trk_curvas_dia(fonte, cfg, dia):
         if not agora:
             return {}, {}
     chave = (fonte, _sg.scada_id(fonte, cfg["id"]))
+    marca = _sg_trk_sem_hist.get(chave)
+    if agora and marca and time.time() - marca["ts"] < SG_TRK_HIST_PAUSA_S:
+        # falhou há pouco: não pede de novo a cada volta. O /historico pesado que não responde ocupa o supervisório por
+        # quase um minuto e as chamadas SEGUINTES também falham (medido em 16/11/2026, à mão e no pacote das 17:25, em
+        # que a Irecê 2, a Macaíba e a Cedro caíram junto com a Castelo). Até a pausa vencer, vale o agora.
+        return _sg.junta_agora({}, agora), {t["equip"]: t for t in agora}
     try:
         curvas = _sg_trk_hist.curvas(fonte, cfg["id"], dia)
         _sg_trk_sem_hist.pop(chave, None)
@@ -16629,7 +16636,7 @@ def _sg_trk_curvas_dia(fonte, cfg, dia):
         if not agora:
             raise
         print(f"[scadaGridco] histórico de trackers de {chave[1]} não respondeu ({type(e).__name__}): só o agora")
-        _sg_trk_sem_hist[chave] = f"{type(e).__name__}: {str(e)[:120]}"
+        _sg_trk_sem_hist[chave] = {"motivo": f"{type(e).__name__}: {str(e)[:120]}", "ts": time.time()}
         curvas = {}
     return _sg.junta_agora(curvas, agora), {t["equip"]: t for t in agora}
 
@@ -31081,6 +31088,55 @@ def api_sala_visto():
         return jsonify({"ok": True, **_SALA_VISTOS.da_pessoa(pid, nome, agora)})
     except (OSError, ValueError) as e:
         return jsonify({"ok": False, "motivo": f"o registro do visto não abriu ({type(e).__name__})"}), 500
+
+
+_sala_pacote_mem = {"marca": None, "dado": None}
+
+
+def _sala_pacote_do_mes():
+    """O pacote de falhas do mês corrente já lido (só o que o sino usa), guardado enquanto o arquivo não muda."""
+    mes = datetime.now().strftime("%Y-%m")
+    try:
+        marca = (mes, os.path.getmtime(_falhas_arquivo(mes)))
+    except OSError:
+        return None
+    if _sala_pacote_mem["marca"] != marca:
+        b = _falhas_bytes(mes)
+        if not b:
+            return None
+        p = json.loads(b)
+        s = p.get("strings") or {}
+        _sala_pacote_mem.update(marca=marca, dado={
+            "strings": {"rows": [{"dia": r.get("dia")} for r in s.get("rows") or []], "episodios": s.get("episodios") or []},
+            "trackers": {"rows": [{k: r.get(k) for k in ("usina", "tracker", "inicio", "fim")} for r in (p.get("trackers") or {}).get("rows") or []]}})
+    return _sala_pacote_mem["dado"]
+
+
+@app.route("/api/sala/novas")
+def api_sala_novas():
+    """O novo da Sala de controle de UMA pessoa, agrupado por usina (`sala_controle.novas_por_usina`), para o sino do
+    topo do Nexus. O Nexus pergunta pela ponte (a chave de leitura) dizendo a pessoa (`?pessoa=<e-mail>`); uma sessão
+    comum só vê o dela mesma (o parâmetro é ignorado). Só lê: quem nunca abriu a Sala volta sem nada."""
+    if getattr(flask_g, "nexus_leitura_ok", False):
+        pid = (flask_request.args.get("pessoa") or "").strip().lower()
+        if "@" not in pid or len(pid) > 254:
+            return jsonify({"ok": False, "motivo": "informe a pessoa"}), 400
+    else:
+        pid = _sala_pessoa()[0]
+    try:
+        desde, vistas = _SALA_VISTOS.consulta(pid)
+        if not desde:
+            return jsonify({"ok": True, "desde": None, "total": 0, "usinas": []})
+        pacote = _sala_pacote_do_mes()
+        if pacote is None:
+            return jsonify({"ok": False, "motivo": "o pacote de falhas do mês ainda não foi publicado"}), 503
+        with app.test_request_context("/api/sala/idade"):
+            idade = api_sala_idade().get_json() or {}
+        usinas = _sala.novas_por_usina(pacote, idade, desde, vistas, datetime.now().strftime("%Y-%m-%d"))
+    except (OSError, ValueError) as e:
+        return jsonify({"ok": False, "motivo": f"não consegui montar o novo ({type(e).__name__})"}), 500
+    return jsonify({"ok": True, "desde": desde, "total": sum(u["strings"] + u["trackers"] for u in usinas), "usinas": usinas[:40],
+                    "n_usinas": len(usinas)})
 
 
 @app.route("/api/sala/exportar", methods=["POST"])

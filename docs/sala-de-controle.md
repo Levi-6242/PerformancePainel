@@ -74,7 +74,9 @@ O que nasceu na entrega 3: `/api/sala/idade` (a idade além do mês), `/api/sala
 `/api/sala/conferir` (o SCADA de agora), `/api/sala/exportar` (o Excel) e, no Nexus, a leitura do "abaixo dos demais"
 (`/t/performance/sala-de-controle/abaixo`; a conta segue no `mural.py` do Conversor, que é o dono).
 
-O que ainda NÃO existe: a novidade no sino DO NEXUS (o do topo, fora da tela); a conferência com o SCADA para usinas que
+A novidade no sino do topo do Nexus entrou em 16/11 (`/api/sala/novas`, por usina).
+
+O que ainda NÃO existe: a conferência com o SCADA para usinas que
 ele não tem, ou tem com outro nome (falta a lista do COS e o de-para com o SCADA); o atalho para o prontuário da usina
 (o Comando > Usinas abre pelo id do cadastro do Nexus, que a plataforma não conhece).
 
@@ -100,8 +102,7 @@ Detalhe e medições em `plataforma/CLAUDE.md`.
 ## Em aberto com o Levi
 
 - O corte do "Ver agora" (no mockup, 8 dias ou mais sem OS; agora com a idade real).
-- A 1ª leitura da Geração do mês de uma usina leva até uns 3 min no servidor (a rota do histórico por inversor, que o
-  Tempo real também usa): vale olhar o porquê.
+- (Fechado em 16/11) A Geração do mês "lenta" era a largada depois de um deploy: com o servidor assentado, 0,4 s.
 - Buscar a OS do Fracttal por inversor parado sem depender do vínculo manual (custo: uma consulta por inversor).
 - Onde entram "desligada" e "sem produção" na ordem de criticidade.
 - A lista de usinas do Monitoramento do COS (ele diz que Altair, Linhares e Barretos estão lá; nenhuma está nas 21 do

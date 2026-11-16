@@ -199,3 +199,37 @@ def test_tracker_mudo_nao_tem_angulo_e_a_estacao_ruim_nao_tem_valor():
         {"tipo": "inverter", "equipamento": "1"}]})
     assert [(x["eq"], x["ok"], x["medidas"]) for x in e] == [("e1", False, []), ("e2", True, [{"nome": "POA", "valor": 812.46, "unidade": "W/m²"}])]
 
+
+# ── 6. o novo por pessoa, por usina (o sino do topo do Nexus) ───────────────────────────────────────────────────
+def test_o_novo_por_usina_e_a_mesma_regra_da_tela():
+    pac = {"strings": {"rows": [{"dia": "2026-11-01"}, {"dia": "2026-11-14"}, {"dia": "2026-11-15"}, {"dia": "2026-11-16"}],
+                       "episodios": [
+                           _ep("Usina A", "Inversor 1.2", "ST 04", "2026-11-15", "2026-11-15", "2026-11-15 09:10"),      # nova
+                           _ep("Usina A", "Inversor 1.2", "ST 05", "2026-11-15", "2026-11-15", "2026-11-15 09:12"),      # nova
+                           _ep("Usina A", "Inversor 1.3", "ST 01", "2026-11-15", "2026-11-15", "2026-11-15 11:00"),      # nova, já vista
+                           _ep("Usina A", "Inversor 1.4", "ST 02", "2026-11-14", "2026-11-14", "2026-11-14 10:00"),      # já voltou
+                           _ep("Usina B", "Inversor 2.1", "ST 09", "2026-11-13", "2026-11-15", "2026-11-13 10:00"),      # de antes da 1ª vez
+                           _ep("Usina C", "Inversor 3.1", "ST 07", "2026-11-01", "2026-11-15", "2026-11-01 07:10")]},    # vinha de outubro
+           "trackers": {"rows": [{"usina": "Usina B", "tracker": "Tracker 09", "inicio": "2026-11-15 13:00", "fim": ""},
+                                 {"usina": "Usina B", "tracker": "Tracker 10", "inicio": "2026-11-15 13:05", "fim": "2026-11-15"},
+                                 {"usina": "Usina B", "tracker": "Tracker 11", "inicio": "2026-11-12 13:05", "fim": ""}]}}
+    idade = {"strings": {"Usina C|Inversor 3.1|ST 07": {"d0": "2026-10-17", "inicio": "2026-10-17 09:40", "antes": False}}}
+    vistas = {"s|Usina A|Inversor 1.3|ST 01|2026-11-15"}
+    r = S.novas_por_usina(pac, idade, "2026-11-14 18:00", vistas, "2026-11-16")
+    assert r == [{"usina": "Usina A", "strings": 2, "inversores": 1, "trackers": 0},
+                 {"usina": "Usina B", "strings": 0, "inversores": 0, "trackers": 1}]
+    assert S.novas_por_usina(pac, idade, None, set(), "2026-11-16") == []       # quem nunca abriu a Sala não tem novidade
+    # sem a idade real, a string que vinha de outubro pareceria ter parado no dia 1 (e, com um "desde" de antes, seria nova)
+    assert [u["usina"] for u in S.novas_por_usina(pac, {}, "2026-10-31 00:00", set(), "2026-11-16")] == ["Usina A", "Usina B", "Usina C"]
+    assert "Usina C" not in [u["usina"] for u in S.novas_por_usina(pac, idade, "2026-10-31 00:00", set(), "2026-11-16")]
+
+
+def test_a_consulta_do_sino_nao_cria_a_pessoa(tmp_path):
+    v = S.Vistos(str(tmp_path / "sala_visto.json"))
+    assert v.consulta("ana@exemplo.invalid") == (None, set())
+    assert not (tmp_path / "sala_visto.json").exists()                          # perguntar não grava nada
+    v.da_pessoa("ana@exemplo.invalid", "Ana", datetime(2026, 11, 16, 8, 0))
+    v.marcar("ana@exemplo.invalid", "Ana", [K1], datetime(2026, 11, 16, 9, 0))
+    v.marcar("bia@exemplo.invalid", "Bia", [K2], datetime(2026, 11, 16, 9, 5))
+    assert v.consulta("ana@exemplo.invalid") == ("2026-11-16 08:00", {K1})
+

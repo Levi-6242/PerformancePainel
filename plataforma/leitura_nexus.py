@@ -21,6 +21,7 @@ _PAGINAS = ("/tempo-real", "/monitor", "/static")
 
 # leituras que as páginas fazem (GET/HEAD); "x" casa "x" e "x/..."
 _GET = tuple(f"/api/{f}" for f in FONTES_API) + (
+    "/api/sala/novas",                                        # o novo da Sala de controle, para o sino do topo do Nexus
     "/api/state", "/api/entrada/tempo-real", "/api/notificacoes", "/api/data", "/api/plant", "/api/spv", "/api/etm",
     "/api/perdas", "/api/trackers", "/api/strings", "/api/fracttal/ultima-os", "/api/os-abertas", "/api/os-performance",
     # o ativo do Fracttal de um inversor, para o "Investigar ativo" do Tempo real (26/10/2026): só lê o cadastro e o

@@ -2588,7 +2588,8 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   1ª vez que ESTA pessoa abriu a tela, segue parado e ela ainda não abriu. Abrir o inversor (ou a aba Trackers) grava o
   visto; o cartão mostra a todos quem já viu. O sino da tela junta POR USINA. A senha compartilhada é "uma pessoa só".
   O gestor também marca (é o que a pessoa olhou, não dado da Performance: `POSTS_DE_CONSULTA_GESTOR`).
-- **Geração e PR**: `/api/<fonte>/inversores/historico/<id>` (frio, o servidor leva até uns 3 min; depois vale 10 min) e,
+- **Geração e PR**: `/api/<fonte>/inversores/historico/<id>` (0,4 s a frio com o servidor assentado; os 212 s medidos às
+  16:11 de 16/11 eram a largada depois de um deploy, ver "O deploy no meio do dia" abaixo; a resposta vale 10 min) e,
   só quando a pessoa pede, o PR de hoje da fonte (`/api/<fonte>/pr/<id>`; na API PV custa). **Potência**:
   `/api/relatorio/potencia-ativa` de hoje (as fontes com histórico por inversor). **Exportar Excel**: `/api/sala/exportar`
   (`sala_controle.planilha`: .xlsx de verdade, datas na 1ª coluna, um inversor por coluna, a irradiação noutra aba).
@@ -2609,8 +2610,7 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   strings?" Medido no servidor: `/api/pg/plant/<id>` responde em 0,1 a 1,5 s; quem levava de 9 a 30 s era
   `/api/pg/trackers/<id>` da mesma usina, e a tela esperava por ele (e pela estação) antes de desenhar. A consulta no
   banco da Thopen NÃO é o gargalo (62 ms no banco, 0,8 s ida e volta, com o índice certo: `idx_raw_tracker_plant`); o
-  tempo é da análise da curva do dia no processo web, que fica bem pior quando ele está ocupado (a Geração do mês fria
-  leva 3 min e segura todo mundo). Agora `lerUsina` desenha quando a usina chega e cada aba diz "lendo" até a parte dela.
+  tempo é da análise da curva do dia no processo web, que fica bem pior na largada depois de um deploy. Agora `lerUsina` desenha quando a usina chega e cada aba diz "lendo" até a parte dela.
 - **A seta da fonte** só abre e recolhe a lista (`.seta`), sem sair da usina aberta.
 - **Trancar várias strings de uma vez:** o clique na string só ESCOLHE (`SELS`); a barra tem Trancar N / Destrancar N,
   com UMA confirmação (e o aviso de OS/ticket por inversor) e um POST por inversor.
@@ -2628,6 +2628,25 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
 - **CUIDADO com o SCADA:** em 16/11, uma leitura do `/historico` dos 128 trackers da Castelo, feita à mão para medir,
   levou 57 s, devolveu 502, e as duas chamadas seguintes também deram 502 por alguns segundos. Não medir o histórico
   pesado à mão; as leituras leves (`/api/usinas`, `/api/mqtt`, `/api/trackers/<id>`) respondem em 0,1 a 0,2 s.
+
+**O que estava pendente (16/11/2026, noite).**
+- **O novo no sino do TOPO do Nexus:** `/api/sala/novas` (`sala_controle.novas_por_usina`, a MESMA regra do `montar` da
+  tela, agrupada por usina). O Nexus pergunta pela ponte de leitura dizendo a pessoa (`?pessoa=<e-mail>`); a sessão comum
+  só vê o dela. Quem nunca abriu a Sala não tem "desde" e não recebe nada (`Vistos.consulta` não cria a pessoa). No
+  Nexus: `nexus/performance/sala_novas.py` (cópia de 2 min por pessoa, lida por trás) e `casca._perf_do_sino`.
+- **A pausa do histórico de trackers do supervisório:** depois de uma falha, o `/historico` daquela usina só é pedido de
+  novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
+  quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro
+  caíram junto com a Castelo.
+- **"Em tratamento" da estação:** não existe no Tempo real (o `/api/etm/ticket` de antes não é usado pela tela nova);
+  o botão do mockup não foi feito.
+
+**O deploy no meio do dia (lição de 16/11/2026).** Cada push reinicia a plataforma e a coleta recomeça a frio: a 1ª
+tabela da API PV depois da largada leva de 13 a 23 min com o servidor livre (medido em 22/09) e, enquanto isso, tudo
+responde devagar (a Geração do mês levou 212 s 17 min depois de um reinício; assentado, 0,4 s). Em 16/11 foram SEIS
+reinícios entre 13:59 e 17:14 (cinco desta frente) e a tabela da Thopen · API PV ficou parada em 14:40 a tarde toda,
+com 58 de 64 usinas "sem comunicação". Regra: juntar as mudanças e subir UMA vez, de preferência fora do período
+solar; documentação e teste sozinhos não sobem no meio do dia.
 
 **Armadilhas.** (1) Toda leitura tem espera limitada (`pega`, AbortController) e a falha é dita na tela com "Tentar de
 novo". (2) Rota que falha NÃO pode ser pedida de novo dentro do desenho: na prova de 16/11 a aba ETM da visão geral

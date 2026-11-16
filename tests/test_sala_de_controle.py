@@ -440,9 +440,14 @@ def test_a_usina_de_tracker_aparece_so_com_o_agora_quando_o_historico_falha(monk
     assert a["tem_trackers"] and a["total"] == 5 and a["sem_historico"] is True
     assert a["parados"] == 0                                                     # curva de um ponto não acusa parado
     assert [t["id"] for t in a["trackers"] if t.get("sem_comunicacao")] == ["3"]
-    # o histórico voltou: a marca sai
-    monkeypatch.setattr(app._sg_trk_hist, "curvas", lambda *a, **k: {})
-    assert "sem_historico" not in app._sg_trackers_analise("greenyellow", cfg)
+    # falhou há pouco: o histórico NÃO é pedido de novo a cada volta (o pesado que não responde ocupa o supervisório e as
+    # chamadas seguintes também falham); até a pausa vencer, vale o agora
+    pedidos = []
+    monkeypatch.setattr(app._sg_trk_hist, "curvas", lambda *a, **k: pedidos.append(1) or {})
+    assert app._sg_trackers_analise("greenyellow", cfg)["sem_historico"] is True and pedidos == []
+    # a pausa venceu e o histórico voltou: a marca sai
+    app._sg_trk_sem_hist[("greenyellow", "usina_t")]["ts"] -= app.SG_TRK_HIST_PAUSA_S + 1
+    assert "sem_historico" not in app._sg_trackers_analise("greenyellow", cfg) and pedidos == [1]
     # sem o agora também, a falha segue sendo falha (a usina não vira "sem tracker")
     monkeypatch.setattr(app._sg_trk_hist, "curvas", falha)
     monkeypatch.setattr(app._sg, "trackers_agora", lambda fonte, pid, getter=None: [])
@@ -461,3 +466,28 @@ def test_a_etm_da_axis_junta_as_estacoes_do_supervisorio(monkeypatch):
         raise RuntimeError("supervisório fora")
     monkeypatch.setattr(app, "_swr", fora)
     assert app._axis_etm_com_scada(sunop) is sunop                               # o supervisório fora não derruba a aba
+
+
+def test_rota_do_novo_para_o_sino_do_nexus(cli, monkeypatch):
+    """O sino do topo do Nexus pergunta o novo de uma pessoa, por usina. Quem nunca abriu a Sala não tem "desde": nada."""
+    pac = {"strings": {"rows": [{"dia": "2026-11-15"}, {"dia": "2026-11-16"}],
+                       "episodios": [{"usina": "Usina A", "inversor": "Inversor 1.2", "string": "ST 04", "d0": "2026-11-16", "d1": "2026-11-16", "inicio": "2026-11-16 09:10"},
+                                     {"usina": "Usina A", "inversor": "Inversor 1.3", "string": "ST 01", "d0": "2026-11-15", "d1": "2026-11-15", "inicio": "2026-11-15 08:00"}]},
+           "trackers": {"rows": [{"usina": "Usina B", "tracker": "Tracker 09", "inicio": "2026-11-16 10:00", "fim": ""}]}}
+    monkeypatch.setattr(app, "_sala_pacote_do_mes", lambda: pac)
+    monkeypatch.setattr(app, "_falhas_meses", lambda hoje=None: [])
+    monkeypatch.setitem(app._sala_idade_mem, "marca", None)
+    assert cli.get("/api/sala/novas").get_json() == {"ok": True, "desde": None, "total": 0, "usinas": []}   # nunca abriu a Sala
+    app._SALA_VISTOS.da_pessoa(S.SEM_IDENTIDADE, "", app.datetime(2026, 11, 16, 8, 0))
+    hoje = app.datetime.now().strftime("%Y-%m-%d")
+    d = cli.get("/api/sala/novas").get_json()
+    assert d["ok"] and d["desde"] == "2026-11-16 08:00"
+    if hoje > "2026-11-16":                      # com o dia 16 fechado, a string aberta nele e o tracker são o novo
+        assert d["usinas"] == [{"usina": "Usina A", "strings": 1, "inversores": 1, "trackers": 0},
+                               {"usina": "Usina B", "strings": 0, "inversores": 0, "trackers": 1}] and d["total"] == 2
+
+
+def test_a_ponte_do_nexus_le_o_novo_e_nao_marca_visto():
+    import leitura_nexus as L
+    assert L.permitido("GET", "/api/sala/novas")
+    assert not L.permitido("POST", "/api/sala/visto") and not L.permitido("GET", "/api/sala/visto")

@@ -140,6 +140,16 @@ class Vistos:
                   for k, v in d["vistos"].items()}
         return {"eu": {"id": pid, "nome": p.get("nome") or "", "desde": p["desde"]}, "vistos": vistos}
 
+    def consulta(self, pid):
+        """(desde, chaves que a pessoa já viu) SEM criar a pessoa: quem nunca abriu a Sala volta (None, set()). É o que
+        o sino do Nexus pergunta; a 1ª abertura da tela é que grava o `desde` (`da_pessoa`)."""
+        pid = pid or SEM_IDENTIDADE
+        d = self._ler()
+        p = d["pessoas"].get(pid)
+        if not p:
+            return None, set()
+        return p.get("desde"), {k for k, v in d["vistos"].items() if pid in v}
+
     def marcar(self, pid, nome, chaves, agora: datetime) -> int:
         """Marca as chaves como vistas pela pessoa (a 1ª vez de cada uma fica; ver de novo não muda a hora)."""
         pid = pid or SEM_IDENTIDADE
@@ -343,3 +353,44 @@ def estacoes_de_agora(mq_usina, com_ok=192) -> list:
         medidas = [{"nome": nome, "valor": round(_n(m.get(k)), 2), "unidade": un} for k, nome, un in MEDIDAS_ESTACAO if ok and _n(m.get(k)) is not None]
         out.append({"eq": str(e.get("equipamento") or e.get("indice")), "ok": bool(ok), "medidas": medidas, "ts": e.get("ts")})
     return out
+
+
+# ── 6. O novo por pessoa, agrupado por usina, para o sino do topo do Nexus ─────────────────────────────────────────
+# Levi, 16/11/2026: as ocorrências novas chegam no sino agrupadas POR USINA. É a MESMA regra da tela (o `montar` do
+# template): novo = parou depois da 1ª vez que a pessoa abriu a Sala, segue parado e ela ainda não abriu. Quem nunca
+# abriu a Sala não tem "desde": o sino não mostra nada dela (não acorda ninguém com o mês inteiro).
+
+def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
+    """`pacote` = o pacote de falhas do mês (strings.rows, strings.episodios, trackers.rows); `idade` = o resultado do
+    `idade_real` (a data real de quem já vinha parado no dia 1); `desde` = "AAAA-MM-DD HH:MM" da pessoa; `vistas` = as
+    chaves que ela já abriu; `hoje` = "AAAA-MM-DD". → [{usina, strings, inversores, trackers}], a com mais novidade
+    primeiro. Sem `desde`, lista vazia."""
+    if not desde or not isinstance(pacote, dict):
+        return []
+    st = pacote.get("strings") or {}
+    dias = sorted({r.get("dia") for r in (st.get("rows") or []) if r.get("dia")})
+    fechados = [d for d in dias if d < hoje]
+    ult, d1mes = (fechados[-1] if fechados else None), (dias[0] if dias else None)
+    real = (idade or {}).get("strings") or {}
+    por = {}
+
+    def de(usina):
+        return por.setdefault(usina, {"usina": usina, "strings": 0, "inv": set(), "trackers": 0})
+    for e in st.get("episodios") or []:
+        if not ult or (e.get("d1") or "") < ult:
+            continue                                     # já voltou: não é novidade
+        r = real.get(_chave_str(e)) if e.get("d0") == d1mes else None
+        d0, ini = (r["d0"], r.get("inicio") or r["d0"]) if r else (e.get("d0"), e.get("inicio") or e.get("d0"))
+        k = f"s|{e.get('usina')}|{e.get('inversor')}|{e.get('string')}|{d0}"
+        if str(ini) >= desde and k not in vistas:
+            o = de(e.get("usina"))
+            o["strings"] += 1
+            o["inv"].add(e.get("inversor"))
+    for r in (pacote.get("trackers") or {}).get("rows") or []:
+        if r.get("fim"):
+            continue                                     # o tracker que já voltou não é novidade
+        ini = str(r.get("inicio") or "")
+        if ini >= desde and f"t|{r.get('usina')}|{r.get('tracker')}|{ini[:10]}" not in vistas:
+            de(r.get("usina"))["trackers"] += 1
+    out = [{"usina": o["usina"], "strings": o["strings"], "inversores": len(o["inv"]), "trackers": o["trackers"]} for o in por.values()]
+    return sorted(out, key=lambda x: (-(x["strings"] + x["trackers"]), str(x["usina"])))
