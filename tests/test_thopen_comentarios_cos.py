@@ -58,7 +58,7 @@ def test_o_relato_vence_a_frase_das_os_e_o_dia_sem_relato_fica_com_a_os(_card):
     dia = {p["dia"]: p for p in r["por_dia"]}
     assert dia["01/10"]["os"][0].startswith("Usina desligada de 01/10") and len(dia["01/10"]["os"]) == 2
     assert dia["02/10"]["os"] == ["OS 2 - linha seca"]
-    assert dia["03/10"]["os"] == []            # abaixo de 100% sem detalhe: a tela não mostra, vai à lista do COS
+    assert dia["03/10"]["os"] == []            # abaixo de 100% sem detalhe: a tela mostra o dia com o comentário vazio
     assert set(r) == set(operacao_mes.CHAVES)
 
 
@@ -130,3 +130,71 @@ def test_o_dia_sem_detalhe_nao_entra_na_frase_dos_dias_ocultos():
     assert r.returncode == 0, r.stderr
     txt = json.loads(r.stdout)
     assert "03/10" in txt and "02" not in txt
+
+
+# ── a parada fora do período solar (16/11/2026) ────────────────────────────────────────────────────────────────────
+def _oc(inicio, fim, tipo="DESLIGAMENTO_USINA", usina_id="7", **kw):
+    o = {"os": "18809", "usina_id": usina_id, "tipo_falha": tipo, "equipamentos_codigos": "", "inicio": inicio,
+         "normalizado_em": fim, "normalizada": "1", "hora_real": "1"}
+    o.update(kw)
+    return o
+
+
+def test_a_parada_so_fora_do_periodo_solar_vira_linha_no_dia():
+    """O caso que criou a regra: o Colorado 1 em 07/11, desligado de 01:30 a 06:46 (OS 18809), a 100% e sem nada."""
+    dados = {"de_para": DE_PARA, "ocorrencia_cos": [
+        # começa depois das 17:30 e vai até o meio do dia seguinte: só o 1º dia é fora do sol (vem antes no livro, mas
+        # a linha sai na ordem da hora)
+        _oc("2026-11-07T19:15:00-03:00", "2026-11-09T16:00:00-03:00", os="18858", tipo="ATUACAO_PROTECAO",
+            equipamentos_codigos="CLR100-RELE1"),
+        _oc("2026-11-07T01:30:00-03:00", "2026-11-07T06:46:00-03:00"),
+        _oc("2026-11-08T08:00:00-03:00", "2026-11-08T09:00:00-03:00", os="1"),       # dentro do sol: não
+        _oc("2026-11-10T02:00:00-03:00", "2026-11-10T04:00:00-03:00", tipo="FALHA_COMUNICACAO"),   # não é parada
+        _oc("2026-11-11T02:00:00-03:00", "2026-11-11T04:00:00-03:00", normalizada="0"),           # desfeita
+        _oc("2026-11-12T02:00:00-03:00", "2026-11-12T04:00:00-03:00", usina_id="8"),              # outra usina
+    ]}
+    out = operacao_mes.fora_do_sol_por_dia(dados, "Usina A", 2026, 11)
+    assert sorted(out) == [dt.date(2026, 11, 7)]
+    assert out[dt.date(2026, 11, 7)] == [
+        "Desligamento de usina de 01:30 a 06:46 (OS 18809): fora do período solar (07h30 às 17h30), não afeta a "
+        "disponibilidade.",
+        "Atuação de proteção (CLR100-RELE1) de 07/11 às 19:15 a 09/11 às 16:00 (OS 18858): fora do período solar "
+        "(07h30 às 17h30), não afeta a disponibilidade."]
+
+
+def test_o_dia_a_100_leva_a_parada_fora_do_sol_e_o_dia_com_perda_nao(_card, monkeypatch):
+    monkeypatch.setattr(operacao_mes, "disp_por_dia", lambda *a, **k: {D1: 100.0, D2: 90.0})
+    _card["ocorrencia_cos"] = [_oc("2026-10-01T01:00:00-03:00", "2026-10-01T05:00:00-03:00"),
+                               _oc("2026-10-02T01:00:00-03:00", "2026-10-02T05:00:00-03:00")]
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9))
+    dia = {p["dia"]: p for p in r["por_dia"]}
+    assert dia["01/10"]["fora_sol"][0].startswith("Desligamento de usina de 01:00 a 05:00")
+    assert "fora_sol" not in dia["02/10"]
+    # a usina pelo BD (assistida) não leva: o comentário dela é o da equipe
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9), bd=({D1: 100.0}, {}))
+    assert all("fora_sol" not in p for p in r["por_dia"])
+
+
+def test_a_aba_das_ocorrencias_entra_so_com_as_colunas_sem_nome():
+    k, campos = fonte_operacao.ABAS[("nexus_cos_normalizacoes", "fato_normalizacao")]
+    assert k == "ocorrencia_cos" and "os_aberta_por" not in campos and "tecnico" not in campos
+    assert fonte_operacao.VERSAO_CACHE >= 14
+
+
+# ── a janela: Disponibilidade Thopen | Comentário | Disponibilidade Grid (16/11/2026) ─────────────────────────────────
+def test_no_mes_da_planilha_vem_a_conta_da_grid_e_o_motivo_do_dia_que_so_ela_ve(_card, monkeypatch):
+    monkeypatch.setattr(operacao_mes, "disp_por_dia", lambda *a, **k: {D1: 90.0, D2: 90.0, D3: 70.0})
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9),
+                              disp={D1: 100.0, D2: 80.0, D3: 100.0}, grid={D1: 90.0, D2: 90.0, D3: 100.0})
+    dia = {p["dia"]: p for p in r["por_dia"]}
+    assert r["planilha_thopen"] is True
+    assert [(dia[k]["disp"], dia[k]["disp_grid"]) for k in ("01/10", "02/10", "03/10")] == [(100.0, 90.0), (80.0, 90.0),
+                                                                                           (100.0, 100.0)]
+    # 01/10: 100% na planilha e perda na Grid: o motivo (o relato do COS) vai junto; 03/10: 100% nas duas, nada
+    assert dia["01/10"]["os"][0].startswith("Usina desligada de 01/10") and dia["03/10"]["os"] == []
+
+
+def test_sem_a_planilha_a_coluna_grid_e_o_proprio_numero(_card):
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9))
+    assert r["planilha_thopen"] is False
+    assert all(p["disp_grid"] == p["disp"] for p in r["por_dia"])

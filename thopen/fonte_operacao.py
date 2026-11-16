@@ -27,7 +27,7 @@ COOLDOWN = 60                                                 # s sem tentar de 
 CACHE = os.environ.get("THOPEN_OPERACAO_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cache_operacao.json.gz")
 SISTEMA_5080 = "BD_Thopen · Dados Gerais Usinas"
-VERSAO_CACHE = 13       # 09/11/2026: o comentário do dia do COS (fato_comentario_dia)
+VERSAO_CACHE = 14       # 16/11/2026: as ocorrências do COS (fato_normalizacao), para a parada fora do período solar
 # (workbook, aba) → (chave em `dados`, campos que ficam)
 ABAS = {
     ("falhas_performance", "strings_episodios"): ("strings_episodios",
@@ -84,6 +84,12 @@ ABAS = {
     # subiram no dashboard thopen"): o Nexus monta o relato da Ronda COS por usina × dia (regras fixas, sem o texto livre
     # do time; nexus/cos/normalizacoes_banco.comentarios_do_dia) e o 5080 só mostra (operacao_mes.cos_por_dia)
     ("nexus_cos_normalizacoes", "fato_comentario_dia"): ("comentario_cos_dia", ("usina_id", "dia", "relato_do_dia")),
+    # as ocorrências normalizadas da Ronda COS (16/11/2026): a parada que ficou toda fora do período solar não tira hora
+    # e a plataforma não a publica; o dia a 100% a mostra assim mesmo (operacao_mes.fora_do_sol_por_dia; o Colorado 1 em
+    # 07/11, desligado de 01:30 a 06:46, aparecia a 100% sem nada). Só tipo, hora, OS e a tag do equipamento: nenhum nome
+    ("nexus_cos_normalizacoes", "fato_normalizacao"): ("ocorrencia_cos", ("os", "usina_id", "tipo_falha",
+                                                                         "equipamentos_codigos", "inicio",
+                                                                         "normalizado_em", "normalizada", "hora_real")),
 }
 _lock = threading.Lock()
 _estado = {"dados": None, "ts": 0.0, "erro": None, "carregando": False, "proxima": 0.0, "disco_lido": False}

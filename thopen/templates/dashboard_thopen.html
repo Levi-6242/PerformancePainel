@@ -216,6 +216,10 @@
   /* a tabelinha da Disponibilidade (Levi, 22/10/2026): o ícone no canto, o mesmo botão das fotos das rondas (fora do PDF) */
   .disp-card{ position:relative; }
   .dp-tab{ width:100%; }
+  /* 16/11/2026: com as colunas Thopen e Grid o cabeçalho quebra linha, e no celular a tabela rola dentro da janela */
+  .dp-tab th{ white-space:normal; }
+  #dpCorpo{ overflow-x:auto; }
+  @media (max-width:600px){ .dp-tab td.dp-com{ min-width:150px; } .dp-tab td, .dp-tab th{ padding:6px 5px; } }
   .dp-tab td.dp-com{ text-align:left; white-space:normal; color:#33363d; font-size:12px; line-height:1.45; }
   .dp-tab td.dp-v{ font-weight:700; }
   .dp-tab td.dp-v.baixa{ color:var(--neg); }
@@ -1487,10 +1491,17 @@ function _cmtPorDia(tbl, usina, ano, mes, d, op){
   const com={};
   // 30/10/2026: a usina que segue os comentários do BD_Thopen mostra todo dia com comentário, mesmo em 100%
   const bd=op.fonte_disp==='bd_comentarios';
-  // 09/11/2026 (Levi: o "Indisponibilidade registrada sem o detalhe da parada." não deve aparecer): o dia abaixo de 100%
-  // sem o detalhe da parada não vira linha; a lista desses dias vai ao COS
-  Object.keys(pd).forEach(n=>{ const r=pd[n]; if(r.disp==null||(r.disp>=100&&!(bd&&r.os&&r.os.length))) return;
-    if(r.os!=null&&!r.os.length) return;
+  // 16/11/2026 (a Ana: "a plataforma agora não sinaliza quando há indisponibilidade, mas não tem comentário atrelado...
+  // ele mascara furos"; Levi: "só deixa sem esse detalhe que está faltando!"): o dia abaixo de 100% sem o detalhe da
+  // parada volta a ser linha, com o comentário vazio e nenhuma frase no lugar (de 09/11 a 16/11 ele saía da tabela). E o
+  // dia a 100% com parada fora do período solar entra com ela (fora_sol; o Colorado 1 em 07/11, desligado de 01:30 a
+  // 06:46; Levi: "Mostrar a parada a 100%")
+  Object.keys(pd).forEach(n=>{ const r=pd[n]; if(r.disp==null) return;
+    if(r.disp>=100){
+      if(bd&&r.os&&r.os.length) com[n]=r.os.join('\n');
+      else if(r.fora_sol&&r.fora_sol.length) com[n]=r.fora_sol.join('\n');
+      return;
+    }
     com[n]=r.os==null?_CMT_SEM_PUB:r.os.join('\n'); });
   // rodada 5 (Levi, 13/10/2026): Usina | Data | Comentário | Disponibilidade — uma linha por dia abaixo de 100%. Ronda,
   // trackers e strings ficam na tabela ao lado
@@ -2107,17 +2118,27 @@ function abrirDisponibilidade(){
   if(!dias.length) return;
   const ult=Math.max(...dias), mm=String(o.mes).padStart(2,'0');
   const pc=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
-  let h='<table class="geral dp-tab"><thead><tr><th>Data</th><th>Disponibilidade</th><th>Comentário</th></tr></thead><tbody>';
+  const p2=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+  // 16/11/2026 (Levi): Data | Disponibilidade Thopen (a planilha da Thopen; "—" no mês sem ela) | Comentário |
+  // Disponibilidade Grid (a nossa conta: as paradas registradas pelo COS de 07h30 a 17h30). Todos veem as duas
+  const tem=!!o.d.planilha_thopen;
+  let h='<table class="geral dp-tab"><thead><tr><th>Data</th><th>Disponibilidade Thopen</th><th>Comentário</th>'
+    +'<th>Disponibilidade Grid</th></tr></thead><tbody>';
+  const gs=[];
   for(let n=1;n<=ult;n++){
-    const r=pd[n]||{}, v=r.disp, baixo=v!=null&&v<100;
-    const com=!baixo?'':(r.os==null?_CMT_SEM_PUB:r.os.map(_opEsc).join('<br>'));
-    h+=`<tr><td>${String(n).padStart(2,'0')}/${mm}</td><td class="dp-v${v!=null&&v<99?' baixa':''}">${pc(v)}</td>`
-      +`<td class="dp-com">${com}</td></tr>`;
+    const r=pd[n]||{}, v=r.disp, g=r.disp_grid!==undefined?r.disp_grid:v, vt=tem?v:null;
+    if(g!=null) gs.push(g);
+    const baixo=(v!=null&&v<100)||(g!=null&&g<100);
+    const com=!baixo?(r.fora_sol||[]).map(_opEsc).join('<br>'):(r.os==null?_CMT_SEM_PUB:r.os.map(_opEsc).join('<br>'));
+    h+=`<tr><td>${String(n).padStart(2,'0')}/${mm}</td><td class="dp-v${vt!=null&&vt<99?' baixa':''}">${pc(vt)}</td>`
+      +`<td class="dp-com">${com}</td><td class="dp-v${g!=null&&g<99?' baixa':''}">${pc(g)}</td></tr>`;
   }
-  // a média com 2 casas, como o valor do card (94,66%, não 94,7%)
-  const media=o.d.disponibilidade==null?'—':o.d.disponibilidade.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
-  h+=`<tr class="tot"><td>Média do mês</td><td>${media}</td><td class="dp-com">`
-    +`Média dos dias, pelas paradas registradas (horas paradas de 07h30 a 17h30, pela potência)</td></tr></tbody></table>`;
+  // a média com 2 casas, como o valor do card (94,66%, não 94,7%); a da Grid, a média dos dias dela
+  const mt=tem&&o.d.disponibilidade!=null?o.d.disponibilidade:null;
+  const mg=tem?(gs.length?gs.reduce((a,b)=>a+b,0)/gs.length:null):o.d.disponibilidade;
+  h+=`<tr class="tot"><td>Média do mês</td><td>${p2(mt)}</td><td class="dp-com">`
+    +`Thopen: a planilha da Thopen. Grid: as paradas registradas pelo COS, de 07h30 a 17h30, pela potência.</td>`
+    +`<td>${p2(mg)}</td></tr></tbody></table>`;
   $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}${apuracaoTxt(o.d.apuracao)}`;
   $('dpCorpo').innerHTML=h;
   $('dpFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('dpX').focus();

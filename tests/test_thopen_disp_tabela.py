@@ -37,3 +37,13 @@ def test_o_icone_so_aparece_de_outubro_em_diante_com_a_disponibilidade_das_os():
     d = H[H.index("async function renderDiario("):]
     d = d[:d.index("\n}\n")]
     assert "dispTab" in d and "202610" in d
+
+
+def test_a_janela_tem_a_coluna_da_thopen_o_comentario_e_a_da_grid():
+    # 16/11/2026 (Levi): Data | Disponibilidade Thopen | Comentário | Disponibilidade Grid, para todos; sem a planilha
+    # do mês, a coluna Thopen fica "—"
+    j = _corpo("abrirDisponibilidade")
+    assert ("<th>Data</th><th>Disponibilidade Thopen</th><th>Comentário</th>'" in j
+            and "'<th>Disponibilidade Grid</th></tr></thead><tbody>'" in j)
+    assert "const tem=!!o.d.planilha_thopen;" in j and "vt=tem?v:null" in j and "r.disp_grid" in j
+    assert "Grid: as paradas registradas pelo COS, de 07h30 a 17h30, pela potência." in j

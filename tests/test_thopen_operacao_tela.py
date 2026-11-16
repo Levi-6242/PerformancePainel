@@ -147,8 +147,9 @@ def test_tabela_por_dia_de_outubro_em_diante():
     # a disponibilidade sai com "%" no valor (Levi: "poderia botar um % no final")
     assert "+'%'" in n
     # entra o dia abaixo de 100%, com as OS dele; o comentário da equipe (pontos[].com) nem é lido (14/10, noite)
-    # o dia em 100% fica fora, menos o da usina pelos comentários do BD_Thopen com comentário (30/10/2026)
-    assert "if(r.disp==null||(r.disp>=100&&!(bd&&r.os&&r.os.length))) return;" in n
+    # o dia em 100% fica fora, menos o da usina pelos comentários do BD_Thopen com comentário (30/10/2026) e o da parada
+    # fora do período solar (16/11/2026)
+    assert "if(r.disp==null) return;" in n and "if(bd&&r.os&&r.os.length) com[n]=r.os.join(" in n
     assert "op.fonte_disp==='bd_comentarios'" in n and "Object.keys(com)" in n and "p.com" not in n
     assert "d.pontos" not in n
     assert "Ronda realizada" not in n and "pd[n].ronda" not in n and "op.trackers" not in n   # foram para a outra tabela
@@ -424,8 +425,12 @@ def test_comentario_de_outubro_em_diante_e_so_das_os_do_fracttal():
     # parcela de cada OS na conta do Gerencial); a linha da OS não tem mais estilo próprio
     n = corpo("_cmtPorDia")
     assert "com[n]=r.os==null?_CMT_SEM_PUB:r.os.join(" in n
-    # 09/11/2026: o dia abaixo de 100% sem o detalhe da parada não vira linha (a lista vai ao COS)
-    assert "if(r.os!=null&&!r.os.length) return;" in n and "'Indisponibilidade registrada sem o detalhe da parada.'" not in T
+    # 16/11/2026 (Levi: "só deixa sem esse detalhe que está faltando!"): o dia abaixo de 100% sem o detalhe volta a ser
+    # linha, com o comentário vazio e sem frase no lugar; o dia a 100% entra só com o comentário do BD ou a parada fora do
+    # período solar
+    assert "if(r.os!=null&&!r.os.length) return;" not in n and "'Indisponibilidade registrada sem o detalhe da parada.'" not in T
+    assert "else if(r.fora_sol&&r.fora_sol.length) com[n]=r.fora_sol.join(" in n
+    assert "(r.fora_sol||[]).map(_opEsc)" in corpo("abrirDisponibilidade")
     assert "doOS" not in T and "cmt-os" not in T and '<div class="cmt-an">${_opEsc(x)}</div>' in n
     assert "O registro das paradas deste dia ainda não foi publicado." in T      # os null: a parcela não chegou
     # a usina sem a disponibilidade do Gerencial não ganha um "100%" inventado; o card carregando também não

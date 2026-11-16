@@ -203,10 +203,27 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
     time); o `fonte_operacao` lê só `usina_id`, `dia` e o relato, e o `operacao_mes.cos_por_dia` liga pelo de-para. Vence
     a frase seca das OS no mesmo dia; o dia sem relato fica com a das OS (Levi: "Os dados das normalizações ainda não
     subiram no dashboard thopen").
-  - **O dia abaixo de 100% sem detalhe nenhum não vira linha** (Levi: "Indisponibilidade registrada sem o detalhe da
-    parada." não deve aparecer, e a lista desses dias vai ao COS): nem na tabela de Comentários, nem na frase dos dias
-    ocultos (dizer que "não teve parada" seria falso), e a célula fica vazia na tabelinha da Disponibilidade.
+  - **O dia abaixo de 100% sem detalhe nenhum entra na tabela com o comentário vazio (16/11/2026**, a Ana: "a
+    plataforma agora não sinaliza quando há indisponibilidade, mas não tem comentário atrelado... ele mascara furos";
+    Levi: "só deixa sem esse detalhe que está faltando!"): sem frase no lugar (de 09/11 a 16/11 o dia saía da tabela;
+    antes de 09/11 levava "Indisponibilidade registrada sem o detalhe da parada.", que o Levi tirou). Fica fora da
+    frase dos dias ocultos (dizer que "não teve parada" seria falso).
+  - **O dia a 100% com parada fora do período solar entra com ela (16/11/2026**, a Ana: o Colorado 1 em 07/11, OS 18809,
+    desligado de 01:30 a 06:46, "aparece como disponibilidade 100%, mesmo havendo esta ocorrência"; Levi: "Mostrar a
+    parada a 100%"): a parada que tocou o dia só fora das 07:30 às 17:30 não tira hora e a plataforma não a publica;
+    o 5080 lê as ocorrências normalizadas do COS (`ocorrencia_cos`, o `fato_normalizacao` do Nexus, só tipo, hora, OS e
+    tag) e põe no dia a 100% a linha "<tipo> de HH:MM a HH:MM (OS N): fora do período solar (07h30 às 17h30), não afeta
+    a disponibilidade." (`operacao_mes.fora_do_sol_por_dia`, `por_dia[].fora_sol`), na tabela e na janela da
+    Disponibilidade. Só as paradas que contam (desligamentos, proteção, inversor offline, concessionária) e só nas
+    usinas pelo COS (a assistida segue o comentário do BD).
   Prova: `tests/test_thopen_comentarios_cos.py`.
+- **A janela da Disponibilidade do mês com a Thopen e a Grid (16/11/2026**, Levi: a coluna da planilha da Thopen, os
+  comentários e "a disponibilidade grid, com as regras da grid... 7h30 às 17h30, porém mais baseados nas ocorrências do
+  COS"; todos veem, o cliente também): Data | Disponibilidade Thopen | Comentário | Disponibilidade Grid. A Thopen é o
+  número do dia (a planilha, no mês que tem a exceção; "—" no mês sem ela); a Grid é `_disp_grid` (a conta de
+  `_disp_dias` sem o fechamento e sem a exceção), ou o próprio número no mês sem a planilha (`por_dia[].disp_grid`,
+  `planilha_thopen` na resposta). O dia a 100% na planilha e com perda na Grid leva as paradas do COS no comentário.
+  Prova: `tests/test_thopen_comentarios_cos.py` e `tests/test_thopen_disp_tabela.py`.
 - **Portfólio, PR e chuva (11/11/2026)**, três pedidos do Levi:
   - **Portfólio** ("Em capa quero um botão 'Portifólio' terá todas as usinas de todas as carteiras ordenado por ordem de
     carteira"): um botão depois das carteiras (só quando a conta vê mais de uma). Não é carteira: é a soma das que a

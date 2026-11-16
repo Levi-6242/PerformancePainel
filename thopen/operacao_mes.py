@@ -54,6 +54,13 @@ PARTES = {"Ouro Branco I": ("Ouro Branco", 1), "Ouro Branco II": ("Ouro Branco",
 # são dessa janela (plataforma/disponibilidade.JANELA_POR_CLIENTE; o teste confere que as duas batem); todas as usinas do
 # 5080 são do cliente Thopen
 HORAS_SOL = 10.0
+SOL_INI, SOL_FIM = dt.time(7, 30), dt.time(17, 30)
+# A parada que conta (a régua da plataforma, disponibilidade.veredito_normalizacao): todo desligamento, a atuação de
+# proteção, o inversor offline e a falha da concessionária. Só elas viram a linha "fora do período solar"
+ROTULO_PARADA = {"DESLIGAMENTO_USINA": "Desligamento de usina", "DESLIGAMENTO_CABINE": "Desligamento de cabine",
+                 "DESLIGAMENTO_SKID": "Desligamento de SKID", "DESLIGAMENTO_QGBT": "Desligamento de QGBT",
+                 "DESLIGAMENTO_INVERSOR": "Desligamento de inversor", "ATUACAO_PROTECAO": "Atuação de proteção",
+                 "INVERSOR_OFFLINE": "Inversor offline", "FALHA_CONCESSIONARIA": "Falha da concessionária"}
 _NUM_ESCOPO = re.compile(r"(cabine|ug|skid|qgbt|inversor)\s*0*(\d+)")
 
 # O que a rota devolve — e NADA além disto (o 5080 é público, sem senha). Rodada 2 (08/10, tarde): `por_dia` (a
@@ -68,6 +75,8 @@ CHAVES = ("disponivel", "motivo", "usina", "ano", "mes", "strings", "trackers", 
           # 30/10/2026: de onde vêm a disponibilidade e o comentário do dia ("os" ou "bd_comentarios": as usinas que a
           # Ronda COS não cobre, pelos comentários do BD_Thopen, disp_comentarios.py)
           "fonte_disp",
+          # 16/11/2026: o mês da usina tem a planilha da Thopen (a exceção): a janela mostra as duas colunas com número
+          "planilha_thopen",
           # 13/11/2026: o mês fechado ou em apuração (disp_fechamento.situacao): o selo da janela da disponibilidade
           "apuracao")
 
@@ -642,6 +651,47 @@ def cos_por_dia(dados, nome, ano, mes):
     return dict(out)
 
 
+def _sim(v):
+    return str(v).strip().lower() in ("1", "1.0", "true", "sim")
+
+
+def fora_do_sol_por_dia(dados, nome, ano, mes):
+    """{dia: [linhas]} das paradas do COS que tocaram o dia só FORA do período solar (07:30 às 17:30) e por isso não
+    tiraram hora da disponibilidade (16/11/2026, a Ana: "essa ocorrência não está aparecendo na plataforma... Colorado 1
+    aparece como disponibilidade 100%, mesmo havendo esta ocorrência"; a OS 18809, desligamento de 01:30 a 06:46 de 07/11;
+    Levi: "Mostrar a parada a 100%"). Pelas ocorrências normalizadas e com hora real (`ocorrencia_cos`), pelo usina_id do
+    de-para, como o relato do COS (cos_por_dia)."""
+    ids = ids_da_usina((dados or {}).get("de_para") or [], nome)
+    out = defaultdict(list)
+    for r in (dados or {}).get("ocorrencia_cos") or []:
+        tipo = str(r.get("tipo_falha") or "").strip().upper()
+        if _int(r.get("usina_id")) not in ids or not (tipo in ROTULO_PARADA or tipo.startswith("DESLIG")):
+            continue
+        if not _sim(r.get("normalizada")) or not _sim(r.get("hora_real")):
+            continue
+        ini, fim = _quando(r.get("inicio")), _quando(r.get("normalizado_em"))
+        if ini is None or fim is None or fim <= ini:
+            continue
+        rot = ROTULO_PARADA.get(tipo) or tipo.replace("_", " ").capitalize()
+        eq = [c.strip() for c in str(r.get("equipamentos_codigos") or "").split(";") if c.strip()]
+        os_ = str(r.get("os") or "").strip()
+        if ini.date() == fim.date():
+            quando = f"de {ini:%H:%M} a {fim:%H:%M}"
+        else:
+            quando = f"de {ini:%d/%m} às {ini:%H:%M} a {fim:%d/%m} às {fim:%H:%M}"
+        linha = (f"{rot}{' (' + ', '.join(eq) + ')' if eq else ''} {quando}"
+                 f"{' (OS ' + os_ + ')' if os_.isdigit() else ''}: fora do período solar (07h30 às 17h30), "
+                 f"não afeta a disponibilidade.")
+        d = ini.date()
+        while d <= fim.date():
+            w0, w1 = dt.datetime.combine(d, SOL_INI), dt.datetime.combine(d, SOL_FIM)
+            toca = min(fim, dt.datetime.combine(d + dt.timedelta(days=1), dt.time())) > max(ini, dt.datetime.combine(d, dt.time()))
+            if (d.year, d.month) == (ano, mes) and toca and min(fim, w1) <= max(ini, w0) and (ini, linha) not in out[d]:
+                out[d].append((ini, linha))
+            d += dt.timedelta(days=1)
+    return {d: [l for _i, l in sorted(v)] for d, v in out.items()}       # na ordem da hora em que começou
+
+
 def ronda_por_dia(rondas, ids, ano, mes):
     """{dia: {sujidade, vegetacao}} — a última ronda de cada dia (Brasília) com algum nível lido, para o comentário do
     dia ("Ronda realizada: vegetação nível 3 e sujidade nível 4", Levi 09/10/2026)."""
@@ -784,7 +834,7 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, disp=None):
+def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, disp=None, grid=None):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
     {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026). `pot_kwp`: a
     potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026). `disp` = {dia: disp %}
@@ -835,6 +885,24 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], osd)
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
+    # a "Disponibilidade Grid" da janela (16/11/2026, Levi: a coluna da planilha da Thopen, os comentários e "a
+    # disponibilidade grid, com as regras da grid... 7h30 às 17h30, porém mais baseados nas ocorrências do COS"; todos
+    # veem). `grid` = {dia: disp %} pela nossa conta quando o número do mês é o da planilha (a exceção); sem a planilha, a
+    # coluna Grid é o próprio número do dia. O dia a 100% na planilha e com perda na conta da Grid leva as paradas dela
+    r["planilha_thopen"] = grid is not None
+    gr = {d.strftime("%d/%m"): round(v, 1) for d, v in (grid or {}).items()}
+    oss = {d.strftime("%d/%m"): v for d, v in (osd or {}).items()} if bd is None else {}
+    for p in r["por_dia"]:
+        p["disp_grid"] = gr.get(p["dia"]) if grid is not None else p.get("disp")
+        if (grid is not None and p.get("disp") is not None and p["disp"] >= 100 and p["disp_grid"] is not None
+                and p["disp_grid"] < 100 and oss.get(p["dia"])):
+            p["os"] = list(oss[p["dia"]])
+    if bd is None:
+        # o dia a 100% com parada fora do período solar leva a parada assim mesmo (16/11/2026, fora_do_sol_por_dia)
+        fs = {d.strftime("%d/%m"): v for d, v in fora_do_sol_por_dia(dados, nome, ano, mes).items()}
+        for p in r["por_dia"]:
+            if p.get("disp") is not None and p["disp"] >= 100 and fs.get(p["dia"]):
+                p["fora_sol"] = list(fs[p["dia"]])
     if bd is not None:
         # o comentário da equipe vai também no dia que ficou em 100% (a falha de comunicação, que não conta)
         com = {d.strftime("%d/%m"): v for d, v in bd[1].items()}

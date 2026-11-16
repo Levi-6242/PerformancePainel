@@ -368,8 +368,10 @@ def test_resposta_nunca_leva_o_numero_da_os_nem_texto_da_os():
     txt = json.dumps(r, ensure_ascii=False)
     assert "15221" not in txt and "15222" not in txt and "Concluída" not in txt and "Ipv1" not in txt
     assert tuple(r) == om.CHAVES and {"por_dia", "avisos"} <= set(om.CHAVES)
-    # rodada 4: + disp e ronda; 13/10: + os (o registro da OS do dia abaixo de 100%, sem o nº)
-    assert all(set(p) == {"dia", "strings", "trackers", "disp", "ronda", "os"} for p in r["por_dia"])
+    # rodada 4: + disp e ronda; 13/10: + os (o registro da OS do dia abaixo de 100%, sem o nº); 16/11: + disp_grid (a
+    # coluna Grid da janela) e, só no dia a 100% com parada fora do período solar, fora_sol
+    assert all({"dia", "strings", "trackers", "disp", "ronda", "os", "disp_grid"} <= set(p)
+               <= {"dia", "strings", "trackers", "disp", "ronda", "os", "disp_grid", "fora_sol"} for p in r["por_dia"])
     assert all(isinstance(a, str) for a in r["avisos"])
 
 

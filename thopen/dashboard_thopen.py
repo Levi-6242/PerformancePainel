@@ -1593,6 +1593,19 @@ def _disp_fechamento(usina, ano, mes):
     return disp_fechamento.por_dia(usina, ano, mes)
 
 
+def _disp_grid(usina, ano, mes):
+    """{data: disp %} pela conta da Grid (16/11/2026, a coluna "Disponibilidade Grid" da janela): a de `_disp_dias` sem o
+    mês fechado e sem a exceção — os comentários do BD (as usinas fora da Ronda COS), as ocorrências do COS de 07h30 a
+    17h30 ou o Disp do Histórico Carteira."""
+    if _pelo_bd(usina, ano, mes):
+        return _disp_bd(usina, ano, mes)[0] or {}
+    dados = _op_dados()
+    if not dados:
+        return {}
+    return (operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))
+            or _disp_hist_carteira(usina, ano, mes) or {})
+
+
 def _usinas_do_5080():
     return sorted({u for us in CARTEIRAS.values() for u in us})
 
@@ -2089,7 +2102,10 @@ def api_operacao():
     disp = fx if fx is not None else _disp_excecao(usina, ano, mes)
     if disp is None and assistida and not pelo_bd and dados is not None:
         disp = operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))   # o número segue o das OS
-    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp, **_da_parte(usina))
+    # o mês com a planilha da Thopen (a exceção) mostra também a conta da Grid (16/11/2026)
+    planilha = _so_os_fracttal(ano, mes) and disp_excecao.por_dia(usina, ano, mes) is not None
+    r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp,
+                              grid=_disp_grid(usina, ano, mes) if planilha else None, **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     r["apuracao"] = disp_fechamento.situacao(ano, mes)       # "em apuração até 10/12" ou "fechado em 13/11"
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela

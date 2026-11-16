@@ -40,7 +40,7 @@ def test_responde_so_as_chaves_da_lista_branca(cli):
     assert set(r.get_json()) == set(operacao_mes.CHAVES)
     assert r.get_json()["strings"] == 1
     assert r.get_json()["por_dia"] == [{"dia": "02/10", "strings": 1, "trackers": None, "disp": None, "ronda": None,
-                                        "os": []}]
+                                        "os": [], "disp_grid": None}]
     # o número da OS e o status ficam no servidor: o 5080 é público, sem senha
     assert b"15221" not in r.data and "Concluída".encode() not in r.data
 
