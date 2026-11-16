@@ -224,6 +224,12 @@
   .dp-tab td.dp-com{ text-align:left; white-space:normal; color:#33363d; font-size:12px; line-height:1.45; }
   .dp-tab td.dp-v{ font-weight:700; }
   .dp-tab td.dp-v.baixa{ color:var(--neg); }
+  /* 16/11/2026 (Levi): os cabeçalhos das quatro colunas, as disponibilidades e os totais delas no centro; o texto dos
+     comentários à esquerda */
+  table.geral.dp-tab th:not(:first-child){ text-align:center; vertical-align:middle; }
+  table.geral.dp-tab td.dp-v, table.geral.dp-tab tr.tot td:nth-child(2), table.geral.dp-tab tr.tot td:nth-child(4){
+    text-align:center; }
+  table.geral.dp-tab td.dp-com{ text-align:left; }
   .op-fotos{ position:absolute; top:9px; right:10px; width:32px; height:30px; display:flex; align-items:center;
              justify-content:center; border:1px solid var(--line); border-radius:8px; background:#f4f5f7;
              color:var(--navy); cursor:pointer; padding:0; }
