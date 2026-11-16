@@ -278,3 +278,68 @@ def planilha(corpo):
             ws.column_dimensions[get_column_letter(i)].width = max(12, min(28, len(str(cab[i - 1])) + 2))
     arq = _RX_ARQUIVO.sub("", " ".join(str(corpo.get("arquivo") or "sala-de-controle").split()))[:90].strip(" .") or "sala-de-controle"
     return wb, (arq[:-5] if arq.lower().endswith(".xlsx") else arq) + ".xlsx"
+
+
+# ── 5. O raio-x do SCADA da Grid e a leitura de agora dos trackers e da estação ───────────────────────────────────
+# Levi, 16/11/2026: "Quero que faça um raio-x de tudo que tem tracker [...] na nossa API do SCADA Grid e ETM também, e
+# fazer aparecer [...] Não pode ter informação na API que a gente não tem aqui no tempo real". O raio-x diz o que cada
+# usina do supervisório tem (inversor, tracker, estação); a tela mostra os trackers e a estação de agora de QUALQUER
+# usina que o SCADA tenha, mesmo quando a fonte dela no Tempo real não traz (a 2C pela Owen, a Thopen pelo banco).
+TIPOS_TRACKER = ("tracker", "tracker_ncu", "tcu", "rsu")
+TIPOS_ESTACAO = ("weather",)
+MEDIDAS_ESTACAO = (("irradiance_poa", "POA", "W/m²"), ("irradiance_ghi", "GHI", "W/m²"), ("irradiance_poa_rear", "POA traseira", "W/m²"),
+                   ("ambient_temperature", "Temperatura ambiente", "°C"), ("module_temperature", "Temperatura do módulo", "°C"),
+                   ("wind_speed", "Vento", "m/s"), ("accumulated_rain", "Chuva acumulada", "mm"))
+
+
+def raiox_scada(todas, mq) -> list:
+    """`/api/usinas` e `/api/mqtt` (2 chamadas) → uma linha por usina do supervisório: {id, nome, via, inv_total,
+    equipamentos (os inversores, como o `scadagridco.descobrir`), tipos {tipo: quantos}, trackers, estacoes}."""
+    por = {u.get("usina"): u for u in ((mq or {}).get("usinas") or []) if u.get("usina")}
+    out = []
+    for uid, st in sorted((todas or {}).items()):
+        u = por.get(uid) or {}
+        eqs = u.get("equipamentos") or []
+        tipos = {}
+        for e in eqs:
+            k = str(e.get("tipo") or "?")
+            tipos[k] = tipos.get(k, 0) + 1
+        out.append({"id": uid, "nome": u.get("nome") or str(uid).replace("_", " "), "via": "mqtt" if eqs else "modbus",
+                    "inv_total": (st or {}).get("inv_total"),
+                    "equipamentos": [str(e.get("equipamento") or e.get("indice")) for e in eqs if e.get("tipo") == "inverter"],
+                    "tipos": tipos, "trackers": sum(v for k, v in tipos.items() if k in TIPOS_TRACKER),
+                    "estacoes": sum(v for k, v in tipos.items() if k in TIPOS_ESTACAO)})
+    return out
+
+
+def _n(v):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def trackers_de_agora(d) -> dict:
+    """A resposta do `/api/trackers/<usina>` → {total, fora_do_alvo, sem_comunicacao, com_alarme, lista: [{eq, atual,
+    alvo, desvio, fora, sem_com, alarmes}]} na ordem natural. Sem comunicação (ou leitura velha) não tem ângulo de agora."""
+    lista = []
+    for t in sorted((d or {}).get("trackers") or [], key=lambda x: _ordem_natural(x.get("equipamento") or x.get("indice"))):
+        mudo = bool(t.get("sem_comunicacao") or t.get("stale"))
+        al = t.get("alarmes")
+        lista.append({"eq": str(t.get("equipamento") or t.get("indice")), "atual": None if mudo else _n(t.get("posicao_atual")),
+                      "alvo": _n(t.get("posicao_alvo")), "desvio": None if mudo else _n(t.get("desvio")),
+                      "fora": bool(t.get("fora_do_alvo")) and not mudo, "sem_com": mudo,
+                      "alarmes": len(al) if isinstance(al, list) else int(al or 0)})
+    return {"total": len(lista), "fora_do_alvo": sum(1 for x in lista if x["fora"]), "sem_comunicacao": sum(1 for x in lista if x["sem_com"]),
+            "com_alarme": sum(1 for x in lista if x["alarmes"]), "lista": lista}
+
+
+def estacoes_de_agora(mq_usina, com_ok=192) -> list:
+    """Os equipamentos `weather` do `/api/mqtt/<usina>` → [{eq, ok, medidas: [{nome, valor, unidade}]}]. Leitura ruim do
+    gateway não traz valor (lacuna, não zero); só entram as medidas que a estação manda como número."""
+    out = []
+    for e in (mq_usina or {}).get("equipamentos") or []:
+        if e.get("tipo") not in TIPOS_ESTACAO:
+            continue
+        m = e.get("measurements") if isinstance(e.get("measurements"), dict) else {}
+        ok = e.get("communication_fault") == com_ok and not e.get("stale") and not e.get("falha_comunicacao")
+        medidas = [{"nome": nome, "valor": round(_n(m.get(k)), 2), "unidade": un} for k, nome, un in MEDIDAS_ESTACAO if ok and _n(m.get(k)) is not None]
+        out.append({"eq": str(e.get("equipamento") or e.get("indice")), "ok": bool(ok), "medidas": medidas, "ts": e.get("ts")})
+    return out

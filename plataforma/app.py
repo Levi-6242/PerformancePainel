@@ -9205,8 +9205,31 @@ def _build_sunop_analise_payload(inst: str = "gridco"):
 def api_sunop_etm_analise():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_com_sunop_pausa(_swr(_si(inst)["analise_cache"], lambda: _build_sunop_analise_payload(inst),
-                                         force)))
+    d = _com_sunop_pausa(_swr(_si(inst)["analise_cache"], lambda: _build_sunop_analise_payload(inst), force))
+    return jsonify(_axis_etm_com_scada(d, force) if inst == "axis" else d)
+
+
+_axs_etm_cache = {"payload": None, "ts": 0.0, "_ttl": 900}
+
+
+def _axis_etm_com_scada(d, force=False):
+    """A aba de ETM da Axis junta as estações do scadaGridco (16/11/2026, o raio-x do Levi: "Não pode ter informação na
+    API que a gente não tem aqui no tempo real"). A Axis da SunOp está sem token desde julho e as usinas dela chegam
+    pelo supervisório (Marialva, PE II, PE III, Ponto Belo); a PE II tem estação lá e a aba só lia a SunOp. A usina que
+    a SunOp já traz fica como está; o supervisório fora não derruba a aba."""
+    try:
+        sg = _swr(_axs_etm_cache, lambda: _sg_etm_build("axisscada"), force) or {}
+    except Exception as e:                                       # noqa: BLE001
+        print(f"[scadaGridco] ETM da Axis pelo supervisório: {type(e).__name__}: {e}")
+        return d
+    ja = {r.get("usina") for r in (d or {}).get("rows") or []}
+    extra = [r for r in sg.get("rows") or [] if r.get("usina") not in ja]
+    if not extra:
+        return d
+    rows = list((d or {}).get("rows") or []) + extra
+    s = dict((d or {}).get("summary") or {})
+    s["total"] = len(rows)
+    return dict(d or {}, rows=rows, summary=s)
 
 
 @app.route("/api/sunop/etm/chart")
@@ -16581,6 +16604,9 @@ def _sg_trk_nome(fonte, cfg) -> str:
     return " e ".join(c["usina"] for c in cfgs) or cfg["usina"]
 
 
+_sg_trk_sem_hist = {}      # (fonte, usina no supervisório) -> por que o histórico de hoje não veio (só o agora)
+
+
 def _sg_trk_curvas_dia(fonte, cfg, dia):
     """(curvas {tracker: {"atual", "alvo"}}, agora {tracker: leitura}) da usina num dia. Hoje: o agora primeiro (usina
     sem tracker para aí, sem pedir o histórico), depois o histórico guardado + o ponto do agora; dia passado: só o
@@ -16590,7 +16616,21 @@ def _sg_trk_curvas_dia(fonte, cfg, dia):
         agora = _sg.trackers_agora(fonte, cfg["id"])
         if not agora:
             return {}, {}
-    curvas = _sg_trk_hist.curvas(fonte, cfg["id"], dia)
+    chave = (fonte, _sg.scada_id(fonte, cfg["id"]))
+    try:
+        curvas = _sg_trk_hist.curvas(fonte, cfg["id"], dia)
+        _sg_trk_sem_hist.pop(chave, None)
+    except _sg.SemAcesso:
+        raise
+    except Exception as e:                           # noqa: BLE001
+        # O histórico do dia não respondeu e o AGORA sim (16/11/2026: o /historico da Castelo do Piauí, 128 trackers,
+        # devolvia 502 depois de 57 s, e a usina sumia inteira da aba; a Rio do Peixe, igual). A usina aparece com a
+        # leitura de agora, sem a curva do dia (a régua não marca "parado" em curva de um ponto), e a tela diz.
+        if not agora:
+            raise
+        print(f"[scadaGridco] histórico de trackers de {chave[1]} não respondeu ({type(e).__name__}): só o agora")
+        _sg_trk_sem_hist[chave] = f"{type(e).__name__}: {str(e)[:120]}"
+        curvas = {}
     return _sg.junta_agora(curvas, agora), {t["equip"]: t for t in agora}
 
 
@@ -16604,6 +16644,8 @@ def _sg_trackers_analise(fonte, cfg, date=None) -> dict:
         return base
     base["tem_trackers"] = True
     out = _trk_analise_curvas(base, trks, pid, date, rotulo=lambda n: n)
+    if dia >= _sg.hoje() and (fonte, _sg.scada_id(fonte, pid)) in _sg_trk_sem_hist:
+        out["sem_historico"] = True                  # só a leitura de agora: sem a curva do dia, ninguém sai "parado"
     for t in out.get("trackers") or []:
         a = agora.get(t["id"]) or {}
         if not trks.get(t["id"], {}).get("atual") or a.get("sem_comunicacao"):
@@ -31090,8 +31132,57 @@ def api_sala_idade():
 def _sala_scada_lista():
     agora = time.time()
     if _sala_scada_mem["lista"] is None or agora - _sala_scada_mem["ts"] > SALA_SCADA_TTL:
-        _sala_scada_mem.update(ts=agora, lista=_sg.descobrir())
+        _sala_scada_mem.update(ts=agora, lista=_sala.raiox_scada(_sg.get("/api/usinas"), _sg.get("/api/mqtt")))
     return _sala_scada_mem["lista"]
+
+
+@app.route("/api/sala/scada/raiox")
+def api_sala_scada_raiox():
+    """O raio-x do SCADA da Grid: o que cada usina do supervisório tem (inversores, trackers, estações), pela lista de
+    10 min (2 chamadas). A tela cruza com as usinas do Tempo real e mostra o que a fonte de cada uma não traz."""
+    if not _sg.configurado():
+        return jsonify({"ok": False, "motivo": "sem a chave do SCADA da Grid nesta máquina"}), 503
+    try:
+        lista = _sala_scada_lista()
+    except Exception as e:                                       # noqa: BLE001
+        return jsonify({"ok": False, "motivo": f"o SCADA da Grid não respondeu ({type(e).__name__}: {str(e)[:120]})"}), 502
+    return jsonify({"ok": True, "lido_em": datetime.fromtimestamp(_sala_scada_mem["ts"]).strftime("%H:%M"),
+                    "usinas": [{k: x[k] for k in ("id", "nome", "via", "inv_total", "tipos", "trackers", "estacoes")} for x in lista]})
+
+
+@app.route("/api/sala/scada")
+def api_sala_scada():
+    """Os trackers e a estação de AGORA de uma usina no SCADA da Grid (?usina=<nome no Tempo real>), para a Sala de
+    controle mostrar o que a fonte da usina não traz. 1 chamada para os trackers e 1 para a estação, só do que a usina
+    tem (o raio-x diz), em série com o resto da plataforma. Sem histórico: é a leitura da hora."""
+    usina = " ".join((flask_request.args.get("usina") or "").split())
+    if not usina:
+        return jsonify({"ok": False, "motivo": "informe a usina"}), 400
+    if not _sg.configurado():
+        return jsonify({"ok": False, "motivo": "sem a chave do SCADA da Grid nesta máquina"}), 503
+    try:
+        lista = _sala_scada_lista()
+        # a usina que JÁ é lida do supervisório se acha pela chave dela (o nome de lá nem sempre é o do cadastro:
+        # "Dermeval Lobao", "PE II", "Macaíba"); as outras, pelo nome
+        fonte = {"axis": "axisscada"}.get(flask_request.args.get("fonte") or "", flask_request.args.get("fonte") or "")
+        cfg = _sg.usina_cfg(fonte, flask_request.args.get("id") or "") if fonte in _sg.FONTES else None
+        x = None
+        if cfg:
+            sid = _sg.scada_id(fonte, cfg["id"])
+            x = next(({**i, "cobre": [], "duas": sum(1 for c in _sg.usinas(fonte) if _sg.scada_id(fonte, c["id"]) == sid) > 1}
+                      for i in lista if i["id"] == sid), None)
+        x = x or _sala.usina_do_scada(usina, lista)
+        if not x:
+            return jsonify({"ok": True, "situacao": "fora_do_scada"})
+        out = {"ok": True, "situacao": "tem", "scada": {"id": x["id"], "nome": x.get("nome")}, "duas": x["duas"],
+               "quando": datetime.now().strftime("%H:%M"), "trackers": None, "estacoes": []}
+        if x.get("trackers"):
+            out["trackers"] = _sala.trackers_de_agora(_sg.get(f"/api/trackers/{x['id']}"))
+        if x.get("estacoes"):
+            out["estacoes"] = _sala.estacoes_de_agora(_sg.get(f"/api/mqtt/{x['id']}"), _sg.COM_OK)
+    except Exception as e:                                       # noqa: BLE001 — o SCADA fora é dito, não vira "sem tracker"
+        return jsonify({"ok": False, "motivo": f"o SCADA da Grid não respondeu ({type(e).__name__}: {str(e)[:120]})"}), 502
+    return jsonify(out)
 
 
 @app.route("/api/sala/conferir")

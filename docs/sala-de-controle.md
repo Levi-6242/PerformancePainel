@@ -90,6 +90,13 @@ ele não tem, ou tem com outro nome (falta a lista do COS e o de-para com o SCAD
    pessoa com o pulso e o sino da tela por usina, a idade real das strings, a conferência com o SCADA e o de-para dentro
    da usina. Detalhe em `plataforma/CLAUDE.md`.
 
+## Retornos depois de usar (16/11/2026)
+
+As strings aparecem assim que a usina responde (os trackers e a estação chegam depois); a seta da fonte só abre e
+recolhe; trancar várias strings com uma confirmação só; o botão do prontuário (Nexus > Comando > Usinas); e o que o SCADA
+da Grid tem de tracker e de estação aparece na usina mesmo quando a fonte dela não traz, com o raio-x na visão geral.
+Detalhe e medições em `plataforma/CLAUDE.md`.
+
 ## Em aberto com o Levi
 
 - O corte do "Ver agora" (no mockup, 8 dias ou mais sem OS; agora com a idade real).

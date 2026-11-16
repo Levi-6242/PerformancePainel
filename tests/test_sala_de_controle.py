@@ -64,18 +64,63 @@ def test_quem_grava_e_quem_a_plataforma_diz_e_o_gestor_so_le():
     assert "window.gcEu" in html                                             # a plataforma põe em toda página
 
 
-def test_trancar_pede_confirmacao_e_grava_pela_rota_de_sempre():
-    """Levi: "é importante que confirma antes de salvar para não ter perigo de alguém clicar sem querer". O clique na
-    string só abre a pergunta; quem grava é o botão dela, na rota que o Tempo real já usa."""
+def test_trancar_escolhe_varias_e_pergunta_uma_vez_so():
+    """Levi, 16/11/2026: "é importante que confirma antes de salvar para não ter perigo de alguém clicar sem querer" e,
+    depois de usar, "É melhor eu selecionar várias de uma vez e clicar trancar só na última. Que aí tranca tudo de uma
+    vez". O clique na string só ESCOLHE; a barra tem Trancar/Destrancar, que perguntam uma vez e gravam um POST por
+    inversor, na rota que o Tempo real já usa."""
     html = _html()
     clique = html[html.index('if ((x = q(".st[data-st]")))'):]
-    clique = clique[:clique.index('if ((x = q(".dchip")))')]
-    assert 'role="alertdialog"' in clique and "/api/state/string-trancada" not in clique      # só pergunta
-    assert "/api/strings/trava-aviso?usina=" in clique                         # a OS ou o ticket aberto que cita a string
+    clique = clique[:clique.index('if ((x = q("[data-stacao]")))')]
+    assert "SELS.set(k, {inv: sinv, sid, trancada:" in clique and "/api/state/string-trancada" not in clique
+    assert 'role="alertdialog"' not in clique                                  # escolher não pergunta nada
+    barra = html[html.index('if ((x = q("[data-stacao]")))'):]
+    barra = barra[:barra.index('if ((x = q(".dchip")))')]
+    assert 'role="alertdialog"' in barra and "/api/strings/trava-aviso?usina=" in barra   # UMA pergunta, com o aviso de OS/ticket
+    assert "/api/state/string-trancada" not in barra                           # a barra só pergunta
     botao = html[html.index('if ((x = q("[data-tranca]")))'):]
     botao = botao[:botao.index('if ((x = q("[data-delc]")))')]
-    assert 'grava("/api/state/string-trancada", {plant_id: String(u.pid), inv_id: String(iv.id), strings: [sid], trancada: !era' in botao
+    assert 'grava("/api/state/string-trancada", {plant_id: String(u.pid), inv_id: String(iv.id), strings: ss, trancada: !era' in botao
+    assert "for (const [n, ss] of Object.entries(por))" in botao               # um POST por inversor, com todas as strings dele
     assert "lerUsina(u, true)" in botao                                        # relê a usina depois de gravar
+    assert "SELS.clear();" in html[html.index("const abrirUsina ="):html.index("function desenhar() {")]   # trocar de usina limpa a escolha
+
+
+def test_as_strings_nao_esperam_os_trackers_nem_a_estacao():
+    """Levi, 16/11/2026: "por que as usinas da Thopen em banco de dados demoram tanto para carregar as strings?". Medido:
+    a usina responde em 0,1 a 1,5 s; a tela esperava a leitura dos trackers (9 a 30 s). Agora desenha quando a usina
+    chega, e cada aba diz "lendo" até a parte dela chegar."""
+    html = _html()
+    ler = html[html.index("async function lerUsina(u, calada) {"):html.index("const SCL = {};")]
+    assert ler.index("D.drill[u.u] = dr;") < ler.index("const extras = [];") < ler.index("await Promise.all(extras);")
+    assert "pinta();" in ler and '.finally(() => pinta("trk"))' in ler and 'dr.etmLendo = false; pinta("etm");' in ler
+    assert "Lendo os trackers desta usina…" in html and "Lendo a estação desta usina…" in html
+
+
+def test_a_seta_da_fonte_so_abre_e_recolhe():
+    """Levi, 16/11/2026: "quando eu vou clicar para recolher o cliente e ver outro, ele sai da tela da usina"."""
+    html = _html()
+    g = html[html.index('if ((x = q(".g"))) { const id = x.dataset.g;'):]
+    g = g[:g.index("if (id) CLICADAS.add")]
+    assert 'if (id && q(".seta")) { if (ABERTOS.has(id)) ABERTOS.delete(id); else ABERTOS.add(id);' in g and "arvore(); return; }" in g
+    assert "SEL =" not in g                                                    # a seta não mexe no que está aberto
+
+
+def test_o_prontuario_da_usina_abre_no_nexus_pelo_nome():
+    html = _html()
+    assert 'href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}"' in html and 'target="_blank" rel="noopener"' in html
+
+
+def test_o_que_o_scada_tem_aparece_quando_a_fonte_nao_traz():
+    """Levi, 16/11/2026: "Não pode ter informação na API que a gente não tem aqui no tempo real". A leitura do SCADA só é
+    pedida quando a aba Trackers ou a ETM não têm o dado da fonte (ou a fonte da usina está fora), e a falha fica marcada."""
+    html = _html()
+    assert 'pega("/api/sala/scada?usina=" + encodeURIComponent(u.u) + "&fonte="' in html
+    assert 'scadaBloco(u, "trk")' in html and 'scadaBloco(u, "etm")' in html
+    ler = html[html.index("async function lerScada(u) {"):html.index("function scadaBloco(u, qual) {")]
+    assert "if (u.u in D.scada || SCL[u.u]) return;" in ler and "D.scada[u.u] = {erro:" in ler      # sem laço de pedidos
+    assert 'pega("/api/sala/scada/raiox", 60000)' in html and "Raio-x do SCADA da Grid" in html
+    assert "O histórico de hoje dos trackers não respondeu no supervisório" in html              # a usina que só tem o agora
 
 
 def test_quem_trancou_fica_no_log(tmp_path, monkeypatch):
@@ -256,13 +301,13 @@ def test_rota_de_conferir_le_o_scada_uma_vez_e_diz_o_que_nao_da(cli, monkeypatch
             return True
 
         @staticmethod
-        def descobrir():
-            pedidos.append("lista")
-            return [{"id": "usina_dupla", "nome": "Usina Dupla 1 e 2", "via": "mqtt", "inv_total": 2}]
-
-        @staticmethod
         def get(rota):
             pedidos.append(rota)
+            if rota == "/api/usinas":
+                return {"usina_dupla": {"inv_total": 2}}
+            if rota == "/api/mqtt":
+                return {"usinas": [{"usina": "usina_dupla", "nome": "Usina Dupla 1 e 2",
+                                    "equipamentos": [{"tipo": "inverter", "equipamento": "inv-01"}, {"tipo": "inverter", "equipamento": "inv-02"}]}]}
             return {"equipamentos": [{"tipo": "inverter", "equipamento": "inv-02"}, {"tipo": "inverter", "equipamento": "inv-01"},
                                      {"tipo": "weather", "equipamento": "est"}]}
 
@@ -277,10 +322,10 @@ def test_rota_de_conferir_le_o_scada_uma_vez_e_diz_o_que_nao_da(cli, monkeypatch
     r = cli.get("/api/sala/conferir?usina=Usina Dupla 2&fonte=pg").get_json()
     assert r["situacao"] == "conferir" and r["duas"] and r["cobre"] == ["usina dupla 1", "usina dupla 2"]
     assert [x["eq"] for x in r["leituras"]] == ["inv-01", "inv-02"] and r["leituras"][0]["com_corrente"] == 1
-    assert pedidos == ["lista", "/api/mqtt/usina_dupla"]
+    assert pedidos == ["/api/usinas", "/api/mqtt", "/api/mqtt/usina_dupla"]
     fora = cli.get("/api/sala/conferir?usina=Outra&fonte=pg").get_json()
     assert fora["situacao"] == "fora_do_scada" and fora["scada_nomes"] == ["Usina Dupla 1 e 2"]
-    assert pedidos == ["lista", "/api/mqtt/usina_dupla"]             # a lista vale 10 min; usina fora não chama o SCADA
+    assert pedidos == ["/api/usinas", "/api/mqtt", "/api/mqtt/usina_dupla"]   # a lista vale 10 min; usina fora não chama o SCADA
     assert cli.get("/api/sala/conferir").status_code == 400
 
 
@@ -306,3 +351,113 @@ def test_a_rota_de_estacoes_que_falha_nao_e_pedida_sem_parar():
     assert "ETMG_LIDO[g] = 3" in html
     assert "if (ETMG_LIDO[g] === 3) delete ETMG_LIDO[g]" in html
     assert "delete ETMG_LIDO[g]; delete ETMS" not in html
+
+
+def _sg_de_mentira(pedidos):
+    class Sg:
+        FONTES = {"greenyellow": {}, "axisscada": {}}
+        COM_OK = 192
+
+        @staticmethod
+        def configurado():
+            return True
+
+        @staticmethod
+        def usinas(fonte):
+            return [{"id": "usina_x", "usina": "Usina X"}] if fonte == "greenyellow" else []
+
+        @staticmethod
+        def usina_cfg(fonte, pid):
+            return {"id": "usina_x", "usina": "Usina X"} if (fonte, pid) == ("greenyellow", "usina_x") else None
+
+        @staticmethod
+        def scada_id(fonte, pid):
+            return "usina_xis"                                   # o nome de lá não é o do cadastro
+
+        @staticmethod
+        def get(rota):
+            pedidos.append(rota)
+            if rota == "/api/usinas":
+                return {"usina_xis": {"inv_total": 2}, "outra_2c": {"inv_total": 1}, "so_inversor": {"inv_total": 3}}
+            if rota == "/api/mqtt":
+                return {"usinas": [
+                    {"usina": "usina_xis", "nome": "Usina Xis GY", "equipamentos": [{"tipo": "inverter", "equipamento": "1"},
+                                                                                 {"tipo": "weather", "equipamento": "est-1"}]},
+                    {"usina": "outra_2c", "nome": "Outra do para 2C", "equipamentos": [{"tipo": "tracker_ncu", "equipamento": "2"},
+                                                                                     {"tipo": "tracker_ncu", "equipamento": "10"}]},
+                    {"usina": "so_inversor", "nome": "So Inversor", "equipamentos": [{"tipo": "inverter", "equipamento": "1"}]}]}
+            if rota == "/api/trackers/outra_2c":
+                return {"trackers": [{"equipamento": "10", "posicao_atual": 10.0, "posicao_alvo": 30.0, "desvio": 20.0, "fora_do_alvo": True},
+                                     {"equipamento": "2", "posicao_atual": 5.0, "posicao_alvo": 5.5, "desvio": 0.5, "stale": True}]}
+            if rota == "/api/mqtt/usina_xis":
+                return {"equipamentos": [{"tipo": "weather", "equipamento": "est-1", "communication_fault": 192,
+                                          "measurements": {"irradiance_ghi": 46.59, "wind_speed": 0, "qualquer": "x"}}]}
+            raise AssertionError("chamada inesperada ao SCADA: " + rota)
+    return Sg
+
+
+def test_rota_do_raio_x_e_a_leitura_de_agora_do_scada(cli, monkeypatch):
+    pedidos = []
+    monkeypatch.setattr(app, "_sg", _sg_de_mentira(pedidos))
+    monkeypatch.setitem(app._sala_scada_mem, "lista", None)
+    rx = cli.get("/api/sala/scada/raiox").get_json()
+    assert rx["ok"] and [(x["id"], x["trackers"], x["estacoes"]) for x in rx["usinas"]] == [
+        ("outra_2c", 2, 0), ("so_inversor", 0, 0), ("usina_xis", 0, 1)]
+    assert pedidos == ["/api/usinas", "/api/mqtt"]
+    # a usina de outra fonte acha o SCADA pelo nome (o cliente no fim do nome de lá não atrapalha): os trackers de agora
+    r = cli.get("/api/sala/scada?usina=Outra do Pará&fonte=owen&id=123").get_json()
+    assert r["situacao"] == "tem" and r["trackers"]["total"] == 2 and r["estacoes"] == []
+    assert [x["eq"] for x in r["trackers"]["lista"]] == ["2", "10"]             # ordem natural
+    assert r["trackers"]["fora_do_alvo"] == 1 and r["trackers"]["sem_comunicacao"] == 1
+    assert r["trackers"]["lista"][0]["atual"] is None                            # leitura velha: sem ângulo de agora
+    # a usina que já é lida do supervisório se acha pela CHAVE dela (o nome de lá é outro): a estação de agora
+    r = cli.get("/api/sala/scada?usina=Usina X&fonte=greenyellow&id=usina_x").get_json()
+    assert r["situacao"] == "tem" and r["trackers"] is None
+    assert r["estacoes"] == [{"eq": "est-1", "ok": True, "ts": None,
+                              "medidas": [{"nome": "GHI", "valor": 46.59, "unidade": "W/m²"}, {"nome": "Vento", "valor": 0.0, "unidade": "m/s"}]}]
+    # sem tracker nem estação lá, ou fora do SCADA: nenhuma chamada a mais
+    n = len(pedidos)
+    assert cli.get("/api/sala/scada?usina=So Inversor&fonte=pg&id=9").get_json()["trackers"] is None
+    assert cli.get("/api/sala/scada?usina=Nao Existe&fonte=pg&id=9").get_json()["situacao"] == "fora_do_scada"
+    assert len(pedidos) == n and cli.get("/api/sala/scada").status_code == 400
+
+
+def test_a_usina_de_tracker_aparece_so_com_o_agora_quando_o_historico_falha(monkeypatch):
+    """16/11/2026: o /historico da Castelo do Piauí (128 trackers) devolvia 502 depois de 57 s e a usina sumia inteira
+    da aba de trackers. Com o agora respondendo, ela aparece com a leitura de agora, marcada, e ninguém sai parado."""
+    cfg = {"id": "usina_t", "usina": "Usina T"}
+    agora = [{"equip": str(i), "atual": 20.0 + i, "alvo": 21.0, "sem_comunicacao": i == 3, "alarmes": [], "ts": 1.0} for i in range(1, 6)]
+    monkeypatch.setattr(app._sg, "hoje", lambda: "2026-11-16")
+    monkeypatch.setattr(app._sg, "trackers_agora", lambda fonte, pid, getter=None: list(agora))
+    monkeypatch.setattr(app._sg, "scada_id", lambda fonte, pid: "usina_t")
+    monkeypatch.setattr(app, "_sg_trk_nome", lambda fonte, c: c["usina"])
+
+    def falha(*a, **k):
+        raise RuntimeError("502 Server Error")
+    monkeypatch.setattr(app._sg_trk_hist, "curvas", falha)
+    app._sg_trk_sem_hist.clear()
+    a = app._sg_trackers_analise("greenyellow", cfg)
+    assert a["tem_trackers"] and a["total"] == 5 and a["sem_historico"] is True
+    assert a["parados"] == 0                                                     # curva de um ponto não acusa parado
+    assert [t["id"] for t in a["trackers"] if t.get("sem_comunicacao")] == ["3"]
+    # o histórico voltou: a marca sai
+    monkeypatch.setattr(app._sg_trk_hist, "curvas", lambda *a, **k: {})
+    assert "sem_historico" not in app._sg_trackers_analise("greenyellow", cfg)
+    # sem o agora também, a falha segue sendo falha (a usina não vira "sem tracker")
+    monkeypatch.setattr(app._sg_trk_hist, "curvas", falha)
+    monkeypatch.setattr(app._sg, "trackers_agora", lambda fonte, pid, getter=None: [])
+    assert app._sg_trackers_analise("greenyellow", cfg)["tem_trackers"] is False
+
+
+def test_a_etm_da_axis_junta_as_estacoes_do_supervisorio(monkeypatch):
+    sunop = {"rows": [{"usina": "Usina da SunOp", "plant_id": "S1"}], "summary": {"total": 1}}
+    monkeypatch.setattr(app, "_swr", lambda cache, build, force=False: {"rows": [{"usina": "PE Teste", "plant_id": "pe_t"},
+                                                                                {"usina": "Usina da SunOp", "plant_id": "dup"}]})
+    d = app._axis_etm_com_scada(sunop)
+    assert [r["usina"] for r in d["rows"]] == ["Usina da SunOp", "PE Teste"] and d["summary"]["total"] == 2
+    assert sunop["rows"] == [{"usina": "Usina da SunOp", "plant_id": "S1"}]      # a resposta guardada da SunOp não é mexida
+
+    def fora(cache, build, force=False):
+        raise RuntimeError("supervisório fora")
+    monkeypatch.setattr(app, "_swr", fora)
+    assert app._axis_etm_com_scada(sunop) is sunop                               # o supervisório fora não derruba a aba

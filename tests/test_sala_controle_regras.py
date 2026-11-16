@@ -171,3 +171,31 @@ def test_o_nome_do_arquivo_e_limpo():
     aba = [{"cabecalho": ["a"], "linhas": []}]
     assert S.planilha({"arquivo": '../../etc/pas"swd', "abas": aba})[1] == "etcpasswd.xlsx"
     assert S.planilha({"abas": aba})[1] == "sala-de-controle.xlsx"
+
+
+# ── 5. o raio-x do SCADA e a leitura de agora ────────────────────────────────────────────────────────────────────
+def test_raio_x_conta_tracker_e_estacao_por_usina_e_serve_ao_casamento_pelo_nome():
+    l = S.raiox_scada({"a": {"inv_total": 2}, "b": {"inv_total": 0}},
+                      {"usinas": [{"usina": "a", "nome": "Usina A 1 e 2", "equipamentos": [
+                          {"tipo": "inverter", "equipamento": "inv-01"}, {"tipo": "tracker", "equipamento": "t1"},
+                          {"tipo": "tracker_ncu", "equipamento": "t2"}, {"tipo": "weather", "equipamento": "e1"}, {"tipo": "relay"}]}]})
+    assert l[0] == {"id": "a", "nome": "Usina A 1 e 2", "via": "mqtt", "inv_total": 2, "equipamentos": ["inv-01"],
+                    "tipos": {"inverter": 1, "tracker": 1, "tracker_ncu": 1, "weather": 1, "relay": 1}, "trackers": 2, "estacoes": 1}
+    assert (l[1]["id"], l[1]["nome"], l[1]["via"], l[1]["trackers"]) == ("b", "b", "modbus", 0)
+    assert S.usina_do_scada("Usina A 2", l)["trackers"] == 2
+
+
+def test_tracker_mudo_nao_tem_angulo_e_a_estacao_ruim_nao_tem_valor():
+    t = S.trackers_de_agora({"trackers": [{"equipamento": "tracker-ncu1-010", "posicao_atual": 10, "posicao_alvo": 12, "desvio": 2,
+                                           "fora_do_alvo": True, "alarmes": 3},
+                                          {"equipamento": "tracker-ncu1-002", "posicao_atual": 1, "posicao_alvo": 12, "desvio": 11,
+                                           "fora_do_alvo": True, "sem_comunicacao": True}]})
+    assert [x["eq"] for x in t["lista"]] == ["tracker-ncu1-002", "tracker-ncu1-010"]
+    assert t["lista"][0] == {"eq": "tracker-ncu1-002", "atual": None, "alvo": 12.0, "desvio": None, "fora": False, "sem_com": True, "alarmes": 0}
+    assert (t["total"], t["fora_do_alvo"], t["sem_comunicacao"], t["com_alarme"]) == (2, 1, 1, 1)
+    e = S.estacoes_de_agora({"equipamentos": [
+        {"tipo": "weather", "equipamento": "e1", "communication_fault": 28, "measurements": {"irradiance_poa": 800}},
+        {"tipo": "weather", "equipamento": "e2", "communication_fault": 192, "measurements": {"irradiance_poa": 812.456, "x": 1}},
+        {"tipo": "inverter", "equipamento": "1"}]})
+    assert [(x["eq"], x["ok"], x["medidas"]) for x in e] == [("e1", False, []), ("e2", True, [{"nome": "POA", "valor": 812.46, "unidade": "W/m²"}])]
+

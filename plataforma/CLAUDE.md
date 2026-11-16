@@ -2604,6 +2604,31 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
 - **De-para**: o MESMO editor do Modo de-para (`/admin/de-para?editar=<fonte>|<id>&janela=1`) dentro da usina, para quem
   o `/api/eu` diz que abre a administração. A releitura de 5 min não recarrega o editor aberto.
 
+**Os retornos do Levi depois de usar (16/11/2026, fim da tarde).**
+- **As strings não esperam mais nada.** "Por que as usinas da Thopen em banco de dados demoram tanto para carregar as
+  strings?" Medido no servidor: `/api/pg/plant/<id>` responde em 0,1 a 1,5 s; quem levava de 9 a 30 s era
+  `/api/pg/trackers/<id>` da mesma usina, e a tela esperava por ele (e pela estação) antes de desenhar. A consulta no
+  banco da Thopen NÃO é o gargalo (62 ms no banco, 0,8 s ida e volta, com o índice certo: `idx_raw_tracker_plant`); o
+  tempo é da análise da curva do dia no processo web, que fica bem pior quando ele está ocupado (a Geração do mês fria
+  leva 3 min e segura todo mundo). Agora `lerUsina` desenha quando a usina chega e cada aba diz "lendo" até a parte dela.
+- **A seta da fonte** só abre e recolhe a lista (`.seta`), sem sair da usina aberta.
+- **Trancar várias strings de uma vez:** o clique na string só ESCOLHE (`SELS`); a barra tem Trancar N / Destrancar N,
+  com UMA confirmação (e o aviso de OS/ticket por inversor) e um POST por inversor.
+- **Prontuário da usina:** o botão abre `/t/comando/usinas/abrir?nome=` do Nexus em outra aba (o Nexus acha pelo nome).
+- **O que o SCADA da Grid tem tem de aparecer** ("Não pode ter informação na API que a gente não tem aqui no tempo
+  real"). `/api/sala/scada/raiox` (o que cada usina do supervisório tem; a tabela "Raio-x do SCADA da Grid" na visão
+  geral, aba Trackers) e `/api/sala/scada?usina=&fonte=&id=` (os trackers e a estação de AGORA, 1 chamada cada, só do que
+  a usina tem). A tela pede quando a aba Trackers ou a ETM não têm o dado da fonte, ou a fonte da usina está fora (a 2C
+  pela Owen: a Araputanga tem 59 trackers no SCADA e a Ipixuna do Pará, 122). É a leitura da hora, sem a curva do dia.
+  A usina que já é do supervisório se acha pela chave dela (o nome de lá é outro: "Dermeval Lobao", "PE II").
+- **No Tempo real (vale para todas as telas):** a usina de tracker do scadaGridco aparece só com o agora quando o
+  `/historico` do supervisório falha (`_sg_trk_curvas_dia`, `sem_historico`: a Castelo do Piauí, 128 trackers, devolvia
+  502 depois de 57 s e sumia da aba; a Rio do Peixe, igual), e a ETM da Axis junta as estações do supervisório
+  (`_axis_etm_com_scada`: a PE II tem estação lá e a aba só lia a SunOp).
+- **CUIDADO com o SCADA:** em 16/11, uma leitura do `/historico` dos 128 trackers da Castelo, feita à mão para medir,
+  levou 57 s, devolveu 502, e as duas chamadas seguintes também deram 502 por alguns segundos. Não medir o histórico
+  pesado à mão; as leituras leves (`/api/usinas`, `/api/mqtt`, `/api/trackers/<id>`) respondem em 0,1 a 0,2 s.
+
 **Armadilhas.** (1) Toda leitura tem espera limitada (`pega`, AbortController) e a falha é dita na tela com "Tentar de
 novo". (2) Rota que falha NÃO pode ser pedida de novo dentro do desenho: na prova de 16/11 a aba ETM da visão geral
 redesenhava, pedia outra vez e travou o navegador; a falha fica marcada e só a releitura de 5 min tenta de novo.
