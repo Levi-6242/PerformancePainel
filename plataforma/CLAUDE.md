@@ -2641,6 +2641,16 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
 - **"Em tratamento" da estação:** não existe no Tempo real (o `/api/etm/ticket` de antes não é usado pela tela nova);
   o botão do mockup não foi feito.
 
+**O que o Monitoramento do COS lê (16/11/2026, noite).** Levi: "A lista de usinas do Monitoramento do COS [...] puxe a
+lista". O Monitoramento do COS NÃO lê a API do scadaGridco (a da Automação, 21 usinas): lê a Ronda COS (as usinas com
+logger e as do SunOP), pelo Andamento, com uma chave de máquina que só o servidor do Nexus tem. A Sala lê do Nexus, pela
+mesma origem (como o abaixo dos demais): `/t/performance/sala-de-controle/cos/usinas` (a lista, no "Raio-x" da visão
+geral) e `/cos/inversores` (os inversores de agora do logger, 30 s de cópia). No Conferir fontes, quando a API do SCADA
+não tem a usina (ou não deu para ligar), entra o logger do COS: ligado pelo nome do inversor quando é o mesmo dos dois
+lados, senão pela ordem com a mesma quantidade, senão sem par. **Não vi a resposta de verdade** (a chave não está neste
+PC): a tela foi provada com uma resposta de mentira no formato que o código do Nexus mostra (`cos/monitoramento._linha`
+e `static/cos/inversores.js`); conferir no 1º uso real.
+
 **O deploy no meio do dia (lição de 16/11/2026).** Cada push reinicia a plataforma e a coleta recomeça a frio: a 1ª
 tabela da API PV depois da largada leva de 13 a 23 min com o servidor livre (medido em 22/09) e, enquanto isso, tudo
 responde devagar (a Geração do mês levou 212 s 17 min depois de um reinício; assentado, 0,4 s). Em 16/11 foram SEIS

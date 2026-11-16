@@ -652,6 +652,66 @@ function scadaBloco(u, qual) {
     es.map(e => `<div class="sens" style="margin-top:8px"><div><small>${esc(e.eq)}</small><span class="tag ${e.ok ? "o" : "n"}">${e.ok ? "lendo" : "sem comunicação"}</span></div>${e.medidas.map(m => `<div><small>${esc(m.nome)}</small><b>${nf(m.valor, 1)} ${esc(m.unidade)}</b></div>`).join("")}</div>`).join("") +
     `<div class="mais"><button class="btnl" data-denovo2="scada">Ler o SCADA de novo</button></div></div>`;
 }
+// (h) O que o Monitoramento do COS lê (Levi, 16/11/2026: "A lista de usinas do Monitoramento do COS [...] puxe a lista").
+//     Não é a API do SCADA da Automação: é a Ronda COS (as usinas com logger e as do SunOP), que o NEXUS lê com a chave
+//     dele. A tela pede ao Nexus pela mesma origem, como o abaixo dos demais; aberta direto pela senha, não há sessão dele.
+let COS = null, COSI = null, COSI_EM = 0;
+async function nexusPega(url) {
+  const r = await fetch(url, {credentials: "same-origin", headers: {Accept: "application/json"}});
+  const j = /json/.test(r.headers.get("content-type") || "") ? await r.json() : null;
+  if (!j) throw new Error("esta leitura é do Nexus: abra a Sala de controle pela Performance do Nexus");
+  if (!r.ok || j.erro) throw new Error(j.erro || (r.status === 403 ? "sem acesso a esta leitura no Nexus" : "o Nexus respondeu " + r.status));
+  return j;
+}
+async function lerCos() { if (lerCos.indo || COS) return; lerCos.indo = true; try { COS = await nexusPega("/t/performance/sala-de-controle/cos/usinas"); } catch (e) { COS = {erro: String(e && e.message || e)}; } finally { lerCos.indo = false; redesenhar(); } }
+async function lerCosInv() { if (lerCosInv.indo || (COSI && Date.now() - COSI_EM < 30000)) return; lerCosInv.indo = true;
+  try { COSI = await nexusPega("/t/performance/sala-de-controle/cos/inversores"); } catch (e) { COSI = {erro: String(e && e.message || e)}; }
+  finally { COSI_EM = Date.now(); lerCosInv.indo = false; if (SEL.u && ABA === "cf") redesenhar(); } }
+// a usina do COS e as do Tempo real que casam com ela pelo nome (sem acento; "X 1 e 2" cobre a X 1 e a X 2; a sub-usina entra no nome)
+const nomesDoCos = x => { const b = normN(x.nome), cs = normN(x.nome + " " + (x.sub_usina || "")), m = b.match(/^(.*\D)\s*(\d+|i{1,3})\s+e\s+(\d+|i{1,3})$/); return [b, cs].concat(m ? [m[1].trim() + " " + m[2], m[1].trim() + " " + m[3]] : []); };
+const cosDe = u => COS && COS.usinas ? COS.usinas.filter(x => nomesDoCos(x).includes(normN(u.u))) : [];
+function cosHtml() {
+  if (!COS) return '<p style="margin-top:14px">Lendo o que o Monitoramento do COS lê…</p>';
+  if (COS.erro) return `<p style="margin-top:14px">Não consegui ler a lista do Monitoramento do COS: ${esc(COS.erro)} <button class="btnl" data-denovo2="cos" style="margin-left:8px">Tentar de novo</button></p>`;
+  const tr = todas(), us = COS.usinas.slice().sort((a, b) => String(a.cliente).localeCompare(String(b.cliente)) || a.nome.localeCompare(b.nome)), fora = us.filter(x => !tr.some(u => nomesDoCos(x).includes(normN(u.u))));
+  return `<h3 style="margin:18px 0 4px;font-size:14px">O que o Monitoramento do COS lê <span style="color:var(--mudo);font-weight:400">${us.length} usinas · ${us.filter(x => x.fonte === "SCADA Grid").length} com logger (SCADA Grid) e ${us.filter(x => x.fonte === "SunOP").length} do SunOP</span></h3>
+    <p>A mesma lista da tela Monitoramento do COS no Nexus (a Ronda COS), com o kW de agora. Clique na usina para abrir o Conferir fontes dela: a fonte do Tempo real ao lado do logger, inversor a inversor.${fora.length ? ` <b style="color:var(--severo)">${fora.length} não ${fora.length > 1 ? "estão" : "está"} no Tempo real com este nome.</b>` : ""}${COS.velha ? " A Ronda COS não respondeu agora: vale a última leitura boa." : ""}</p>
+    <div class="rol"><table><thead><tr><th>No Monitoramento do COS</th><th>Fonte</th><th>Cliente</th><th>kW agora</th><th>Inversores</th><th>Situação</th><th>No Tempo real</th></tr></thead><tbody>` +
+    us.map(x => { const ms = tr.filter(u => nomesDoCos(x).includes(normN(u.u)));
+      return `<tr><td><b>${esc(x.nome)}</b>${x.sub_usina ? ` <small style="color:var(--fraco)">${esc(x.sub_usina)}</small>` : ""}</td><td>${esc(x.fonte)}</td><td>${esc(x.cliente || "—")}</td><td>${esc(x.kw_txt || "—")}</td><td>${x.inversores_total ? (x.inversores_online ?? "—") + " de " + x.inversores_total : "—"}</td><td><span class="tag ${x.tom === "ok" ? "o" : x.tom === "critico" ? "c" : x.tom === "alerta" ? "a" : "n"}">${esc(x.situacao)}</span>${x.lido ? ` <small style="color:var(--fraco)">${esc(x.lido)}</small>` : ""}</td><td style="text-align:left">${ms.map(u => `<button class="btnl" data-pu="${esc(u.u)}" data-pg="${u.g}" data-pa="cf">${esc(u.u)}</button> <small style="color:var(--fraco)">${esc(NOME[u.g] || "")}</small>`).join("<br>") || '<span class="tag s">não está no Tempo real com este nome</span>'}</td></tr>`; }).join("") + "</tbody></table></div>";
+}
+// Conferir fontes pelo logger do COS: os inversores de agora do cartão do SCADA da Ronda COS ao lado dos da fonte da tela
+function cosConf(u, dr) {
+  if (!COS) { lerCos(); return '<div class="carrega" style="padding:18px 0">Vendo se o Monitoramento do COS lê esta usina…</div>'; }
+  if (COS.erro) return `<div class="aviso">Não consegui ler o Monitoramento do COS: ${esc(COS.erro)} <button class="btnl" data-denovo2="cos" style="margin-left:10px">Tentar de novo</button></div>`;
+  const ms = cosDe(u);
+  if (!ms.length) return `<div class="aviso">O Monitoramento do COS também não tem esta usina com este nome. Ele lê ${COS.usinas.length} usinas hoje (a lista está no Raio-x da visão geral, aba Trackers).</div>`;
+  const topo = `<div class="painel" style="border-left:3px solid var(--info)"><h3>No Monitoramento do COS</h3><div class="lt2" style="grid-template-columns:150px 1fr">` + ms.map(m =>
+    `<span>${esc(m.nome)}${m.sub_usina ? " · " + esc(m.sub_usina) : ""}</span><span>${esc(m.fonte)} · <b style="color:var(--tinta)">${esc(m.kw_txt || "—")}</b> agora${m.inversores_total ? " · " + (m.inversores_online ?? "—") + " de " + m.inversores_total + " inversores" : ""} · ${esc(m.situacao)}${m.lido ? " · lido às " + esc(m.lido) : ""}</span>`).join("") + "</div></div>";
+  const logs = ms.filter(m => m.fonte === "SCADA Grid");
+  if (!logs.length) return topo + `<div class="aviso">No COS esta usina vem do SunOP, que não traz os inversores ao vivo: dá para conferir só o kW da usina.</div>`;
+  if (!COSI || Date.now() - COSI_EM > 30000) lerCosInv();
+  if (!COSI) return topo + '<div class="carrega" style="padding:18px 0">Lendo os inversores desta usina no logger…</div>';
+  if (COSI.erro) return topo + `<div class="aviso">Não consegui ler os inversores no logger: ${esc(COSI.erro)} <button class="btnl" data-denovo2="cosi" style="margin-left:10px">Tentar de novo</button></div>`;
+  const invs = logs.flatMap(m => ((COSI.cartoes || []).find(c => c.pid === m.id) || {inversores: []}).inversores);
+  if (!invs.length) return topo + `<div class="aviso">O logger desta usina não trouxe os inversores agora.</div>`;
+  if (!dr) return topo + `<div class="aviso">A fonte desta usina no Tempo real não respondeu: abaixo, só o que o logger do COS lê.</div>` + tabCos(invs.map(s => ({s})));
+  // a ligação: pelo nome quando é o mesmo dos dois lados; senão, pela ordem quando a quantidade é a mesma; senão, sem par
+  const meus = dr.inv.slice().sort((a, b) => natural(a.n, b.n)), doCos = invs.slice().sort((a, b) => natural(a.nome || a.id, b.nome || b.id));
+  const porNome = meus.every(iv => doCos.some(s => normN(s.nome) === normN(iv.n)));
+  const pares = porNome ? meus.map(iv => ({iv, s: doCos.find(s => normN(s.nome) === normN(iv.n))})) : meus.length === doCos.length ? meus.map((iv, k) => ({iv, s: doCos[k]})) : null;
+  if (!pares) return topo + `<div class="aviso">A fonte desta tela tem ${meus.length} inversores e o logger do COS, ${doCos.length}, com nomes diferentes: sem o de-para entre os dois não dá para ligar um ao outro. Abaixo, o que o logger lê.</div>` + tabCos(doCos.map(s => ({s})));
+  const dk = pares.map(p => p.iv.kw == null || p.s.kw == null ? null : Math.abs(p.iv.kw - p.s.kw)), com = dk.filter(v => v != null), pior = com.length ? Math.max(...com) : null;
+  return topo + `<div class="painel"><h3>${esc((NOME[u.g] || "").split(" · ")[1] || "A fonte")} × logger do COS</h3><p>O mesmo inversor nas duas fontes. O logger é a leitura de agora (até 30 s); a da fonte é a última do Tempo real (${esc(String(D.fresco.lido || "").slice(0, 5))}). A ligação é ${porNome ? "pelo nome do inversor" : `pela ordem (${esc(pares[0].s.nome || pares[0].s.id)} = ${esc(pares[0].iv.n)}): é o de-para a confirmar`}.</p>
+    <div class="lt2" style="grid-template-columns:150px 1fr"><span>Potência agora</span><span>${pior == null ? '<span class="zero">sem leitura para comparar</span>' : pior < 2 ? `<b style="color:var(--ok)">batem</b> (maior diferença ${nf(pior, 2)} kW)` : `<b style="color:var(--severo)">${com.filter(v => v >= 2).length} com diferença de 2 kW ou mais</b> (a maior, ${nf(pior, 1)} kW)`}</span></div></div>` + tabCos(pares, dk);
+}
+function tabCos(pares, dk) {
+  const par = pares.some(p => p.iv);
+  return `<div class="sec" style="margin-top:14px"><div class="rol"><table><thead><tr>${par ? "<th>Inversor</th>" : ""}<th>No logger do COS</th>${par ? "<th>kW na fonte</th>" : ""}<th>kW no logger</th>${par ? "<th>Diferença</th><th>Strings com corrente (fonte · logger)</th>" : "<th>Strings com corrente</th>"}<th>Estado no COS</th></tr></thead><tbody>` +
+    pares.map((p, k) => { const s = p.s, iv = p.iv, bs = iv ? iv.s.filter(z => z[1] > 0).length : null;
+      return `<tr>${par ? `<td><b>${esc(iv.n)}</b></td>` : ""}<td>${esc(s.nome || s.id || "—")}</td>${par ? `<td>${iv.kw == null ? "—" : nf(iv.kw, 1)}</td>` : ""}<td>${s.kw == null ? "—" : nf(s.kw, 1)}</td>${par ? `<td>${dk[k] == null ? T : dk[k] >= 2 ? `<span class="tag s">${nf(dk[k], 1)} kW</span>` : `<span class="zero">${nf(dk[k], 2)}</span>`}</td><td>${s.strings ? (bs === s.com_corrente ? bs + " · " + s.com_corrente : `<span class="tag s">${bs} · ${s.com_corrente}</span>`) : bs + " · —"}</td>` : `<td>${s.strings ? s.com_corrente + " de " + s.strings : "—"}</td>`}<td>${esc(s.veredito || s.estado || "—")}</td></tr>`; }).join("") +
+    `</tbody></table></div><div class="diasel" style="margin-top:10px;justify-content:flex-end"><button class="btnl" data-denovo2="cosi">Ler o logger de novo</button></div></div>`;
+}
 // O raio-x do SCADA da Grid: o que cada usina do supervisório tem, ao lado da usina do Tempo real que casa pelo nome
 let RAIOX = null;
 async function lerRaiox() { if (lerRaiox.indo || RAIOX) return; lerRaiox.indo = true; try { RAIOX = await pega("/api/sala/scada/raiox", 60000); } catch (e) { RAIOX = {erro: String(e && e.message || e)}; } finally { lerRaiox.indo = false; if (!SEL.u) redesenhar(); } }
@@ -1076,7 +1136,7 @@ function visaoGeral(us, bx) {
       ${!ABX ? `<div class="aviso">${lerAbaixo.indo ? "Calculando: a geração do mês por inversor é lida do banco e comparada dia a dia (a primeira vez do dia pode levar um minuto)." : "Não consegui ler o abaixo dos demais: " + esc(ABX_ERRO || "sem leitura") + ' <button class="btnl" data-denovo2="abx" style="margin-left:10px">Tentar de novo</button>'}</div>`
         : (ABX.paradas_erro ? `<div class="aviso">As paradas do COS não foram lidas agora: nenhum dia aparece como explicado.</div>` : "") + (BXM === "expl" ? tabExpl(expl) : tabBaixo(lb, true))}
       <div class="mais">${BXM === "top" && bx.length > 10 ? `Os 10 com mais dias sem explicação, de ${bx.length}.` : ""}</div></div>
-    <div class="sec" data-vgde="trk"><details class="rec" data-rec="raiox" ${REC.has("raiox") ? "open" : ""}><summary>Raio-x do SCADA da Grid <small>o que o supervisório tem de inversor, tracker e estação em cada usina</small></summary><div>${REC.has("raiox") ? (lerRaiox(), raioxHtml()) : ""}</div></details></div>
+    <div class="sec" data-vgde="trk"><details class="rec" data-rec="raiox" ${REC.has("raiox") ? "open" : ""}><summary>Raio-x do SCADA da Grid e do Monitoramento do COS <small>o que cada um lê, usina a usina, ao lado do Tempo real</small></summary><div>${REC.has("raiox") ? (lerRaiox(), lerCos(), raioxHtml() + cosHtml()) : ""}</div></details></div>
     <div class="sec"><details class="rec"><summary>Insights <small>ontem pararam ${nf(dia("ns", ontem))} strings e ${nf(dia("nt", ontem))} trackers novos</small></summary><div class="dois">
       <div><h2>Apareceu de novo <span class="chips">${chips("novo")}</span></h2><p>${MODO.novo === "s" ? "Strings que pararam em cada dia do mês." : "Paradas de tracker que começaram em cada dia."}</p>${barras(D.dias.map(d => ({d, v: dia(cfg[MODO.novo][1], d), parcial: d === ult})), "#ff8f3c", "Apareceu de novo")}</div>
       <div><h2>Em falha por dia <span class="chips">${chips("fora")}</span></h2><p>${MODO.fora === "s" ? "Strings paradas em cada dia (novas e as que já vinham)." : "Trackers parados em cada dia (novos e os que já vinham)."}</p>${barras(D.dias.map(d => ({d, v: dia(cfg[MODO.fora][2], d), parcial: d === ult})), "#7cb7ff", "Em falha por dia")}</div>
@@ -1115,6 +1175,7 @@ function detalhe(u, bx) {
   const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
   let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0)}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("cf", "Conferir fontes")}${aba("dp", "De-para")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
+  if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
   if (!dr && !["gp", "dp"].includes(ABA)) { cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : '<div class="carrega">Lendo os inversores, as strings, os trackers e a estação desta usina…</div>'); return; }
   if (ABA === "str") {
     // o que o Tempo real já guarda da usina: a quantidade em acompanhamento (digitada) e as OS de performance
@@ -1249,10 +1310,10 @@ function detalhe(u, bx) {
   } else if (ABA === "cf") {
     const c = D.conf.usinas[u.u];
     if (!c) { lerConf(u); h += '<div class="carrega">Lendo esta usina no SCADA da Grid…</div>'; }
-    else if (c.sit === "erro") h += `<div class="erro"><b>Não consegui conferir.</b> ${esc(c.erro)} <button class="btnl" data-denovo2="cf" style="margin-left:10px">Tentar de novo</button></div>`;
+    else if (c.sit === "erro") h += `<div class="erro"><b>Não consegui conferir pela API do SCADA da Grid.</b> ${esc(c.erro)} <button class="btnl" data-denovo2="cf" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, dr);
     else if (c.sit === "ja") h += `<div class="aviso">Esta usina já é lida do SCADA da Grid (a mesma leitura do Monitoramento do COS): não há uma segunda fonte para conferir.</div>`;
-    else if (c.sit === "fora") h += `<div class="aviso">Conferir fontes põe a fonte desta usina ao lado do SCADA da Grid (a mesma leitura do Monitoramento do COS), inversor a inversor. O SCADA não tem esta usina com este nome. Ele tem ${c.total} usinas hoje: ${esc(c.nomes.join(", "))}.</div>`;
-    else if (c.sit === "desigual") h += `<div class="aviso">O SCADA da Grid tem ${c.n_scada} inversores em "${esc(c.scada.nome)}" e a fonte desta tela tem ${c.n_fonte}: sem a mesma quantidade não dá para ligar um ao outro pela ordem. Falta o de-para desta usina com o SCADA.</div>`;
+    else if (c.sit === "fora") h += `<div class="aviso">Conferir fontes põe a fonte desta usina ao lado de uma segunda leitura, inversor a inversor. A API do SCADA da Grid (a da Automação, ${c.total} usinas) não tem esta usina com este nome; abaixo, o que o Monitoramento do COS lê dela.</div>` + cosConf(u, dr);
+    else if (c.sit === "desigual") h += `<div class="aviso">O SCADA da Grid tem ${c.n_scada} inversores em "${esc(c.scada.nome)}" e a fonte desta tela tem ${c.n_fonte}: sem a mesma quantidade não dá para ligar um ao outro pela ordem. Falta o de-para desta usina com o SCADA.</div>` + cosConf(u, dr);
     else { const l = c.l, dk = l.map(x => x.bkw == null || x.skw == null ? null : Math.abs(x.bkw - x.skw)), com = dk.filter(v => v != null), pior = com.length ? Math.max(...com) : null, dh = l.filter(x => x.bkwh && x.skwh && Math.abs(x.bkwh - x.skwh) / x.bkwh > .1).length, ds = l.filter(x => x.ss != null && x.bs !== x.ss).length, fora = l.filter(x => x.ok === false).length;
       h += `<div class="painel"><h3>${esc((NOME[u.g] || "").split(" · ")[1] || "A fonte")} × SCADA da Grid · lido às ${esc(c.quando)}</h3><p>O mesmo inversor nas duas fontes. O SCADA é a leitura de agora; a da fonte é a última do Tempo real (${esc(String(D.fresco.lido || "").slice(0, 5))}), então a potência pode diferir com nuvem passando. A ligação é pela ordem dos inversores (${esc(l[0].eq)} = ${esc(l[0].n)})${c.duas ? `, e o SCADA junta duas usinas em "${esc(c.scada.nome)}"` : ""}: é o de-para a confirmar.</p>
         <div class="lt2" style="grid-template-columns:150px 1fr"><span>Inversores</span><span>${l.length} nas duas fontes${fora ? ` · <b style="color:var(--violeta)">${fora} sem comunicação no SCADA</b>` : ""}</span>
@@ -1341,7 +1402,7 @@ document.addEventListener("click", e => {
     if (ABA === "trk") verT(SEL.u); else { const n1 = novasS(SEL.u)[0]; if (n1) { INV = n1.i; verS(SEL.u, INV); } }
     $("sino").open = false; desenhar(); scrollTo(0, 0); return; }
   if ((x = q("[data-denovo2]"))) { const k = x.dataset.denovo2, u = usinas()[0];
-    if (k === "ger" && u) delete GERF[u.u]; else if (k === "pot" && u) delete POTF[u.u]; else if (k === "pot2") D.pot = {usina: null}; else if (k === "cf" && u) delete D.conf.usinas[u.u]; else if (k === "abx") { ABX_ERRO = ""; lerAbaixo(); } else if (k === "disp") DISP_ERRO = ""; else if (k === "scada" && u) delete D.scada[u.u]; else if (k === "raiox") RAIOX = null;
+    if (k === "ger" && u) delete GERF[u.u]; else if (k === "pot" && u) delete POTF[u.u]; else if (k === "pot2") D.pot = {usina: null}; else if (k === "cf" && u) delete D.conf.usinas[u.u]; else if (k === "abx") { ABX_ERRO = ""; lerAbaixo(); } else if (k === "disp") DISP_ERRO = ""; else if (k === "scada" && u) delete D.scada[u.u]; else if (k === "raiox") RAIOX = null; else if (k === "cos") COS = null; else if (k === "cosi") { COSI = null; COSI_EM = 0; }
     desenhar(); return; }
   if ((x = q(".chip[data-q]"))) { MODO[x.dataset.q] = x.dataset.m; visaoGeral.aberto = true; desenhar(); return; }
   if ((x = q("[data-sdia]"))) { DIA = x.dataset.sdia; desenhar(); return; }

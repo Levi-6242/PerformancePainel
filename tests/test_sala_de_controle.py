@@ -47,7 +47,7 @@ def test_o_dado_nao_vem_embutido_nem_com_a_data_do_mockup():
     assert "let D = null;" in html and "/*DADOS*/" not in html
     assert 'const HOJE = isoDe(new Date())' in html
     assert "Date.UTC(2026" not in html and '"2026-11-16"' not in html
-    assert len(html) < 200_000                     # o mockup, com o dado dentro, passava de 1 MB
+    assert len(html) < 300_000                     # o mockup, com o dado dentro, passava de 1 MB
 
 
 def test_quem_grava_e_quem_a_plataforma_diz_e_o_gestor_so_le():
@@ -491,3 +491,18 @@ def test_a_ponte_do_nexus_le_o_novo_e_nao_marca_visto():
     import leitura_nexus as L
     assert L.permitido("GET", "/api/sala/novas")
     assert not L.permitido("POST", "/api/sala/visto") and not L.permitido("GET", "/api/sala/visto")
+
+
+def test_a_sala_le_o_que_o_monitoramento_do_cos_le():
+    """Levi, 16/11/2026: "A lista de usinas do Monitoramento do COS [...] puxe a lista". Não é a API do SCADA da
+    Automação: é a Ronda COS, que só o Nexus alcança. A tela lê do Nexus (mesma origem): a lista no raio-x e os inversores
+    do logger no Conferir fontes, quando a API do SCADA não tem a usina."""
+    html = _html()
+    assert 'nexusPega("/t/performance/sala-de-controle/cos/usinas")' in html
+    assert 'nexusPega("/t/performance/sala-de-controle/cos/inversores")' in html
+    assert "raioxHtml() + cosHtml()" in html and "O que o Monitoramento do COS lê" in html
+    cf = html[html.index('} else if (ABA === "cf") {'):html.index('} else if (ABA === "dp") {')]
+    assert cf.count("cosConf(u, dr)") == 3                     # sem a usina na API do SCADA, sem como ligar, ou com erro
+    assert "lerCosInv.indo || (COSI && Date.now() - COSI_EM < 30000)" in html      # sem laço: uma leitura a cada 30 s no máximo
+    assert "if (lerCos.indo || COS) return;" in html
+
