@@ -219,10 +219,13 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   Prova: `tests/test_thopen_comentarios_cos.py`.
 - **A janela da Disponibilidade do mês com a Thopen e a Grid (16/11/2026**, Levi: a coluna da planilha da Thopen, os
   comentários e "a disponibilidade grid, com as regras da grid... 7h30 às 17h30, porém mais baseados nas ocorrências do
-  COS"; todos veem, o cliente também): Data | Disponibilidade Thopen | Comentário | Disponibilidade Grid. A Thopen é o
-  número do dia (a planilha, no mês que tem a exceção; "—" no mês sem ela); a Grid é `_disp_grid` (a conta de
-  `_disp_dias` sem o fechamento e sem a exceção), ou o próprio número no mês sem a planilha (`por_dia[].disp_grid`,
-  `planilha_thopen` na resposta). O dia a 100% na planilha e com perda na Grid leva as paradas do COS no comentário.
+  COS"; todos veem, o cliente também; e "bota uma coluna de comentários para disponibilidade Grid também"): Data |
+  Disponibilidade Thopen | Comentário Thopen | Disponibilidade Grid | Comentário Grid. A Thopen é o número do dia (a
+  planilha, no mês que tem a exceção; "—" no mês sem ela) e o comentário dela é o do BD_Thopen (`_com_bd_mes`, o que a
+  equipe escreve); a Grid é `_disp_grid` (a conta de `_disp_dias` sem o fechamento e sem a exceção), ou o próprio número
+  no mês sem a planilha, e o comentário dela é o que formou a conta (as ocorrências do COS no dia com perda, a parada
+  fora do período solar no dia a 100%; na usina que a Grid conta pelo BD, o do BD). Na resposta: `planilha_thopen`,
+  `por_dia[].disp_grid`, `com_thopen` e `com_grid`.
   Prova: `tests/test_thopen_comentarios_cos.py` e `tests/test_thopen_disp_tabela.py`.
 - **Portfólio, PR e chuva (11/11/2026)**, três pedidos do Levi:
   - **Portfólio** ("Em capa quero um botão 'Portifólio' terá todas as usinas de todas as carteiras ordenado por ordem de

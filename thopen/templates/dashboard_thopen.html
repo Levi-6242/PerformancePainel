@@ -218,6 +218,7 @@
   .dp-tab{ width:100%; }
   /* 16/11/2026: com as colunas Thopen e Grid o cabeçalho quebra linha, e no celular a tabela rola dentro da janela */
   .dp-tab th{ white-space:normal; }
+  .dp-tab th:nth-child(3), .dp-tab th:nth-child(5){ width:36%; }   /* os dois comentários, a mesma largura */
   #dpCorpo{ overflow-x:auto; }
   @media (max-width:600px){ .dp-tab td.dp-com{ min-width:150px; } .dp-tab td, .dp-tab th{ padding:6px 5px; } }
   .dp-tab td.dp-com{ text-align:left; white-space:normal; color:#33363d; font-size:12px; line-height:1.45; }
@@ -2119,26 +2120,30 @@ function abrirDisponibilidade(){
   const ult=Math.max(...dias), mm=String(o.mes).padStart(2,'0');
   const pc=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
   const p2=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
-  // 16/11/2026 (Levi): Data | Disponibilidade Thopen (a planilha da Thopen; "—" no mês sem ela) | Comentário |
-  // Disponibilidade Grid (a nossa conta: as paradas registradas pelo COS de 07h30 a 17h30). Todos veem as duas
-  const tem=!!o.d.planilha_thopen;
-  let h='<table class="geral dp-tab"><thead><tr><th>Data</th><th>Disponibilidade Thopen</th><th>Comentário</th>'
-    +'<th>Disponibilidade Grid</th></tr></thead><tbody>';
+  // 16/11/2026 (Levi): Data | Disponibilidade Thopen (a planilha da Thopen; "—" no mês sem ela) | Comentário Thopen
+  // (o do BD_Thopen) | Disponibilidade Grid (a nossa conta: as paradas registradas pelo COS de 07h30 a 17h30) |
+  // Comentário Grid (o que formou a conta da Grid). Todos veem as duas
+  const tem=!!o.d.planilha_thopen, lst=a=>(a||[]).map(_opEsc).join('<br>');
+  let h='<table class="geral dp-tab"><thead><tr><th>Data</th><th>Disponibilidade Thopen</th><th>Comentário Thopen</th>'
+    +'<th>Disponibilidade Grid</th><th>Comentário Grid</th></tr></thead><tbody>';
   const gs=[];
   for(let n=1;n<=ult;n++){
     const r=pd[n]||{}, v=r.disp, g=r.disp_grid!==undefined?r.disp_grid:v, vt=tem?v:null;
     if(g!=null) gs.push(g);
-    const baixo=(v!=null&&v<100)||(g!=null&&g<100);
-    const com=!baixo?(r.fora_sol||[]).map(_opEsc).join('<br>'):(r.os==null?_CMT_SEM_PUB:r.os.map(_opEsc).join('<br>'));
+    const comT=tem?lst(r.com_thopen):'—';
+    // sem a planilha, o comentário da Grid é o de sempre: as OS / o relato no dia com perda, a parada fora do sol a 100%
+    const comG=tem?lst(r.com_grid):(!(v!=null&&v<100)?lst(r.fora_sol):(r.os==null?_CMT_SEM_PUB:lst(r.os)));
     h+=`<tr><td>${String(n).padStart(2,'0')}/${mm}</td><td class="dp-v${vt!=null&&vt<99?' baixa':''}">${pc(vt)}</td>`
-      +`<td class="dp-com">${com}</td><td class="dp-v${g!=null&&g<99?' baixa':''}">${pc(g)}</td></tr>`;
+      +`<td class="dp-com">${comT}</td><td class="dp-v${g!=null&&g<99?' baixa':''}">${pc(g)}</td>`
+      +`<td class="dp-com">${comG}</td></tr>`;
   }
   // a média com 2 casas, como o valor do card (94,66%, não 94,7%); a da Grid, a média dos dias dela
   const mt=tem&&o.d.disponibilidade!=null?o.d.disponibilidade:null;
   const mg=tem?(gs.length?gs.reduce((a,b)=>a+b,0)/gs.length:null):o.d.disponibilidade;
-  h+=`<tr class="tot"><td>Média do mês</td><td>${p2(mt)}</td><td class="dp-com">`
-    +`Thopen: a planilha da Thopen. Grid: as paradas registradas pelo COS, de 07h30 a 17h30, pela potência.</td>`
-    +`<td>${p2(mg)}</td></tr></tbody></table>`;
+  h+=`<tr class="tot"><td>Média do mês</td><td>${p2(mt)}</td><td class="dp-com">${tem?'A planilha da Thopen; o '
+    +'comentário é o do BD_Thopen.':'Sem a planilha da Thopen neste mês.'}</td><td>${p2(mg)}</td>`
+    +`<td class="dp-com">As paradas registradas pelo COS, de 07h30 a 17h30,`
+    +` pela potência.</td></tr></tbody></table>`;
   $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}${apuracaoTxt(o.d.apuracao)}`;
   $('dpCorpo').innerHTML=h;
   $('dpFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('dpX').focus();

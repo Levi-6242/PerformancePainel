@@ -43,7 +43,9 @@ def test_a_janela_tem_a_coluna_da_thopen_o_comentario_e_a_da_grid():
     # 16/11/2026 (Levi): Data | Disponibilidade Thopen | Comentário | Disponibilidade Grid, para todos; sem a planilha
     # do mês, a coluna Thopen fica "—"
     j = _corpo("abrirDisponibilidade")
-    assert ("<th>Data</th><th>Disponibilidade Thopen</th><th>Comentário</th>'" in j
-            and "'<th>Disponibilidade Grid</th></tr></thead><tbody>'" in j)
-    assert "const tem=!!o.d.planilha_thopen;" in j and "vt=tem?v:null" in j and "r.disp_grid" in j
-    assert "Grid: as paradas registradas pelo COS, de 07h30 a 17h30, pela potência." in j
+    # e cada número com o seu comentário: o da Thopen do BD_Thopen, o da Grid do COS
+    assert ("<th>Data</th><th>Disponibilidade Thopen</th><th>Comentário Thopen</th>'" in j
+            and "'<th>Disponibilidade Grid</th><th>Comentário Grid</th></tr></thead><tbody>'" in j)
+    assert "const tem=!!o.d.planilha_thopen" in j and "vt=tem?v:null" in j and "r.disp_grid" in j
+    assert "lst(r.com_thopen)" in j and "lst(r.com_grid)" in j
+    assert "As paradas registradas pelo COS, de 07h30 a 17h30," in j and "o comentário" in j

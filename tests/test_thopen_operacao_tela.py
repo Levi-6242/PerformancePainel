@@ -430,7 +430,7 @@ def test_comentario_de_outubro_em_diante_e_so_das_os_do_fracttal():
     # período solar
     assert "if(r.os!=null&&!r.os.length) return;" not in n and "'Indisponibilidade registrada sem o detalhe da parada.'" not in T
     assert "else if(r.fora_sol&&r.fora_sol.length) com[n]=r.fora_sol.join(" in n
-    assert "(r.fora_sol||[]).map(_opEsc)" in corpo("abrirDisponibilidade")
+    assert "lst(r.fora_sol)" in corpo("abrirDisponibilidade")
     assert "doOS" not in T and "cmt-os" not in T and '<div class="cmt-an">${_opEsc(x)}</div>' in n
     assert "O registro das paradas deste dia ainda não foi publicado." in T      # os null: a parcela não chegou
     # a usina sem a disponibilidade do Gerencial não ganha um "100%" inventado; o card carregando também não

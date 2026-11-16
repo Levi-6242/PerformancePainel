@@ -1606,6 +1606,20 @@ def _disp_grid(usina, ano, mes):
             or _disp_hist_carteira(usina, ano, mes) or {})
 
 
+def _com_bd_mes(usina, ano, mes):
+    """{data: [linhas]} do comentário do BD_Thopen de cada dia do mês (a aba diária; sem ela, o Histórico Carteira): o
+    "Comentário Thopen" da janela da disponibilidade (16/11/2026)."""
+    out = {}
+    for r in _daily_records(usina):
+        if (r["data"].year, r["data"].month) == (ano, mes):
+            linhas = [x.strip() for x in str(r.get("com") or "").splitlines() if x.strip()]
+            if linhas:
+                out[r["data"]] = linhas
+    for d, v in _com_hist_carteira(usina, ano, mes).items():
+        out.setdefault(d, v)
+    return out
+
+
 def _usinas_do_5080():
     return sorted({u for us in CARTEIRAS.values() for u in us})
 
@@ -2105,7 +2119,9 @@ def api_operacao():
     # o mês com a planilha da Thopen (a exceção) mostra também a conta da Grid (16/11/2026)
     planilha = _so_os_fracttal(ano, mes) and disp_excecao.por_dia(usina, ano, mes) is not None
     r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp,
-                              grid=_disp_grid(usina, ano, mes) if planilha else None, **_da_parte(usina))
+                              grid=_disp_grid(usina, ano, mes) if planilha else None,
+                              com_bd=_com_bd_mes(usina, ano, mes) if planilha else None, grid_bd=pelo_bd,
+                              **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     r["apuracao"] = disp_fechamento.situacao(ano, mes)       # "em apuração até 10/12" ou "fechado em 13/11"
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela

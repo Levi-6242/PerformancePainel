@@ -182,16 +182,30 @@ def test_a_aba_das_ocorrencias_entra_so_com_as_colunas_sem_nome():
 
 
 # ── a janela: Disponibilidade Thopen | Comentário | Disponibilidade Grid (16/11/2026) ─────────────────────────────────
-def test_no_mes_da_planilha_vem_a_conta_da_grid_e_o_motivo_do_dia_que_so_ela_ve(_card, monkeypatch):
+def test_no_mes_da_planilha_cada_numero_tem_o_seu_comentario(_card, monkeypatch):
     monkeypatch.setattr(operacao_mes, "disp_por_dia", lambda *a, **k: {D1: 90.0, D2: 90.0, D3: 70.0})
     r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9),
-                              disp={D1: 100.0, D2: 80.0, D3: 100.0}, grid={D1: 90.0, D2: 90.0, D3: 100.0})
+                              disp={D1: 100.0, D2: 80.0, D3: 100.0}, grid={D1: 90.0, D2: 90.0, D3: 100.0},
+                              com_bd={D2: ["Inversor 3: de 08:00 a 10:00"]})
     dia = {p["dia"]: p for p in r["por_dia"]}
     assert r["planilha_thopen"] is True
     assert [(dia[k]["disp"], dia[k]["disp_grid"]) for k in ("01/10", "02/10", "03/10")] == [(100.0, 90.0), (80.0, 90.0),
                                                                                            (100.0, 100.0)]
-    # 01/10: 100% na planilha e perda na Grid: o motivo (o relato do COS) vai junto; 03/10: 100% nas duas, nada
-    assert dia["01/10"]["os"][0].startswith("Usina desligada de 01/10") and dia["03/10"]["os"] == []
+    # o da Thopen é o do BD_Thopen; o da Grid, o relato do COS (ou as OS) no dia com perda na conta da Grid
+    assert dia["02/10"]["com_thopen"] == ["Inversor 3: de 08:00 a 10:00"] and dia["01/10"]["com_thopen"] == []
+    assert dia["01/10"]["com_grid"][0].startswith("Usina desligada de 01/10")
+    assert dia["02/10"]["com_grid"] == ["OS 2 - linha seca"] and dia["03/10"]["com_grid"] == []
+    # a tabela de Comentários (o número do cliente) não muda: 01/10 está a 100% na planilha
+    assert dia["01/10"]["os"] == []
+
+
+def test_a_usina_que_a_grid_conta_pelo_bd_leva_o_comentario_do_bd_na_grid(_card):
+    bd = ({D1: 50.0}, {D1: ["Desligamento usina - 01/10 08:00 às 13:00"]})
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9), bd=bd, disp={D1: 80.0},
+                              grid={D1: 50.0}, com_bd={D1: ["Desligamento usina - 01/10 08:00 às 13:00"]},
+                              grid_bd=True)
+    p = {p["dia"]: p for p in r["por_dia"]}["01/10"]
+    assert p["com_grid"] == ["Desligamento usina - 01/10 08:00 às 13:00"] == p["com_thopen"]
 
 
 def test_sem_a_planilha_a_coluna_grid_e_o_proprio_numero(_card):

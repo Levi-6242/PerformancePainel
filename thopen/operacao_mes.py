@@ -834,7 +834,8 @@ def _mes_info(dados, ano, mes, hoje):
     return parcial, a.get("atualizado_em")
 
 
-def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, disp=None, grid=None):
+def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, disp=None, grid=None, com_bd=None,
+             grid_bd=False):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
     {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026). `pot_kwp`: a
     potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026). `disp` = {dia: disp %}
@@ -875,31 +876,45 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
     # rodada 4: Disp (%) e a ronda do dia na tabela; a disponibilidade do mês é a média dos dias — a mesma conta do
     # Gerencial (HORAS_SOL por dia, 10 h desde 05/11/2026: 100·(1 − Σh/10n) é a média dos dias)
     dsp = disp if disp is not None else (disp_por_dia(dados, nome, ano, mes, pot_kwp) if bd is None else bd[0])
-    if bd is None:
-        # o relato do COS vence a frase seca das OS no mesmo dia (09/11/2026)
-        osd, cos = os_por_dia(dados, nome, ano, mes, trips, pot_kwp), cos_por_dia(dados, nome, ano, mes)
+    cos_osd = None
+    if bd is None or grid is not None:
+        # o relato do COS vence a frase seca das OS no mesmo dia (09/11/2026); no mês da planilha ele vai também ao
+        # "Comentário Grid" da usina pelo BD (16/11/2026)
+        cos_osd, cos = os_por_dia(dados, nome, ano, mes, trips, pot_kwp), cos_por_dia(dados, nome, ano, mes)
         if cos:
-            osd = {**(osd or {}), **cos}
-    else:
-        osd = bd[1]
+            cos_osd = {**(cos_osd or {}), **cos}
+    osd = cos_osd if bd is None else bd[1]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], osd)
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
     # a "Disponibilidade Grid" da janela (16/11/2026, Levi: a coluna da planilha da Thopen, os comentários e "a
     # disponibilidade grid, com as regras da grid... 7h30 às 17h30, porém mais baseados nas ocorrências do COS"; todos
     # veem). `grid` = {dia: disp %} pela nossa conta quando o número do mês é o da planilha (a exceção); sem a planilha, a
-    # coluna Grid é o próprio número do dia. O dia a 100% na planilha e com perda na conta da Grid leva as paradas dela
+    # coluna Grid é o próprio número do dia. E cada número com o seu comentário (Levi: "tem algum jeito da disponibilidade
+    # Thopen e a Grid terem comentários diferentes? Se sim, bota uma coluna de comentários para disponibilidade Grid
+    # também"): no mês da planilha, `com_thopen` = o comentário do BD_Thopen do dia (`com_bd`, o que a equipe escreve) e
+    # `com_grid` = o que formou a conta da Grid (as ocorrências do COS no dia com perda, a parada fora do período solar
+    # no dia a 100%; na usina que a Grid conta pelo BD, `grid_bd`, o comentário do BD)
     r["planilha_thopen"] = grid is not None
     gr = {d.strftime("%d/%m"): round(v, 1) for d, v in (grid or {}).items()}
-    oss = {d.strftime("%d/%m"): v for d, v in (osd or {}).items()} if bd is None else {}
+    fs = ({d.strftime("%d/%m"): v for d, v in fora_do_sol_por_dia(dados, nome, ano, mes).items()}
+          if bd is None or (grid is not None and not grid_bd) else {})
+    bdd = {d.strftime("%d/%m"): v for d, v in (com_bd or {}).items()}
+    cosd = {d.strftime("%d/%m"): v for d, v in (cos_osd or {}).items()}
+    bdg = {d.strftime("%d/%m"): v for d, v in (bd[1] if (grid_bd and bd is not None) else {}).items()}
     for p in r["por_dia"]:
         p["disp_grid"] = gr.get(p["dia"]) if grid is not None else p.get("disp")
-        if (grid is not None and p.get("disp") is not None and p["disp"] >= 100 and p["disp_grid"] is not None
-                and p["disp_grid"] < 100 and oss.get(p["dia"])):
-            p["os"] = list(oss[p["dia"]])
+        if grid is not None:
+            g = p["disp_grid"]
+            p["com_thopen"] = list(bdd.get(p["dia"]) or [])
+            if grid_bd:
+                p["com_grid"] = list(bdg.get(p["dia"]) or [])
+            elif g is not None and g < 100:
+                p["com_grid"] = list(cosd.get(p["dia"]) or [])
+            else:
+                p["com_grid"] = list(fs.get(p["dia"]) or [])
     if bd is None:
         # o dia a 100% com parada fora do período solar leva a parada assim mesmo (16/11/2026, fora_do_sol_por_dia)
-        fs = {d.strftime("%d/%m"): v for d, v in fora_do_sol_por_dia(dados, nome, ano, mes).items()}
         for p in r["por_dia"]:
             if p.get("disp") is not None and p["disp"] >= 100 and fs.get(p["dia"]):
                 p["fora_sol"] = list(fs[p["dia"]])

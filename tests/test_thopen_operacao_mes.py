@@ -371,7 +371,8 @@ def test_resposta_nunca_leva_o_numero_da_os_nem_texto_da_os():
     # rodada 4: + disp e ronda; 13/10: + os (o registro da OS do dia abaixo de 100%, sem o nº); 16/11: + disp_grid (a
     # coluna Grid da janela) e, só no dia a 100% com parada fora do período solar, fora_sol
     assert all({"dia", "strings", "trackers", "disp", "ronda", "os", "disp_grid"} <= set(p)
-               <= {"dia", "strings", "trackers", "disp", "ronda", "os", "disp_grid", "fora_sol"} for p in r["por_dia"])
+               <= {"dia", "strings", "trackers", "disp", "ronda", "os", "disp_grid", "fora_sol", "com_thopen",
+                   "com_grid"} for p in r["por_dia"])
     assert all(isinstance(a, str) for a in r["avisos"])
 
 
