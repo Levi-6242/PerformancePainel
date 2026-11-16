@@ -30999,9 +30999,132 @@ def painel_falhas():
 def painel_sala_de_controle():
     # A Sala de controle da Performance (16/11/2026; docs/sala-de-controle.md e o desenho aprovado em
     # docs/mockups/sala-de-controle): as fontes do tempo real na lateral, a visão geral em abas e a usina com as strings,
-    # os trackers e a estação. Entrega 1: só leitura, com as rotas que já existem (a tela não tem rota de dado própria).
+    # os trackers e a estação. Lê pelas rotas que já existiam e grava pelas do Tempo real; as três rotas dela (/api/sala/*)
+    # vêm logo abaixo.
     # Debaixo do /painel pelo mesmo motivo do /painel/falhas (o Caddy do app.gridco.com.br).
     return render_template("sala_controle.html")
+
+
+# ── Sala de controle, entrega 3 (16/11/2026): o que a tela precisava e a plataforma ainda não dizia. A regra mora em
+#    sala_controle.py; aqui só a ligação com a sessão, o pacote de falhas e o SCADA da Grid. ─────────────────────────
+import sala_controle as _sala  # noqa: E402
+_SALA_VISTOS = _sala.Vistos(_p_dado("sala_visto.json"), _replace_atomico)
+_sala_idade_mem = {"marca": None, "dado": None}
+_sala_idade_lock = threading.Lock()
+_sala_scada_mem = {"ts": 0.0, "lista": None}
+SALA_SCADA_TTL = 600            # a lista de usinas do SCADA (2 chamadas) vale 10 min; a leitura da usina é sempre a de agora
+
+
+def _sala_pessoa():
+    """(id, nome) de quem está na sessão para o visto: o e-mail e o nome de quem entrou pelo Nexus (ou Microsoft); a
+    senha compartilhada é "uma pessoa só" (`sala_controle.SEM_IDENTIDADE`)."""
+    ident = _ident_da_sessao()
+    return (ident["email"], ident["nome"]) if ident else (_sala.SEM_IDENTIDADE, "")
+
+
+@app.route("/api/sala/visto", methods=["GET", "POST"])
+def api_sala_visto():
+    """GET: o `desde` de quem abre a tela e quem já viu cada ocorrência (para todos verem e não abrirem OS em dobro).
+    POST {"chaves": [...]}: marca como vistas por quem está na sessão. É estado da PESSOA (o que ela já olhou), não dado
+    da Performance: o gestor também marca (`leitura_nexus.POSTS_DE_CONSULTA_GESTOR`); a chave de leitura da ponte, não."""
+    pid, nome = _sala_pessoa()
+    agora = datetime.now()
+    try:
+        if flask_request.method == "POST":
+            body = flask_request.get_json(force=True, silent=True) or {}
+            chaves = body.get("chaves")
+            if not isinstance(chaves, list):
+                return jsonify({"ok": False, "motivo": "chaves: uma lista"}), 400
+            return jsonify({"ok": True, "marcadas": _SALA_VISTOS.marcar(pid, nome, chaves, agora)})
+        return jsonify({"ok": True, **_SALA_VISTOS.da_pessoa(pid, nome, agora)})
+    except (OSError, ValueError) as e:
+        return jsonify({"ok": False, "motivo": f"o registro do visto não abriu ({type(e).__name__})"}), 500
+
+
+@app.route("/api/sala/exportar", methods=["POST"])
+def api_sala_exportar():
+    """O "Exportar Excel" da Geração e PR e da Potência: a tela manda o que mostra (as datas na 1ª coluna, os inversores
+    em colunas, a irradiação noutra aba) e o servidor só formata o .xlsx (`sala_controle.planilha`). Consulta, não
+    gravação: o gestor também baixa. Fora do formato ou dos limites: 400 com o motivo; corpo grande demais: 413."""
+    tam = flask_request.content_length
+    if tam is None or tam > _sala.EXPORT_CORPO_MAX:
+        return jsonify({"ok": False, "motivo": f"corpo de até {_sala.EXPORT_CORPO_MAX // (1024 * 1024)} MB, com o tamanho declarado"}), 413
+    try:
+        wb, arquivo = _sala.planilha(flask_request.get_json(silent=True))
+    except _sala.ExportRecusado as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    return _xlsx_resp(wb, arquivo)
+
+
+@app.route("/api/sala/idade")
+def api_sala_idade():
+    """Desde quando vem parada cada string que já estava parada no dia 1 do mês corrente (`sala_controle.idade_real`),
+    seguindo os pacotes de falhas publicados para trás. Guardado enquanto os arquivos dos meses não mudam: são ~3 MB de
+    JSON por mês, e ler isso a cada abertura seria trabalho pesado no web."""
+    meses = sorted(_falhas_meses(), reverse=True)
+    marca = []
+    for m in meses:
+        try:
+            marca.append((m, os.path.getmtime(_falhas_arquivo(m))))
+        except OSError:
+            marca.append((m, None))
+    marca = tuple(marca)
+    with _sala_idade_lock:
+        if _sala_idade_mem["marca"] == marca and _sala_idade_mem["dado"] is not None:
+            return jsonify(_sala_idade_mem["dado"])
+        pacotes = []
+        for m, mt in marca:
+            b = _falhas_bytes(m) if mt else None
+            if not b:
+                break                                   # mês sem pacote: a cadeia para aqui (nada de pular mês)
+            try:
+                p = json.loads(b)
+            except ValueError:
+                break
+            pacotes.append({"periodo": p.get("periodo"), "strings": {"episodios": (p.get("strings") or {}).get("episodios") or []}})
+        dado = {"ok": True, "meses": [m for m, _ in marca][:len(pacotes)], **_sala.idade_real(pacotes)}
+        _sala_idade_mem.update(marca=marca, dado=dado)
+    return jsonify(dado)
+
+
+def _sala_scada_lista():
+    agora = time.time()
+    if _sala_scada_mem["lista"] is None or agora - _sala_scada_mem["ts"] > SALA_SCADA_TTL:
+        _sala_scada_mem.update(ts=agora, lista=_sg.descobrir())
+    return _sala_scada_mem["lista"]
+
+
+@app.route("/api/sala/conferir")
+def api_sala_conferir():
+    """Conferir fontes: a leitura de AGORA da usina no SCADA da Grid (a mesma do Monitoramento do COS), inversor a
+    inversor, para a tela pôr ao lado da fonte dela. ?usina=<nome no Tempo real>&fonte=<a chave da fonte da tela>.
+    A usina que JÁ é lida do SCADA (GreenYellow, Sal, Apolo) não tem segunda fonte; a que o SCADA não tem, também não.
+    Lê o SCADA em série com o resto da plataforma (`scadagridco.get`): 1 chamada, mais 2 a cada 10 min para a lista."""
+    usina = " ".join((flask_request.args.get("usina") or "").split())
+    fonte = (flask_request.args.get("fonte") or "").strip()
+    if not usina:
+        return jsonify({"ok": False, "motivo": "informe a usina"}), 400
+    if fonte in _sg.FONTES:
+        return jsonify({"ok": True, "situacao": "ja_e_scada"})
+    if not _sg.configurado():
+        return jsonify({"ok": False, "motivo": "sem a chave do SCADA da Grid nesta máquina"}), 503
+    try:
+        lista = _sala_scada_lista()
+        x = _sala.usina_do_scada(usina, lista)
+        nomes = sorted(str(i.get("nome") or i.get("id")) for i in lista)
+        if not x:
+            return jsonify({"ok": True, "situacao": "fora_do_scada", "scada_total": len(lista), "scada_nomes": nomes})
+        if x.get("via") == "mqtt":
+            d = _sg.get(f"/api/mqtt/{x['id']}")
+            leituras = [_sg.leitura_mqtt(e) for e in (d.get("equipamentos") or []) if e.get("tipo") == "inverter"]
+        else:
+            d = _sg.get(f"/api/inversores/{x['id']}")
+            leituras = [_sg.leitura_modbus(u) for u in (d.get("units") or [])]
+    except Exception as e:                                       # noqa: BLE001 — o SCADA fora é dito, não vira "sem dado"
+        return jsonify({"ok": False, "motivo": f"o SCADA da Grid não respondeu ({type(e).__name__}: {str(e)[:120]})"}), 502
+    return jsonify({"ok": True, "situacao": "conferir", "scada": {"id": x["id"], "nome": x.get("nome"), "via": x.get("via")},
+                    "cobre": x["cobre"], "duas": x["duas"], "leituras": _sala.leituras_para_conferir(leituras),
+                    "quando": datetime.now().strftime("%H:%M"), "scada_total": len(lista)})
 
 
 @app.route("/api/painel/falhas")

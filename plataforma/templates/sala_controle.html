@@ -368,9 +368,7 @@
   .grade2 .sec h2{margin-bottom:8px}.grade2 .sec>p{display:none}
   @media (max-width:1250px){.grade2{grid-template-columns:1fr}}
 
-  /* O que é da entrega 3 não aparece (nada de número ou botão de mentira) */
-  #sino,.nota,[data-aba="bx"],[data-aba="gp"],[data-aba="pot"],[data-aba="cf"],[data-aba="dp"],[data-vg="ger"],[data-kpi="bx"]{display:none !important}
-  .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dpj{display:block;width:100%;height:min(860px,calc(100vh - 200px));min-height:520px;border:0;border-radius:12px;background:var(--fundo)}
   /* quem só lê (perfil de gestor, chave de leitura): sem caixa de marcar, sem barra de OS, sem campo de comentário */
   .soleitura .selinv,.soleitura div.acao,.soleitura #novoComent,.soleitura #nickComent,.soleitura .delc{display:none !important}
   .soleitura .st{cursor:default}.soleitura .st:hover{outline:0}
@@ -384,7 +382,6 @@
   html[data-tema="claro"]{--fundo:#ffffff;--sup:#eef1f5;--linha:rgba(15,23,42,.10);--linha2:rgba(15,23,42,.18);--tinta:#0f172a;--mudo:#475569;--fraco:#64748b;
     --verde:#566610;--ok:#15803d;--alerta:#a16207;--severo:#c2410c;--critico:#be123c;--info:#1d4ed8;--violeta:#6d28d9;--rolagem:#c7cdd8;--rolagem-hover:#aab2c0}
   /* o cartão Novo (ocorrências desde a última vez) é da entrega 3 */
-  .prio{grid-template-columns:repeat(3,minmax(0,1fr))}.prio .pc:first-child{display:none}
 </style>
 </head>
 <body>
@@ -415,7 +412,6 @@
     <div class="aviso" id="aviso0" hidden style="margin:0 0 12px">Não consegui ler as falhas do mês agora: "há quanto tempo", os Insights e a perda ficam vazios até a próxima leitura.</div>
     <div class="kpis" id="kpis"></div>
     <div id="corpo"></div>
-    <div class="nota">Mockup com o dado real de 16/11/2026. O detalhe por usina foi carregado só para a fonte Thopen · Banco de dados e para a CPP100 (Capitão Poço, 7 cabines); as curvas (strings e trackers), o "quando parou" e as OS, só para a Ipixuna 1. São leituras do banco, sem custo. As ocorrências novas contam desde sexta 13/11 às 18:00, como se fosse a última vez que você olhou. Trancar string, a quantidade em acompanhamento e o comentário funcionam na tela, mas aqui não gravam. ETM com alarme: São Bento V. OS de performance no cartão do inversor: Ipixuna 2, Inversor 2.2. Conferir fontes: Aparecida do Taboado 1 e 2. De-para: Altair (Thopen · API PV). Geração e PR, Potência e o histórico de OS de recomposição foram carregados para a Ipixuna 1 (e as OS de parte da Ipixuna 2: o Inversor 2.13 tem OS recente).</div>
   </main>
 </div>
 <script>
@@ -439,10 +435,10 @@ async function pega(url, ms) {
 }
 const CLI = {"2C": "2c", "SEMP": "semp", "Alves Lima": "alveslima", "Sal Energia": "salenergia", "Axis": "axis", "Athon": "athon", "Renogrid": "renogrid", "RenoGrid": "renogrid", "Apolo": "apolo", "Greenyellow": "greenyellow", "GreenYellow": "greenyellow"};
 // o pacote de falhas do mês (Strings e trackers) vira o que a visão geral precisa: por dia, a idade de cada parada, a perda
-function montar(ent, fal) {
+function montar(ent, fal, idr, vis) {
   const grupos = (ent.grupos || []).map(g => ({id: g.fonte_id, usinas: (g.usinas || []).map(u => { const al = u.etm_alarmes == null ? (u.etm_alarme ? 1 : 0) : Array.isArray(u.etm_alarmes) ? u.etm_alarmes.length : +u.etm_alarmes || 0;
     return {u: u.usina, pid: u.plant_id, st: u.status, causa: u.causa || "", sf: +u.strings_faltando || 0, sa: +u.strings_acomp || 0, sn: +u.strings_nao_rec || 0, tp: +u.trk_parados || 0, to: +u.trk_com_os || 0, ea: al, eo: !!u.etm_os, inv: +u.qtd_inversores || 0, off: +u.inv_off || 0}; })})).filter(g => NOME[g.id]);
-  const d = {fresco: {ttl_s: ent.ttl_s, lido: ent.cache_ts || ""}, grupos, falhas_em: "", dias: [], serie: [], perda: [], idade: [], baixos: [], eps: {}, drill: {}, curvas: {}, etmG: {}, estado: {acomp: {}, coment: {}, os: {}},
+  const d = {fresco: {ttl_s: ent.ttl_s, lido: ent.cache_ts || ""}, grupos, falhas_em: "", dias: [], serie: [], perda: [], idade: [], baixos: [], eps: {}, drill: {}, curvas: {}, etmG: {}, estado: {acomp: {}, coment: {}, os: {}, osErro: {}},
     trkc: {usina: null, dias: {}}, trkp: [], trkRows: [], novas: {desde: "", s: [], t: []}, osHist: {}, osHistFalhou: [], osHistMotivo: {}, curva: {usina: null, dia: "", inv: {}}, curvaDias: {}, conf: {usinas: {}, scada_total: 0, scada_nomes: []}, depara: {usina: null}, ger: {usina: null}, pot: {usina: null}, insp: {usina: null, eps: {}, paradas: {}, abertas: []}};
   if (!fal || !fal.strings) return d;
   const dono = {}, db = new Set(); grupos.forEach(g => g.usinas.forEach(u => { if (!(u.u in dono)) dono[u.u] = g.id; if (g.id === "thopen-db") db.add(u.u); }));
@@ -457,16 +453,128 @@ function montar(ent, fal) {
   d.perda = Object.entries(perda).filter(([, v]) => v > 0).map(([k, v]) => { const [g, u, tp] = k.split("|"); return {g, u, t: tp, kwh: Math.round(v)}; });
   // a idade: a string que seguia parada no último dia fechado; quem já vinha parado no 1º dia do mês sai como "desde antes"
   const hoje = isoDe(new Date()), fechados = d.dias.filter(x => x < hoje), ult = fechados[fechados.length - 1], d1mes = d.dias[0];
-  const ab = {}; (fal.strings.episodios || []).forEach(e => { if (!ult || e.d1 < ult) return; const k = grupo(e) + "|" + e.usina + "|" + e.inversor, a = ab[k] = ab[k] || {n: 0, d0: "9999", kwh: 0}; a.n++; if (e.d0 < a.d0) a.d0 = e.d0; a.kwh += e.perda_kwh || 0; });
+  // a idade REAL (entrega 3): quem já vinha parado no dia 1 ganha a data em que parou de verdade (/api/sala/idade segue os
+  // pacotes dos meses anteriores). Sem essa leitura, ou com a cadeia no fim do que há publicado, fica "desde antes".
+  const real = (idr && idr.strings) || null;
+  const re0 = e => { if (e.d0 !== d1mes) return {d0: e.d0, ini: e.inicio || e.d0, antes: false}; const r = real && real[e.usina + "|" + e.inversor + "|" + e.string]; return r ? {d0: r.d0, ini: r.inicio || r.d0, antes: !!r.antes} : {d0: e.d0, ini: e.inicio || e.d0, antes: true}; };
+  const ab = {}; (fal.strings.episodios || []).forEach(e => { if (!ult || e.d1 < ult) return; const k = grupo(e) + "|" + e.usina + "|" + e.inversor, a = ab[k] = ab[k] || {n: 0, d0: "9999", kwh: 0, antes: false}, r = re0(e); a.n++; if (r.d0 < a.d0) a.d0 = r.d0; if (r.antes) a.antes = true; a.kwh += e.perda_kwh || 0; });
   const oss = {}; (fal.strings_os || []).forEach(o => { (oss[o.usina + "|" + o.inversor] = oss[o.usina + "|" + o.inversor] || []).push(o); });
   const dd = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 864e5);
   d.idade = Object.entries(ab).map(([k, a]) => { const [g, u, i] = k.split("|"), abertas = (oss[u + "|" + i] || []).filter(o => !/^(conclu|cancel)/i.test(o.status || "")).sort((x, y) => String(x.data_evento).localeCompare(String(y.data_evento))), o = abertas[0];
-    return {g, u, i, n: a.n, d0: a.d0, dias: dd(hoje, a.d0), antes: a.d0 === d1mes, kwh: Math.round(a.kwh), os: o ? {n: o.os, st: o.status, d: o.data_evento, dias: dd(hoje, o.data_evento)} : null}; }).sort((x, y) => y.dias - x.dias || y.n - x.n);
+    return {g, u, i, n: a.n, d0: a.d0, dias: dd(hoje, a.d0), antes: a.antes, kwh: Math.round(a.kwh), os: o ? {n: o.os, st: o.status, d: o.data_evento, dias: dd(hoje, o.data_evento)} : null}; }).sort((x, y) => y.dias - x.dias || y.n - x.n);
   d.mesIni = d1mes || "";
-  (fal.strings.episodios || []).forEach(e => { (d.eps[e.usina + "|" + e.inversor] = d.eps[e.usina + "|" + e.inversor] || []).push({s: e.string, d0: e.d0, d1: e.d1, ini: e.inicio || e.d0, dias: e.dias || 0, kwh: e.perda_kwh || 0, aberta: !!ult && e.d1 >= ult}); });
+  d.idadeAte = (idr && idr.ate) || d1mes || ""; d.osMes = oss; d.donoDe = u => dono[u] || "?";
+  (fal.strings.episodios || []).forEach(e => { const r = re0(e); (d.eps[e.usina + "|" + e.inversor] = d.eps[e.usina + "|" + e.inversor] || []).push({s: e.string, d0: r.d0, d1: e.d1, ini: r.ini, antes: r.antes, dias: e.dias || 0, kwh: e.perda_kwh || 0, aberta: !!ult && e.d1 >= ult, g: grupo(e), k: "s|" + e.usina + "|" + e.inversor + "|" + e.string + "|" + r.d0}); });
   d.trkRows = fal.trackers.rows || [];
+  // O NOVO, por pessoa (entrega 3; Levi: "ocorrência nova. E aí quando eu clico para ver, já some"): o que parou desde a
+  // 1ª vez que ESTA pessoa abriu a tela, segue parado e ela ainda não abriu. Quem viu fica guardado para todos verem.
+  d.vis = vis || {eu: null, vistos: {}};
+  const desde = d.vis.eu ? d.vis.eu.desde : "", meu = k => (d.vis.vistos[k] || []).some(x => x.eu);
+  d.novas.desde = desde;
+  if (desde) {
+    Object.entries(d.eps).forEach(([ui, l]) => { const [u, i] = ui.split("|"); l.forEach(e => { if (e.aberta && String(e.ini) >= desde && !meu(e.k)) d.novas.s.push({g: e.g, u, i, s: e.s, d: e.d0, k: e.k}); }); });
+    d.trkRows.forEach(r => { if (r.fim) return; const k = "t|" + r.usina + "|" + r.tracker + "|" + String(r.inicio).slice(0, 10); if (String(r.inicio) >= desde && !meu(k)) d.novas.t.push({g: grupo(r), u: r.usina, tk: r.tracker, d: String(r.inicio).slice(0, 10), k}); });
+  }
   return d;
 }
+// ── O que vem depois do tempo real, cada um na sua hora e sem segurar a tela (entrega 3) ──────────────────────────
+// (a) Abaixo dos demais: a conta é do Nexus (a mesma da aba Baixa performance da Coletas: os BDs do banco e as paradas do
+//     COS). A tela lê de lá, pela mesma origem; fora do Nexus (aberta direto pela senha) não há sessão dele e a tela diz.
+let ABX = null, ABX_EM = 0, ABX_ERRO = "";
+function poeAbaixo() {
+  if (!D) return;
+  D.baixos = !ABX ? [] : (ABX.linhas || []).map(x => ({g: D.donoDe(x.usina), u: x.usina, i: x.inversor, n: x.n, sem: x.n_sem, expl: x.n - x.n_sem, pior: x.pior, media: x.media, ult: x.ultimo, base: x.base,
+    str: (D.eps[x.usina + "|" + x.inversor] || []).filter(e => e.aberta).length, dias: x.dias || []}));
+}
+async function lerAbaixo() {
+  if (lerAbaixo.indo) return;
+  lerAbaixo.indo = true;
+  try { const r = await fetch("/t/performance/sala-de-controle/abaixo?mes=" + HOJE.slice(0, 7), {credentials: "same-origin", headers: {Accept: "application/json"}});
+    const j = /json/.test(r.headers.get("content-type") || "") ? await r.json() : null;
+    if (!j) throw new Error("esta leitura é do Nexus: abra a Sala de controle pela Performance do Nexus");
+    if (!r.ok || j.erro) throw new Error(j.erro || (r.status === 403 ? "sem acesso a esta leitura no Nexus" : "o Nexus respondeu " + r.status));
+    ABX = j; ABX_EM = Date.now(); ABX_ERRO = ""; }
+  catch (e) { ABX_ERRO = String(e && e.message || e); }
+  finally { lerAbaixo.indo = false; poeAbaixo(); if (D) redesenhar(); }
+}
+// (b) Geração do mês por inversor (o histórico que o Tempo real já tem) e o PR de hoje, este só quando a pessoa pede
+const GERL = {}, GERF = {}, PR_DE = {pg: "/api/pg/pr/", pv: "/api/pv/pr/", sunop: "/api/sunop/pr/", axis: "/api/axis/pr/", solaredge: "/api/solaredge/pr/"};
+async function lerGer(u) {
+  if (D.ger.usina === u.u || GERL[u.u]) return;
+  GERL[u.u] = 1; delete GERF[u.u];
+  try { const g = await pega("/api/" + SKEY[u.g] + "/inversores/historico/" + encodeURIComponent(u.pid) + "?usina=" + encodeURIComponent(u.u) + "&mes=" + HOJE.slice(0, 7), 300000);      // frio, o servidor leva até uns 3 min (16/11/2026: 212 s na Ipixuna 1; depois, 0,2 s por 10 min)
+    if (g.erro) throw new Error(g.erro);
+    const dias = g.dias || [], G = {usina: u.u, dias: dias.map(x => x.data), ipoa: dias.map(x => x.ipoa ?? null), inv: {}, kwp: {}, hoje: {}, pr: null, motivo: g.motivo || ""};
+    Object.keys(g.inversores || {}).forEach(n => { G.inv[n] = dias.map(x => { const v = (x.inv || {})[n]; return v && v.ger != null ? v.ger : null; }); G.kwp[n] = g.inversores[n].pot_kwp || null; });
+    D.ger = G; }
+  catch (e) { GERF[u.u] = String(e && e.message || e); }
+  finally { delete GERL[u.u]; if (SEL.u === u.u) redesenhar(); }
+}
+async function lerPr(u) {
+  const G = D.ger; if (G.usina !== u.u || G.pr || lerPr.indo) return;
+  const rota = PR_DE[SKEY[u.g]];
+  if (!rota) { G.pr = {erro: "Esta fonte não tem PR por inversor."}; return; }
+  lerPr.indo = true;
+  try { const p = await pega(rota + encodeURIComponent(u.pid), 120000);
+    (p.inversores || []).forEach(i => { G.hoje[i.nome] = [i.geracao_kwh ?? null, i.pr ?? null]; if (!G.kwp[i.nome] && i.pot_kwp) G.kwp[i.nome] = i.pot_kwp; });
+    G.pr = {ok: true, data: p.data || HOJE}; }
+  catch (e) { G.pr = {erro: "Não consegui ler o PR de hoje: " + String(e && e.message || e)}; }
+  finally { lerPr.indo = false; if (SEL.u === u.u) redesenhar(); }
+}
+// (c) Potência ativa de hoje, do relatório de potência que a plataforma já tem (as fontes com histórico por inversor)
+const POTL = {}, POTF = {}, PA_FONTE = {"thopen-pv": "pv", "thopen-db": "pg", renogrid: "solaredge", semp: "semp", alveslima: "alveslima", greenyellow: "greenyellow", apolo: "apolo", salenergia: "salenergia"};
+async function lerPot(u) {
+  if (D.pot.usina === u.u || POTL[u.u]) return;
+  const f = u.g === "2c" ? (/^\d+$/.test(String(u.pid)) ? "2capi" : null) : PA_FONTE[u.g];
+  if (!f) { D.pot = {usina: u.u, sem: "Esta fonte não guarda o histórico de potência por inversor.", inv: {}}; return; }
+  POTL[u.u] = 1; delete POTF[u.u];
+  try { const r = await pega("/api/relatorio/potencia-ativa?fonte=" + f + "&usina=" + encodeURIComponent(u.pid) + "&ini=" + HOJE + "&fim=" + HOJE, 150000);
+    if (r.sem_historico) { D.pot = {usina: u.u, sem: r.motivo || "Esta fonte não guarda o histórico de potência por inversor.", inv: {}}; return; }
+    const dia = (r.dias || [])[0] || {}, inv = {};
+    (dia.inversores || []).forEach(i => { inv[i.nome] = (i.pontos || []).filter(p => p[1] != null).map(p => [p[0], p[1]]); });
+    D.pot = {usina: u.u, dia: dia.dia || HOJE, lido: agora(), inv, situacao: dia.situacao || "", motivo: dia.motivo || "", grandeza: r.grandeza || ""}; }
+  catch (e) { POTF[u.u] = String(e && e.message || e); }
+  finally { delete POTL[u.u]; if (SEL.u === u.u) redesenhar(); }
+}
+// (d) Disponibilidade por OS do mês (o cálculo OFICIAL, o da tela Disponibilidade): a do inversor, a da usina por dia e
+//     as paradas que cobrem cada inversor saem daqui; a tela não faz conta à parte.
+let DISP = null, DISP_EM = 0, DISP_ERRO = "";
+async function lerDisp() {
+  if (lerDisp.indo || DISP_ERRO || (DISP && Date.now() - DISP_EM < 6e5)) return;
+  lerDisp.indo = true;
+  try { const d = await pega("/api/gerencial/disponibilidade?mes=" + HOJE.slice(0, 7), 120000);
+    if (!d.quente) throw new Error("a disponibilidade do mês ainda não foi publicada");
+    DISP = d; DISP_EM = Date.now(); }
+  catch (e) { DISP_ERRO = String(e && e.message || e); }
+  finally { lerDisp.indo = false; if (GI) redesenhar(); }
+}
+// (e) Conferir fontes: a leitura de agora da usina no SCADA da Grid, ligada à fonte da tela pela ORDEM dos inversores
+const normN = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+const natural = (a, b) => String(a).localeCompare(String(b), "pt-BR", {numeric: true});
+const CFL = {};
+async function lerConf(u) {
+  if (D.conf.usinas[u.u] || CFL[u.u]) return;
+  CFL[u.u] = 1;
+  let o;
+  try { const r = await pega("/api/sala/conferir?usina=" + encodeURIComponent(u.u) + "&fonte=" + encodeURIComponent(SKEY[u.g]), 90000), dr = D.drill[u.u];
+    if (r.situacao === "ja_e_scada") o = {sit: "ja"};
+    else if (r.situacao === "fora_do_scada") o = {sit: "fora", total: r.scada_total, nomes: r.scada_nomes || []};
+    else { // a usina do SCADA que junta duas do Tempo real (a "1 e 2"): a fatia desta é a dos inversores dela, na ordem
+      const irmas = r.cobre.map(nm => todas().find(x => normN(x.u) === nm)), k = r.cobre.indexOf(normN(u.u)), meus = dr.inv.slice().sort((a, b) => natural(a.n, b.n));
+      const antes = r.duas ? irmas.slice(0, k).reduce((a, x) => a + (x ? x.inv : NaN), 0) : 0, total = r.duas ? irmas.reduce((a, x) => a + (x ? x.inv : NaN), 0) : meus.length;
+      if (!(total === r.leituras.length) || k < 0) o = {sit: "desigual", scada: r.scada, n_scada: r.leituras.length, n_fonte: r.duas ? total : meus.length};
+      else { const fatia = r.leituras.slice(antes, antes + meus.length);
+        o = {sit: "conferir", scada: r.scada, quando: r.quando, duas: r.duas, l: meus.map((iv, x) => { const s = fatia[x] || {}; return {n: iv.n, eq: s.eq, sn: s.sn, ok: s.ok, bkw: iv.kw, skw: s.kw, bkwh: iv.eday, skwh: s.kwh, bs: iv.s.filter(z => z[1] > 0).length, ss: s.com_corrente}; })}; } } }
+  catch (e) { o = {sit: "erro", erro: String(e && e.message || e)}; }
+  D.conf.usinas[u.u] = o; delete CFL[u.u];
+  if (SEL.u === u.u) redesenhar();
+}
+// (f) quem abre a administração (o de-para é dela)
+let ADM = null;
+async function lerEu() { if (lerEu.indo || ADM) return; lerEu.indo = true; try { ADM = await pega("/api/eu", 20000); } catch (e) { ADM = {abre_admin: false, erro: true}; } finally { lerEu.indo = false; if (SEL.u && ABA === "dp") redesenhar(); } }
+// redesenha sem atropelar quem está digitando (o comentário, o acompanhamento) nem o editor do de-para aberto
+const digitando = () => { const a = document.activeElement; return !!(a && /INPUT|TEXTAREA/.test(a.tagName) && a.closest("#corpo") && a.value && a.id !== "acomp"); };
+function redesenhar() { if (digitando()) { arvore(); sino(); return; } desenhar(); }
 // ── a usina: lida só quando abre (as rotas da fonte dela), e guardada enquanto a tela está aberta
 const LENDO = {}, FALHOU = {}, ETMS = {};
 let ESTADO = null;
@@ -487,8 +595,11 @@ async function lerUsina(u, calada) {
     if (EPE[sk]) extras.push((ETMS[sk] = ETMS[sk] || pega(EPE[sk], 60000)).then(e => { const r = (e.rows || []).find(x => String(x.plant_id) === String(pid) || x.usina === u.u); if (r) { const sp = r.spark || {}; dr.etm = {flags: r.flags || [], sens: r.sensores || {}, x: sp.labels || [], ghi: sp.ghi || [], poa: sp.poa || []}; } }).catch(() => { delete ETMS[sk]; }));
     extras.push((ESTADO = ESTADO || pega("/api/state", 30000)).then(st => { const k = VKEY[u.g] + ":" + pid; D.estado.acomp[u.u] = +((st.tracking || {})[k]) || 0;
       D.estado.coment[u.u] = comentDe((st.comments_thread || {})[k]); }).catch(() => { ESTADO = null; }));
-    extras.push(pega("/api/os-performance?usina=" + encodeURIComponent(u.u), 30000).then(o => { const nomes = new Set(inv.map(i => i.n));
-      D.estado.os[u.u] = (o.os || []).map(x => { const m = /\[(Inversor \d+\.\d+)/.exec(x.nota || ""); return {os: x.os, nota: x.nota, status: x.status, data: x.data, sub: x.sub, inv: m ? m[1] : null}; }).filter(x => !x.inv || nomes.has(x.inv)); }).catch(() => {}));
+    // as OS de performance dependem do Fracttal, que às vezes demora ou não responde: chegam depois, sem segurar a usina
+    // (na prova de 16/11/2026 cada abertura esperava os 30 s desta leitura)
+    pega("/api/os-performance?usina=" + encodeURIComponent(u.u), 45000).then(o => { const nomes = new Set(inv.map(i => i.n));
+      D.estado.os[u.u] = (o.os || []).map(x => { const m = /\[(Inversor \d+\.\d+)/.exec(x.nota || ""); return {os: x.os, nota: x.nota, status: x.status, data: x.data, sub: x.sub, inv: m ? m[1] : null}; }).filter(x => !x.inv || nomes.has(x.inv));
+      delete D.estado.osErro[u.u]; if (SEL.u === u.u && ABA === "str") redesenhar(); }).catch(e => { D.estado.osErro[u.u] = String(e && e.message || e); if (SEL.u === u.u && ABA === "str") redesenhar(); });
     await Promise.all(extras);
     D.drill[u.u] = dr;
     // a trava recém-gravada vale até a leitura concordar com ela (há fonte que responde do cache por alguns minutos)
@@ -544,9 +655,9 @@ const nf = (n, d) => Number(n).toLocaleString("pt-BR", {maximumFractionDigits: d
 const Z = '<span class="zero">0</span>', T = '<span class="zero">—</span>';
 let SEL = {g: null, u: null}, MODO = {novo: "s", fora: "s"}, ABERTOS = new Set(), ABA = "str", INV = null;
 // o dia do gráfico das strings e dos trackers (null = hoje), o tracker em destaque, a linha aberta do "abaixo", e o que a
-// pessoa mexeu nesta visita (no mockup nada grava): strings trancadas/destrancadas, a quantidade em acompanhamento, o que já viu
+// pessoa mexeu nesta visita, até a leitura seguinte confirmar: strings trancadas/destrancadas e o que já viu
 let DIA = null, TDIA = null, TSEL = null, BXA = null, OSINV = null;
-// o que a pessoa escolheu para a OS, o que já viu e as OS que criou nesta visita (no mockup nada grava)
+// o que a pessoa escolheu para a OS e as OS que criou nesta visita
 const MARC = new Set(), VISTOEM = {}, CRIADAS = {};
 // Quem grava (entrega 2): o `window.gcEu` que a plataforma põe em toda página. O perfil de gestor e a chave de leitura só
 // leem (o portão do servidor recusa o POST de qualquer jeito); a tela não oferece o que seria recusado.
@@ -576,8 +687,8 @@ const TRANCA = {}, VISTO = new Set(), FECHADAS = new Set();
 // a quantidade em acompanhamento vale na hora na lateral e nos números (a Entrada só relê em 5 min): sem acompanhamento = fora - acompanhadas
 const poeAcomp = (u, v) => { D.estado.acomp[u.u] = v; D.grupos.forEach(g => g.usinas.forEach(x => { if (g.id === u.g && x.u === u.u) { x.sa = v; x.sn = Math.max(0, x.sf - v); } })); };
 const mm = s => { s = String(s); return s.includes("T") ? +s.slice(11, 13) * 60 + +s.slice(14, 16) : +s.slice(0, 2) * 60 + +s.slice(3, 5); }, dm = d => d.slice(8) + "/" + d.slice(5, 7), hm = m => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-const novasS = (u, i) => D.novas.s.filter(x => (!u || x.u === u) && (!i || x.i === i) && !VISTO.has("s|" + x.u + "|" + x.i + "|" + x.d));
-const novasT = u => D.novas.t.filter(x => (!u || x.u === u) && !VISTO.has("t|" + x.u + "|" + x.d));
+const novasS = (u, i) => D.novas.s.filter(x => (!u || x.u === u) && (!i || x.i === i) && !VISTO.has(x.k));
+const novasT = u => D.novas.t.filter(x => (!u || x.u === u) && !VISTO.has(x.k));
 const nNovas = l => l.reduce((a, u) => a + novasS(u.u).length + novasT(u.u).length, 0);
 const pill = n => n ? `<span class="nv" title="ocorrências novas desde a última vez">${n}</span>` : "";
 function toast(m) { const e = $("toast"); e.textContent = m; e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { e.hidden = true; }, 2600); }
@@ -653,8 +764,23 @@ document.addEventListener("mousemove", e => {
   dc.style.top = Math.max(8, Math.min(innerHeight - h - 8, e.clientY - h / 2)) + "px";
 });
 // exportar: as datas (ou as horas) na 1ª coluna e os inversores pivotados; abre no Excel
-function baixar(nome, linhasCsv) { const b = new Blob(["\ufeff" + linhasCsv.map(r => r.map(x => typeof x === "number" ? String(x).replace(".", ",") : '"' + String(x ?? "").replace(/"/g, '""') + '"').join(";")).join("\r\n")], {type: "text/csv"});
-  const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = nome; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800); toast("Baixado: " + nome); }
+async function exportar(qual) {
+  const u = usinas()[0], G = D.ger, Pt = D.pot, dr = D.drill[u.u], br = d => d.slice(8) + "/" + d.slice(5, 7) + "/" + d.slice(0, 4);
+  let corpo;
+  if (qual === "ger") { const ns = Object.keys(G.inv);
+    corpo = {arquivo: "Geração " + u.u + " " + HOJE.slice(0, 7), abas: [
+      {nome: "Geração (kWh)", cabecalho: ["Data"].concat(ns), linhas: G.dias.map((d0, k) => [br(d0)].concat(ns.map(n => G.inv[n][k] ?? null)))},
+      {nome: "kWh por kWp", cabecalho: ["Data"].concat(ns), linhas: G.dias.map((d0, k) => [br(d0)].concat(ns.map(n => G.inv[n][k] != null && G.kwp[n] ? +(G.inv[n][k] / G.kwp[n]).toFixed(3) : null)))},
+      {nome: "Irradiação", cabecalho: ["Data", "IPOA (kWh/m²)"], linhas: G.dias.map((d0, k) => [br(d0), G.ipoa[k] ?? null])}]}; }
+  else { const np = Object.keys(Pt.inv), ts = [...new Set(np.flatMap(n => Pt.inv[n].map(v => v[0])))].sort((a, b) => a - b), mp = {}; np.forEach(n => { mp[n] = Object.fromEntries(Pt.inv[n]); });
+    const e = dr && dr.etm, ex = e && e.x ? e.x.map(mm) : [];
+    corpo = {arquivo: "Potência " + u.u + " " + Pt.dia, abas: [{nome: "Potência (kW)", cabecalho: ["Hora"].concat(np, ["Usina"]), linhas: ts.map(m => [hm(m)].concat(np.map(n => mp[n][m] ?? null), [+np.reduce((a, n) => a + (mp[n][m] || 0), 0).toFixed(2)]))}]
+      .concat(ex.length ? [{nome: "Irradiação (W por m²)", cabecalho: ["Hora", "POA", "GHI"], linhas: ex.map((m, k) => [hm(m), (e.poa || [])[k] ?? null, (e.ghi || [])[k] ?? null])}] : [])}; }
+  try { const r = await fetch("/api/sala/exportar", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpo)});
+    if (!r.ok) { const j2 = await r.json().catch(() => ({})); throw new Error(j2.motivo || "a rota respondeu " + r.status); }
+    const bl = await r.blob(), a = document.createElement("a"); a.href = URL.createObjectURL(bl); a.download = corpo.arquivo + ".xlsx"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800); toast("Baixado: " + a.download); }
+  catch (e) { toast("Não exportou: " + (e && e.message || e)); }
+}
 
 // criar OS pela tela (Levi, 16/11/2026: "1 OS só para todos"; "a data do evento foi quando aconteceu"): uma OS com todos
 // os inversores marcados, o texto pronto, e o aviso da OS de recomposição de string já aberta para cada um nos 60 dias
@@ -750,37 +876,53 @@ window.addEventListener("message", ev => { const d = ev.data;
   fecharJanela();
   if (u) lerUsina(u, true); else desenhar();
 });
-// o que aconteceu com o inversor no período: o dia a dia contra a mediana da usina, as paradas do COS e do Fracttal que o
-// cobrem, as strings que caíram e as OS de recomposição (o mesmo dado do prontuário da usina, no Comando > Usinas)
-const trechos = txt => [...String(txt || "").matchAll(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/g)].map(m => [Math.max(360, +m[1] * 60 + +m[2]), Math.min(1080, +m[3] * 60 + +m[4])]).filter(x => x[1] > x[0]);
+// O que aconteceu com o inversor no período (Levi, 16/11/2026: "clicar nesse 1.4 e ver o que aconteceu com ele, quais foram
+// as OS"; e a disponibilidade "tem que ser feita da maneira correta": a parada da usina derruba todos, a da cabine os
+// dela). A disponibilidade do inversor e a da usina são as do cálculo OFICIAL (/api/gerencial/disponibilidade, o mesmo
+// da tela Disponibilidade); as paradas e os trechos de cada dia também. A tela só mostra: não refaz a conta.
+const trechos = (txt, j0, j1) => [...String(txt || "").matchAll(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/g)].map(m => [Math.max(j0, +m[1] * 60 + +m[2]), Math.min(j1, +m[3] * 60 + +m[4])]).filter(x => x[1] > x[0]);
 const uniao = l => { let tt = 0, fim = -1; l.slice().sort((a, b) => a[0] - b[0]).forEach(([a, b]) => { const ini = Math.max(a, fim); if (b > ini) tt += b - ini; fim = Math.max(fim, b); }); return tt; };
 const nivel = (esc0, n) => { const e = String(esc0 || "").toLowerCase(), cab = (n.match(/(\d+)\.\d+$/) || [])[1]; if (!e || e.startsWith("usina")) return "usina"; const m = e.match(/(?:cabine|skid|ug)\s*0*(\d+)/); if (m) return m[1] === cab ? "cabine" : null; return e === n.toLowerCase() ? "inversor" : null; };
-// minutos parados do inversor no dia (a união do que o cobre) e por nível; a da usina pesa cada inversor pelo kWp
-const paradoDe = (n, dia) => { const ps = (D.insp.paradas[dia] || []).map(p => ({nv: nivel(p.escopo, n), t: trechos(p.trechos)})).filter(p => p.nv); const de = nv => uniao(ps.filter(p => p.nv === nv).flatMap(p => p.t)); return {tot: uniao(ps.flatMap(p => p.t)), usina: de("usina"), cabine: de("cabine"), inversor: de("inversor")}; };
-const dispUsina = dia => { const ns = Object.keys(D.ger.kwp).filter(n => D.ger.kwp[n]), pot = ns.reduce((a, n) => a + D.ger.kwp[n], 0); return pot ? 1 - ns.reduce((a, n) => a + D.ger.kwp[n] * paradoDe(n, dia).tot, 0) / (pot * 720) : null; };
+const nivelDe = (escopos, n) => { const ns = (escopos || []).map(e => nivel(e, n)).filter(Boolean); return ns.includes("usina") ? "usina" : ns.includes("cabine") ? "cabine" : ns.includes("inversor") ? "inversor" : null; };
+// a usina no cálculo oficial: a linha dela, o diário (a disponibilidade e as OS de cada dia) e o que cada OS é
+function dispDe(nome) {
+  if (!DISP) return null;
+  const U = (DISP.usinas || []).find(x => x.usina === nome), meta = {};
+  (DISP.oss || []).forEach(o => { const es = (o.escopo || []).filter(e => e.usina === nome); if (es.length) meta[String(o.folio)] = {tipo: (o.tipos || []).join(", "), escopos: es.map(e => e.rotulo), aberta: !!o.aberta, ini: String(o.ini || "").slice(0, 10)}; });
+  const jh = (U && U.janela_h) || [6, 18];
+  return {U, diario: (DISP.diario || {})[nome] || {}, meta, j0: jh[0] * 60, j1: jh[1] * 60};
+}
+const paradasDoDia = (dp, dia) => (((dp.diario[dia] || {}).os) || []).map(o => { const m = dp.meta[String(o.folio)] || {tipo: "", escopos: [], aberta: false, ini: ""}; return {os: String(o.folio), tipo: m.tipo, escopos: m.escopos, trechos: o.trechos, aberta: m.aberta, ini: m.ini}; });
+const paradoDe = (dp, n, dia) => { const ps = paradasDoDia(dp, dia).map(p => ({nv: nivelDe(p.escopos, n), t: trechos(p.trechos, dp.j0, dp.j1)})).filter(p => p.nv); const de = nv => uniao(ps.filter(p => p.nv === nv).flatMap(p => p.t)); return {tot: uniao(ps.flatMap(p => p.t)), usina: de("usina"), cabine: de("cabine"), inversor: de("inversor")}; };
 function inspecao(u, n, idx) {
-  const G = D.ger, I = D.insp, cab = (n.match(/(\d+)\.\d+$/) || [])[1];
-  const cobre = esc0 => { const e = String(esc0 || "").toLowerCase(); if (!e || e.startsWith("usina")) return "usina"; const m = e.match(/(?:cabine|skid|ug)\s*0*(\d+)/); if (m) return m[1] === cab ? "cabine" : null; return e === n.toLowerCase() ? "inversor" : null; };
+  const G = D.ger;
+  if (!DISP && !DISP_ERRO) lerDisp();
+  const dp = dispDe(u.u), sol = dp ? dp.j1 - dp.j0 : 720;
   const yk = (nome, k) => { const v = G.inv[nome][k], kwp = G.kwp[nome]; return v == null || !kwp ? null : v / kwp; };
   const dias = idx.map(k => { const meu = yk(n, k), md = mediana(Object.keys(G.inv).map(x => yk(x, k)).filter(v => v != null && v > 0)); return {d: G.dias[k], kwh: G.inv[n][k], r: meu == null || !md ? null : meu / md}; });
-  const par = {}; idx.forEach(k => (I.paradas[G.dias[k]] || []).forEach(p => { const c = cobre(p.escopo); if (!c) return; const o = par[p.os] = par[p.os] || {os: p.os, tipo: p.tipo, escopo: p.escopo, dias: []}; o.dias.push(G.dias[k]); }));
-  const ab = (I.abertas || []).filter(a => cobre(a.escopo)), eps = I.eps[n] || [], hist = D.osHist[u.u + "|" + n] || [], bx = D.baixos.find(b => b.u === u.u && b.i === n);
-  const cor = r => r == null ? "#3a4664" : r <= .8 ? "#ff5b6e" : r <= .9 ? "#ff8f3c" : r <= .95 ? "#ffd83d" : "#4ade80";
+  if (!dias.length) return `<div class="painel" id="insp"><h3>O que aconteceu com o ${esc(n)}</h3><p>Ainda não há dia fechado neste mês para comparar.</p></div>`;
+  const par = {}; if (dp) dias.forEach(x => paradasDoDia(dp, x.d).forEach(p => { if (!nivelDe(p.escopos, n)) return; const o = par[p.os] = par[p.os] || {...p, dias: []}; o.dias.push(x.d); }));
+  const eps = epsDe(u.u, n), osm = D.osMes[u.u + "|" + n] || [], bx = D.baixos.find(b => b.u === u.u && b.i === n);
+  const cor = r => r == null ? "#3a4664" : r <= .8 ? "#ff5b6e" : r <= .9 ? "#ff8f3c" : r <= .95 ? "#ffd83d" : "#4ade80", h = m => nf(m / 60, 1) + " h";
+  const linhaDisp = () => {
+    if (!dp) return DISP_ERRO ? `Não consegui ler a disponibilidade: ${esc(DISP_ERRO)} <button class="btnl" data-denovo2="disp" style="margin-left:8px">Tentar de novo</button>` : "Lendo a disponibilidade do mês…";
+    if (!dp.U) return '<span class="zero">esta usina não está, com este nome, no cálculo da Disponibilidade por OS</span>';
+    const oi = (dp.U.inversores || []).find(x => x.inversor === n), ps = dias.map(x => paradoDe(dp, n, x.d)), tot = ps.reduce((a, x) => a + x.tot, 0);
+    return (oi && oi.disp != null ? `<b style="color:${oi.disp < 90 ? "var(--critico)" : oi.disp < 99.9 ? "var(--alerta)" : "var(--ok)"}">${nf(oi.disp, 1)}%</b> do inversor no mês (${nf(oi.h_perdidas, 1)} h paradas na janela solar), pelo cálculo oficial da Disponibilidade por OS` : '<span class="zero">o cálculo oficial não tem este inversor (a usina está sem o cadastro por inversor)</span>') +
+      (tot ? `<br>Nos dias mostrados: ${h(tot)} parado · pela usina inteira ${h(ps.reduce((a, x) => a + x.usina, 0))}, pela cabine ${h(ps.reduce((a, x) => a + x.cabine, 0))}, pelo próprio inversor ${h(ps.reduce((a, x) => a + x.inversor, 0))}` : "") +
+      `<br><b>${dp.U.disp == null ? "—" : nf(dp.U.disp, 1) + "%"}</b> da usina no mês · por dia: ${dias.map(x => dm(x.d).slice(0, 2) + " " + nf((dp.diario[x.d] || {disp: 100}).disp, 0) + "%").join(" · ")}`; };
   return `<div class="painel" id="insp"><h3>O que aconteceu com o ${esc(n)} · ${dm(dias[0].d)}${dias.length > 1 ? " a " + dm(dias[dias.length - 1].d) : ""}</h3><p>Cada barra é um dia: a altura é o kWh/kWp do inversor contra a mediana da usina no dia.</p>
     <div class="dd">${dias.map(x => `<div style="height:${x.r == null ? 4 : Math.max(4, Math.min(100, x.r * 100))}%;background:${cor(x.kwh === 0 ? 0 : x.r)}" title="${dm(x.d)}: ${x.kwh == null ? "sem dado" : nf(x.kwh) + " kWh"}${x.r == null ? "" : " · " + Math.round(x.r * 100) + "% da mediana"}"></div>`).join("")}</div>
     <div class="ddl">${dias.map(x => `<span>${x.d.slice(8)}</span>`).join("")}</div>
-    <div class="ddl dp" title="Disponibilidade do inversor em cada dia (janela solar de 06 às 18h)">${dias.map(x => { const dv = 1 - paradoDe(n, x.d).tot / 720; return `<span style="color:${dv >= .999 ? "var(--fraco)" : dv >= .9 ? "var(--alerta)" : "var(--critico)"}">${Math.round(dv * 100)}%</span>`; }).join("")}</div>
+    ${dp && dp.U ? `<div class="ddl dp" title="O inversor em cada dia, pelas paradas da Disponibilidade por OS que o cobrem (a da usina, a da cabine dele e a dele), na janela solar">${dias.map(x => { const dv = 1 - paradoDe(dp, n, x.d).tot / sol; return `<span style="color:${dv >= .999 ? "var(--fraco)" : dv >= .9 ? "var(--alerta)" : "var(--critico)"}">${Math.round(dv * 100)}%</span>`; }).join("")}</div>` : ""}
     <div class="lt2">
-      <span>Disponibilidade</span><span>${(() => { const ps = dias.map(x => paradoDe(n, x.d)), tot = ps.reduce((a, x) => a + x.tot, 0), sol = dias.length * 720, h = m => nf(m / 60, 1) + " h", du = dias.map(x => dispUsina(x.d)).filter(v => v != null);
-        return `<b style="color:${tot / sol > .1 ? "var(--critico)" : tot ? "var(--alerta)" : "var(--ok)"}">${nf((1 - tot / sol) * 100, 1)}%</b> do inversor no período: ${h(tot)} parado de ${h(sol)} de sol (06 às 18h)` +
-          (tot ? ` · pela usina inteira ${h(ps.reduce((a, x) => a + x.usina, 0))}, pela cabine ${h(ps.reduce((a, x) => a + x.cabine, 0))}, pelo próprio inversor ${h(ps.reduce((a, x) => a + x.inversor, 0))}` : "") +
-          `<br><b>${du.length ? nf(du.reduce((a, v) => a + v, 0) / du.length * 100, 1) + "%" : "—"}</b> da usina no mesmo período (cada inversor pesa pelo kWp) · por dia: ${dias.map(x => dm(x.d).slice(0, 2) + " " + Math.round(dispUsina(x.d) * 100) + "%").join(" · ")}`; })()}</span>
-      <span>Paradas</span><span>${Object.values(par).map(o => `<span class="tag ${ab.some(a => a.os === o.os) ? "c" : "n"}">OS ${esc(o.os)}</span> ${esc(o.tipo)} · ${esc(o.escopo)} · ${o.dias.length} dia${o.dias.length > 1 ? "s" : ""} no período (${dm(o.dias[0])}${o.dias.length > 1 ? " a " + dm(o.dias[o.dias.length - 1]) : ""})${ab.some(a => a.os === o.os) ? ` · <b style="color:var(--critico)">aberta desde ${dm(ab.find(a => a.os === o.os).inicio)}</b>` : ""}`).join("<br>") || '<span class="zero">nenhuma parada do COS ou do Fracttal cobre este inversor no período</span>'}</span>
-      <span>Strings</span><span>${eps.length ? `${lst([...new Set(eps.map(x => x.s))])} caíram ${eps.length} vezes no mês (${eps.reduce((a, x) => a + x.dias, 0)} dias de string, ${nf(eps.reduce((a, x) => a + x.kwh, 0))} kWh de perda); a última em ${dm(eps.map(x => x.d1).sort().pop())}` : '<span class="zero">nenhuma string parada registrada no mês</span>'}</span>
-      <span>OS de string</span><span>${hist.map(o => `<span class="tag n">OS ${esc(o.os)}</span> ${esc(o.status)} · criada em ${dm(o.criada)} (há ${diasAte(o.criada)} dias)${o.strings.length ? " · strings " + o.strings.join(", ") : ""}`).join("<br>") || '<span class="zero">nenhuma OS de recomposição de string encontrada</span>'}</span>
-      <span>Abaixo</span><span>${bx ? `${bx.n} dias com 70% ou menos dos demais (${bx.sem} sem explicação, ${bx.expl} explicados)` : '<span class="zero">nenhum dia com 70% ou menos dos demais (zerado não entra nessa conta)</span>'}</span>
+      <span>Disponibilidade</span><span>${linhaDisp()}</span>
+      <span>Paradas</span><span>${Object.values(par).map(o => `<span class="tag ${o.aberta ? "c" : "n"}">OS ${esc(o.os)}</span> ${esc(o.tipo)} · ${esc(o.escopos.join(", "))} · ${o.dias.length} dia${o.dias.length > 1 ? "s" : ""} no período (${dm(o.dias[0])}${o.dias.length > 1 ? " a " + dm(o.dias[o.dias.length - 1]) : ""})${o.aberta ? ` · <b style="color:var(--critico)">aberta desde ${o.ini ? dm(o.ini) : "antes"}</b>` : ""}`).join("<br>") || `<span class="zero">${dp ? "nenhuma parada da Disponibilidade por OS cobre este inversor no período" : "—"}</span>`}</span>
+      <span>Strings</span><span>${eps.length ? `${lst([...new Set(eps.map(x => x.s))])} ${eps.length > 1 ? "caíram " + eps.length + " vezes" : "caiu uma vez"} no mês (${eps.reduce((a, x) => a + x.dias, 0)} dias de string, ${nf(eps.reduce((a, x) => a + x.kwh, 0))} kWh de perda); a última até ${dm(eps.map(x => x.d1).sort().pop())}` : '<span class="zero">nenhuma string parada registrada no mês</span>'}</span>
+      <span>OS de string</span><span>${osm.map(o => `<span class="tag n">OS ${esc(o.os)}</span> ${esc(o.status || "")} · evento em ${o.data_evento ? dm(o.data_evento) : "—"}${o.strings ? " · strings " + esc(o.strings) : ""}`).join("<br>") || '<span class="zero">nenhuma OS de recomposição de string com evento neste mês</span>'}</span>
+      <span>Abaixo</span><span>${!ABX ? '<span class="zero">o abaixo dos demais ainda não foi lido</span>' : bx ? `${bx.n} dias com 70% ou menos dos demais (${bx.sem} sem explicação, ${bx.expl} explicados)` : '<span class="zero">nenhum dia com 70% ou menos dos demais (zerado não entra nessa conta)</span>'}</span>
     </div>
-    <div class="diasel" style="margin-top:12px"><button class="btnl" data-ir="${esc(n)}">Ver as strings e a curva deste inversor</button><button class="btnl" data-mock="Abre o prontuário da usina no Comando > Usinas do Nexus">Abrir o prontuário (Comando > Usinas)</button></div></div>`;
+    <div class="diasel" style="margin-top:12px"><button class="btnl" data-ir="${esc(n)}">Ver as strings e a curva deste inversor</button></div></div>`;
 }
 function kpis(us, bx) {
   const sf = soma(us, "sf"), sn = soma(us, "sn"), tp = soma(us, "tp"), to = soma(us, "to"), ea = us.filter(u => u.ea).length, eo = us.filter(u => u.ea && u.eo).length;
@@ -791,7 +933,8 @@ function kpis(us, bx) {
     k("str", "Strings", sn, "sem acompanhamento", `de ${nf(sf)} fora agora`, "acao") +
     k("trk", "Trackers", tp - to, "sem OS", `de ${nf(tp)} parados agora`, "acao") +
     k("etm", "Estações", ea - eo, "com alarme sem OS", `de ${nf(ea)} com IPOA ou GHI em zero`, "acao") +
-    k("bx", "Inversores abaixo", nb, "sem parada que explique", "70% ou menos dos demais, no mês", "crit");
+    (ABX ? k("bx", "Inversores abaixo", nb, "sem parada que explique", "70% ou menos dos demais, no mês", "crit")
+      : `<button class="kn bom" data-kpi="bx" title="Clique para ver"><small>Inversores abaixo</small><div class="num"><b>${lerAbaixo.indo ? "…" : "—"}</b><span>${lerAbaixo.indo ? "calculando" : "sem leitura"}</span></div><div class="sub">${lerAbaixo.indo ? "lendo a geração do mês no banco" : esc(ABX_ERRO || "ainda não lido")}</div></button>`);
 }
 // o que foi explicado: o inversor, os dias e O QUE explica cada um, para o analista conferir se faz sentido
 const tabExpl = bx => `<div class="rol"><table><thead><tr><th>Usina</th><th>Inversor</th><th>Dias explicados</th><th>Pior dia</th><th>O que explica</th></tr></thead><tbody>` +
@@ -807,27 +950,29 @@ const tabBaixo = (bx, comUsina) => `<div class="rol"><table><thead><tr>${comUsin
 // O que olhar primeiro (Levi, 16/11/2026: "isso aqui tem de novo, isso está mais crítico, isso é importante ver agora, isso
 // é bom acompanhar [...] tem muitas strings abertas há muito tempo e eu nem sei há quanto tempo"). A idade é a do pacote
 // de falhas do mês: quem já vinha parado em 01/11 aparece como "desde antes de 01/11".
-const faixaDe = x => x.dias <= 2 ? "a" : x.dias <= 7 ? "b" : !x.antes ? "c" : "d";
-const FAIXAS = [["a", "Há 1 ou 2 dias"], ["b", "De 3 a 7 dias"], ["c", "De 8 a 15 dias"], ["d", "Desde antes deste mês"]];
-const haDias = x => x.antes ? "desde antes deste mês (" + x.dias + " dias ou mais)" : "há " + x.dias + " dia" + (x.dias > 1 ? "s" : "") + " (desde " + dm(x.d0) + ")";
+const faixaDe = x => x.dias <= 2 ? "a" : x.dias <= 7 ? "b" : (x.antes || x.d0 < D.mesIni) ? "d" : "c";
+const FAIXAS = [["a", "Há 1 ou 2 dias"], ["b", "De 3 a 7 dias"], ["c", "Há 8 dias ou mais, neste mês"], ["d", "Desde antes deste mês"]];
+const haDias = x => x.antes ? "desde antes de " + dm(D.idadeAte || D.mesIni) + " (" + x.dias + " dias ou mais)" : "há " + x.dias + " dia" + (x.dias > 1 ? "s" : "") + " (desde " + dm(x.d0) + ")";
 function prioridades(us) {
   const dentro = x => !SEL.g || x.g === SEL.g, id = D.idade.filter(dentro);
   const ns = novasS().filter(dentro), nt = novasT().filter(dentro), crit = us.filter(u => u.st === "sem_comm" || u.st === "critico").sort((a, b) => (CRIT[a.st] ?? 5) - (CRIT[b.st] ?? 5) || (b.sn + b.tp - b.to) - (a.sn + a.tp - a.to));
   const velhas = id.filter(x => !x.os && x.dias >= 8), comOs = id.filter(x => x.os).sort((a, b) => b.os.dias - a.os.dias);
-  const it = (g, u, i, tit, sub) => `<button class="pi" data-pu="${esc(u)}" data-pg="${g}" data-pi="${esc(i || "")}"><b>${esc(tit)}</b><span>${sub}</span></button>`;
+  const it = (g, u, i, tit, sub, aba) => `<button class="pi" data-pu="${esc(u)}" data-pg="${g}" data-pi="${esc(i || "")}" data-pa="${aba || "str"}"><b>${esc(tit)}</b><span>${sub}</span></button>`;
+  const nsG = Object.values(ns.reduce((a, x) => { const o = a[x.u + "|" + x.i] = a[x.u + "|" + x.i] || {g: x.g, u: x.u, i: x.i, n: 0, d: x.d}; o.n++; if (x.d < o.d) o.d = x.d; return a; }, {})).sort((a, b) => b.n - a.n);
+  const ntG = Object.values(nt.reduce((a, x) => { const o = a[x.u] = a[x.u] || {g: x.g, u: x.u, n: 0, d: x.d}; o.n++; if (x.d < o.d) o.d = x.d; return a; }, {})).sort((a, b) => b.n - a.n);
   const cartao = (tit, n, un, leg, itens, vazio) => `<div class="pc"><h4>${tit}</h4><div class="pn">${nf(n)}<small>${un}</small></div><div class="pleg">${leg}</div>${itens.length ? `<div class="lista">${itens.join("")}</div>` : `<div class="vazio">${vazio}</div>`}</div>`;
   const tot = FAIXAS.map(([k]) => { const l = id.filter(x => faixaDe(x) === k); return {k, sem: soma(l.filter(x => !x.os), "n"), com: soma(l.filter(x => x.os), "n"), inv: l.length}; }), mx = Math.max(1, ...tot.map(x => x.sem + x.com));
   const lista = IDF ? id.filter(x => faixaDe(x) === IDF).sort((a, b) => b.dias - a.dias || b.n - a.n) : [];
   return `<div class="sec" style="margin-top:20px"><h2>O que olhar primeiro</h2><p>Do mais urgente ao que basta acompanhar. Clique num item para abrir a usina no inversor.</p>
     <div class="prio">
-      ${cartao("Novo", ns.length + nt.length, "ocorrências", "desde a última vez que você olhou", ns.slice(0, 2).map(x => it(x.g, x.u, x.i, x.u + " · " + x.i.replace("Inversor ", "Inv "), `${x.n} string${x.n > 1 ? "s" : ""} parou em ${dm(x.d)}`)).concat(nt.slice(0, 1).map(x => it(x.g, x.u, "", x.u, `${x.n} tracker${x.n > 1 ? "s" : ""} parou em ${dm(x.d)}`))), "Nada novo desde a última vez.")}
+      ${cartao("Novo", ns.length + nt.length, "ocorrências", D.novas.desde ? "pararam desde " + dm(D.novas.desde.slice(0, 10)) + " e você ainda não abriu" : "o registro do que você já viu não abriu agora", nsG.slice(0, 2).map(x => it(x.g, x.u, x.i, x.u + " · " + x.i.replace("Inversor ", "Inv "), `${x.n} string${x.n > 1 ? "s" : ""} parou em ${dm(x.d)}`)).concat(ntG.slice(0, 1).map(x => it(x.g, x.u, "", x.u, `${x.n} tracker${x.n > 1 ? "s" : ""} parou em ${dm(x.d)}`, "trk"))), "Nada novo que você ainda não tenha aberto.")}
       ${cartao("Crítico agora", crit.length, "usinas", "sem comunicação ou críticas", crit.slice(0, 3).map(u => it(u.g, u.u, "", u.u, (SIT[u.st] || "") + (u.causa && u.causa !== SIT[u.st] ? " · " + esc(u.causa) : "") + (u.sn ? ` · ${u.sn} strings sem acompanhamento` : ""))), "Nenhuma usina crítica ou sem comunicação.")}
       ${cartao("Ver agora", velhas.length, "inversores", "string parada há 8 dias ou mais, sem OS", velhas.slice(0, 3).map(x => it(x.g, x.u, x.i, x.u + " · " + x.i.replace("Inversor ", "Inv "), `${x.n} string${x.n > 1 ? "s" : ""} ${haDias(x)}`)), "Nenhuma string parada há 8 dias ou mais sem OS.")}
       ${cartao("Acompanhar", comOs.length, "inversores", "com OS aberta vinculada à string parada", comOs.slice(0, 3).map(x => it(x.g, x.u, x.i, x.u + " · " + x.i.replace("Inversor ", "Inv "), `OS ${esc(x.os.n)} · ${esc(x.os.st)} há ${x.os.dias} dias · ${x.n} string${x.n > 1 ? "s" : ""} parada${x.n > 1 ? "s" : ""}`)), "Nenhuma OS aberta vinculada a string parada.")}
     </div>
     <div class="painel"><h3>Há quanto tempo as strings estão paradas</h3><p>${nf(soma(id, "n"))} strings paradas em ${id.length} inversores. Laranja = sem OS vinculada; cinza = com OS. Clique numa faixa para ver quais são.</p>
       ${tot.map((x, k) => `<button class="idd ${IDF === x.k ? "on" : ""}" data-idf="${x.k}"><span>${FAIXAS[k][1]}</span><span class="tr"><i style="width:${x.sem / mx * 100}%;background:var(--severo)"></i><i style="width:${x.com / mx * 100}%;background:var(--fraco)"></i></span><span><b style="color:var(--tinta)">${nf(x.sem + x.com)}</b> strings · ${x.inv} inversores${x.com ? ` · ${x.com} com OS` : ""}</span></button>`).join("")}
-      ${IDF ? `<div class="rol" style="margin-top:10px"><table><thead><tr><th>Usina</th><th>Inversor</th><th>Strings paradas</th><th>Parada desde</th><th>Há quanto tempo</th><th>Perda no mês</th><th>OS</th></tr></thead><tbody>` + lista.slice(0, 25).map(x => `<tr class="cl" data-pu="${esc(x.u)}" data-pg="${x.g}" data-pi="${esc(x.i)}"><td><b>${esc(x.u)}</b></td><td>${esc(x.i.replace("Inversor ", ""))}</td><td>${x.n}</td><td>${x.antes ? "antes deste mês" : dm(x.d0)}</td><td><span class="tag ${x.dias >= 8 ? "c" : x.dias >= 3 ? "s" : "n"}">${x.antes ? x.dias + " dias ou mais" : x.dias + " dia" + (x.dias > 1 ? "s" : "")}</span></td><td>${nf(x.kwh)} kWh</td><td>${x.os ? `<span class="tag a">OS ${esc(x.os.n)} há ${x.os.dias} dias</span>` : '<span class="tag s">sem OS</span>'}</td></tr>`).join("") + `</tbody></table></div><div class="mais">${lista.length > 25 ? `Os 25 mais antigos, de ${lista.length}.` : ""}</div>` : ""}
+      ${IDF ? `<div class="rol" style="margin-top:10px"><table><thead><tr><th>Usina</th><th>Inversor</th><th>Strings paradas</th><th>Parada desde</th><th>Há quanto tempo</th><th>Perda no mês</th><th>OS</th></tr></thead><tbody>` + lista.slice(0, 25).map(x => `<tr class="cl" data-pu="${esc(x.u)}" data-pg="${x.g}" data-pi="${esc(x.i)}"><td><b>${esc(x.u)}</b></td><td>${esc(x.i.replace("Inversor ", ""))}</td><td>${x.n}</td><td>${x.antes ? "antes de " + dm(D.idadeAte || D.mesIni) : dm(x.d0)}</td><td><span class="tag ${x.dias >= 8 ? "c" : x.dias >= 3 ? "s" : "n"}">${x.antes ? x.dias + " dias ou mais" : x.dias + " dia" + (x.dias > 1 ? "s" : "")}</span></td><td>${nf(x.kwh)} kWh</td><td>${x.os ? `<span class="tag a">OS ${esc(x.os.n)} há ${x.os.dias} dias</span>` : '<span class="tag s">sem OS</span>'}</td></tr>`).join("") + `</tbody></table></div><div class="mais">${lista.length > 25 ? `Os 25 mais antigos, de ${lista.length}.` : ""}</div>` : ""}
     </div></div>`;
 }
 const ETMG_LIDO = {};
@@ -867,10 +1012,11 @@ function visaoGeral(us, bx) {
         `</tbody></table></div><div class="mais">${es.length > 8 ? `As 8 primeiras de ${es.length} estações, as com alarme na frente.` : ""}</div></div>`; })()}
     <div class="sec" id="secBaixo"><h2>Abaixo dos demais <span class="chips"><button class="chip ${BXM === "top" ? "on" : ""}" data-bxt="top">Os 10 piores</button><button class="chip ${BXM === "sem" ? "on" : ""}" data-bxt="sem">Sem explicação, por usina (${semx.length})</button><button class="chip ${BXM === "expl" ? "on" : ""}" data-bxt="expl">Explicados (${expl.length})</button></span></h2>
       <p>${BXM === "expl" ? `Inversores com dia baixo que uma parada do COS ou do Fracttal explica (${expl.length} em ${new Set(expl.map(b => b.u)).size} usinas). Confira se a explicação faz sentido: a OS, o escopo e os dias.` : `Inversor com 70% ou menos da média dos outros da mesma usina, no mesmo dia, cruzado com as paradas do COS e do Fracttal.${BXM === "sem" ? ` ${semx.length} inversores sem explicação em ${new Set(semx.map(b => b.u)).size} usinas.` : ""} Clique na linha para abrir a usina nos dias dele.`}</p>
-      ${BXM === "expl" ? tabExpl(expl) : tabBaixo(lb, true)}
+      ${!ABX ? `<div class="aviso">${lerAbaixo.indo ? "Calculando: a geração do mês por inversor é lida do banco e comparada dia a dia (a primeira vez do dia pode levar um minuto)." : "Não consegui ler o abaixo dos demais: " + esc(ABX_ERRO || "sem leitura") + ' <button class="btnl" data-denovo2="abx" style="margin-left:10px">Tentar de novo</button>'}</div>`
+        : (ABX.paradas_erro ? `<div class="aviso">As paradas do COS não foram lidas agora: nenhum dia aparece como explicado.</div>` : "") + (BXM === "expl" ? tabExpl(expl) : tabBaixo(lb, true))}
       <div class="mais">${BXM === "top" && bx.length > 10 ? `Os 10 com mais dias sem explicação, de ${bx.length}.` : ""}</div></div>
     <div class="sec"><details class="rec"><summary>Insights <small>ontem pararam ${nf(dia("ns", ontem))} strings e ${nf(dia("nt", ontem))} trackers novos</small></summary><div class="dois">
-      <div><h2>Apareceu de novo <span class="chips">${chips("novo")}</span></h2><p>${MODO.novo === "s" ? "Strings que pararam em cada dia de novembro." : "Paradas de tracker que começaram em cada dia."}</p>${barras(D.dias.map(d => ({d, v: dia(cfg[MODO.novo][1], d), parcial: d === ult})), "#ff8f3c", "Apareceu de novo")}</div>
+      <div><h2>Apareceu de novo <span class="chips">${chips("novo")}</span></h2><p>${MODO.novo === "s" ? "Strings que pararam em cada dia do mês." : "Paradas de tracker que começaram em cada dia."}</p>${barras(D.dias.map(d => ({d, v: dia(cfg[MODO.novo][1], d), parcial: d === ult})), "#ff8f3c", "Apareceu de novo")}</div>
       <div><h2>Em falha por dia <span class="chips">${chips("fora")}</span></h2><p>${MODO.fora === "s" ? "Strings paradas em cada dia (novas e as que já vinham)." : "Trackers parados em cada dia (novos e os que já vinham)."}</p>${barras(D.dias.map(d => ({d, v: dia(cfg[MODO.fora][2], d), parcial: d === ult})), "#7cb7ff", "Em falha por dia")}</div>
     </div></details></div>`;
   // as abas: cada bloco pertence a uma (ou duas) e só o da aba escolhida aparece
@@ -886,33 +1032,35 @@ function visaoGeral(us, bx) {
     if (pn) { const g2 = document.createElement("div"); g2.className = "grade2"; pr.after(g2); g2.append(pn, pu); } }
 }
 
+// De-para (Levi, 16/11/2026: "Tem que ter um de-para"): o MESMO editor do Modo de-para do Tempo real, aberto na usina.
+// É administração da plataforma: abre para quem o /api/eu diz que abre; a fonte que liga pelo nome se corrige no cadastro.
+const DP_FONTES = ["pv", "semp", "alveslima", "2capi", "greenyellow", "salenergia", "apolo", "sunop", "axis"];
 function deparaHtml(u) {
-  const Dp = D.depara; let h = "";
-  if (Dp.usina !== u.u) h += `<div class="aviso">O de-para liga cada inversor que a fonte manda ao inversor do cadastro (e daí ao ativo do Fracttal, à cabine e às strings esperadas). Vale para as fontes que mandam o nome do supervisório, como a API PV. Neste mockup foi carregado o da Altair (Thopen · API PV).</div>`;
-    else h += `<div class="painel"><h3>De-para · ${esc(Dp.nome_api)}</h3><p>O nome que a fonte manda, à esquerda, e o inversor do cadastro a que ele está ligado. É a mesma tabela do Modo de-para do Tempo real: o inversor é digitável, e o equipamento repetido pode ser desconsiderado.</p></div>
-      <div class="sec" style="margin-top:14px"><div class="rol"><table><thead><tr><th>Supervisório</th><th>Inversor</th><th>Strings esperadas</th><th>Ligado por</th><th>Na fonte hoje</th><th>Situação</th><th></th></tr></thead><tbody>` +
-      Dp.linhas.map(x => `<tr><td><b>${esc(x.sup)}</b> <small style="color:var(--fraco)">${esc(x.id)}</small></td><td><input class="campo" style="background:var(--fundo);width:150px;padding:4px 10px" value="${esc(x.inv || "")}" aria-label="Inversor do cadastro"></td><td>${x.esp == null ? "—" : `<input class="campo" style="background:var(--fundo);width:60px;padding:4px 8px;text-align:center" inputmode="numeric" value="${x.esp}" aria-label="Strings esperadas">`}</td><td>${x.origem === "nome" ? "o nome igual ao do cadastro" : esc(x.origem || "—")}</td><td>${x.hoje ? '<span class="tag o">sim</span>' : '<span class="tag n">não veio</span>'}</td><td>${x.inv ? '<span class="tag o">ligado</span>' : '<span class="tag s">sem de-para</span>'}</td><td><button class="btnl" data-mock="Tira o equipamento repetido da conta (o inversor que foi substituído)">Desconsiderar</button></td></tr>`).join("") +
-      `</tbody></table></div><div class="diasel" style="margin-top:12px;justify-content:flex-end"><button class="btn" data-mock="Grava o de-para pelo Nexus (Base > Equipamentos)">Salvar</button></div></div>`;
-  return h;
+  const sk = SKEY[u.g], f = sk === "owen" ? (/^\d+$/.test(String(u.pid)) ? "2capi" : null) : sk;
+  if (!DP_FONTES.includes(f)) return `<div class="aviso">Esta fonte manda cada inversor já com o nome do cadastro: não há de-para a fazer aqui. O que estiver errado se corrige no cadastro (Base > Equipamentos das usinas, no Nexus).</div>`;
+  if (!ADM) { lerEu(); return '<div class="carrega">Abrindo o de-para…</div>'; }
+  if (!ADM.abre_admin) return `<div class="aviso">O de-para é administração da plataforma: abre para quem é administrador do Nexus. Peça a um administrador para ligar o que estiver sem de-para.</div>`;
+  return `<div class="painel" style="padding:0;overflow:hidden;margin-top:14px"><iframe class="dpj" title="De-para de equipamentos" src="/admin/de-para?editar=${encodeURIComponent(f + "|" + u.pid)}&janela=1"></iframe></div>`;
 }
 function detalhe(u, bx) {
-  const dr = D.drill[u.u];
-  if (!dr) {
-    if (FALHOU[u.u]) $("corpo").innerHTML = `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>`;
-    else { lerUsina(u); $("corpo").innerHTML = '<div class="carrega">Lendo os inversores, as strings, os trackers e a estação desta usina…</div>'; }
-    return;
-  }
+  const dr = D.drill[u.u], cp = $("corpo");
+  // o editor do de-para aberto não é recarregado pela releitura de 5 min (a pessoa perderia o que estava editando)
+  if (ABA === "dp" && cp.dataset.dp === u.g + "|" + u.u && cp.querySelector("iframe.dpj")) return;
+  delete cp.dataset.dp;
+  if (!dr && !FALHOU[u.u]) lerUsina(u);
   const est = (i, s) => { const k = u.u + "|" + i.n + "|" + s[0]; return k in TRANCA ? (TRANCA[k] ? "trancada" : (s[2] === "trancada" ? "ativa" : s[2])) : s[2]; };
   const ruins = i => i.s.filter(s => ["sem_corrente", "baixa_perf"].includes(est(i, s))).length;
   const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
-  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0)}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("cf", "Conferir fontes")}${aba("dp", "De-para")}</div>`;
+  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0)}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("cf", "Conferir fontes")}${aba("dp", "De-para")}</div>`;
+  // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
+  if (!dr && !["gp", "dp"].includes(ABA)) { cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` : '<div class="carrega">Lendo os inversores, as strings, os trackers e a estação desta usina…</div>'); return; }
   if (ABA === "str") {
     // o que o Tempo real já guarda da usina: a quantidade em acompanhamento (digitada) e as OS de performance
     const ac = D.estado.acomp[u.u] || 0;
     const oss = D.estado.os[u.u] || [], cs = D.estado.coment[u.u] || [];
     const osDe = n => oss.filter(o => o.inv === n);
     h += `<div class="faixa"><label>Strings em acompanhamento <input class="campo n" id="acomp" type="text" inputmode="numeric" ${PODE ? "" : 'readonly tabindex="-1"'} value="${ac}" aria-label="Strings em acompanhamento" title="${PODE ? "Quantas strings desta usina já estão em acompanhamento: a mesma quantidade do Tempo real, por usina" : "A quantidade que o Tempo real guarda"}"> <span>de <b>${u.sf}</b> fora · <b>${Math.max(0, u.sf - ac)}</b> sem acompanhamento</span></label>
-      <label>OS de performance <b>${oss.length}</b>${oss.length ? ` <span>${oss.map(o => esc(o.os) + (o.inv ? " (" + esc(o.inv.replace("Inversor ", "")) + ")" : "")).join(" · ")}</span>` : " <span>nenhuma em aberto</span>"}</label></div>`;
+      <label>OS de performance <b>${oss.length}</b>${oss.length ? ` <span>${oss.map(o => esc(o.os) + (o.inv ? " (" + esc(o.inv.replace("Inversor ", "")) + ")" : "")).join(" · ")}</span>` : ` <span>${D.estado.osErro[u.u] ? "não consegui ler agora" : !(u.u in D.estado.os) ? "lendo…" : "nenhuma em aberto"}</span>`}</label></div>`;
     // o gráfico fica em cima dos cartões: clicar num inversor troca o gráfico, sem sair do lugar
     if (!INV) INV = (dr.inv.find(i => novasS(u.u, i.n).length) || dr.inv.find(i => ruins(i)) || dr.inv[0] || {}).n;
     const hoje = HOJE, dia = DIA || hoje, bruta = INV ? D.curvas[u.u + "|" + INV + "|" + dia] : undefined;
@@ -933,7 +1081,7 @@ function detalhe(u, bx) {
         l.map(i => { const r = ruins(i), tr1 = i.s.filter(s => est(i, s) === "trancada").length, cls = i.desl || i.fc ? "n" : i.s.some(s => est(i, s) === "sem_corrente") ? "c" : r ? "s" : "", nv = novasS(u.u, i.n);
           return `<div class="inv ${cls} ${INV === i.n ? "on" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}"><div class="l1"><b><input type="checkbox" class="selinv" data-sel="${esc(i.n)}" ${MARC.has(i.n) ? "checked" : ""} title="Escolher para criar OS" aria-label="Escolher ${esc(i.n)} para criar OS">${esc(i.n)}${nv.length ? '<span class="nv">nova</span>' : ""}${osDe(i.n).length || osRecentes(u.u, i.n).length || CRIADAS[u.u + "|" + i.n] ? `<button class="ferr" data-os="${esc(i.n)}" title="OS de performance deste inversor" aria-label="OS de performance deste inversor"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></button>` : ""}</b><span>${i.kw == null ? "—" : nf(i.kw, 1) + " kW"}</span></div>` +
             `<div class="l2">${i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : "Todas gerando"} · ${i.eday == null ? "—" : nf(i.eday) + " kWh hoje"} · ${tr1} trancada${tr1 === 1 ? "" : "s"}</div>` +
-            `<div class="sts">${i.s.map(s => { const e = est(i, s); return `<button class="st ${e}" data-st="${esc(s[0])}" data-sinv="${esc(i.n)}" title="String ${esc(s[0])}: ${e === "trancada" ? "trancada" : (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A") + (e === "sem_corrente" ? " · sem corrente" : e === "baixa_perf" ? " · corrente baixa" : "")}">${esc(String(s[0]).replace(/^\D+/, ""))}</button>`; }).join("")}</div>${(() => { const k = u.u + "|" + i.n, v = VISTOEM[k], c = CRIADAS[k], o = osRecentes(u.u, i.n)[0]; const l = []; if (v) l.push("visto por <b>você</b> às " + v); if (c) l.push("<b>OS criada por você</b> às " + c); else if (o) l.push("<b>OS " + esc(o.os) + "</b> de recomposição há " + diasAte(o.criada) + " dias · " + esc(o.status)); return l.length ? `<div class="l3">${l.join(" · ")}</div>` : ""; })()}${OSINV === i.n ? `<div class="osbox">${osRecentes(u.u, i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag n">${esc(o.status)}</span> · recomposição de string<br>${esc(o.desc)}${o.strings.length ? " · strings " + o.strings.join(", ") : ""}<br>criada em ${dm(o.criada)}${o.concluida ? " · concluída em " + dm(o.concluida) : ""}</div>`).join("")}${osDe(i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag ${/andamento/i.test(o.status) ? "a" : "n"}">${esc(o.status)}</span><br>${esc(o.nota)}<br>aberta em ${dm(o.data)} · ${esc(o.sub || "")}</div>`).join("")}</div>` : ""}</div>`; }).join("") + "</div></details>"; }).join("") +
+            `<div class="sts">${i.s.map(s => { const e = est(i, s); return `<button class="st ${e}" data-st="${esc(s[0])}" data-sinv="${esc(i.n)}" title="String ${esc(s[0])}: ${e === "trancada" ? "trancada" : (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A") + (e === "sem_corrente" ? " · sem corrente" : e === "baixa_perf" ? " · corrente baixa" : "")}">${esc(String(s[0]).replace(/^\D+/, ""))}</button>`; }).join("")}</div>${(() => { const k = u.u + "|" + i.n, v = VISTOEM[k], c = CRIADAS[k], o = osRecentes(u.u, i.n)[0]; const l = []; const qv = quemViu(u.u, i.n); if (qv) l.push(qv); if (c) l.push("<b>OS criada por você</b> às " + c); else if (o) l.push("<b>OS " + esc(o.os) + "</b> de recomposição há " + diasAte(o.criada) + " dias · " + esc(o.status)); return l.length ? `<div class="l3">${l.join(" · ")}</div>` : ""; })()}${OSINV === i.n ? `<div class="osbox">${osRecentes(u.u, i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag n">${esc(o.status)}</span> · recomposição de string<br>${esc(o.desc)}${o.strings.length ? " · strings " + o.strings.join(", ") : ""}<br>criada em ${dm(o.criada)}${o.concluida ? " · concluída em " + dm(o.concluida) : ""}</div>`).join("")}${osDe(i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag ${/andamento/i.test(o.status) ? "a" : "n"}">${esc(o.status)}</span><br>${esc(o.nota)}<br>aberta em ${dm(o.data)} · ${esc(o.sub || "")}</div>`).join("")}</div>` : ""}</div>`; }).join("") + "</div></details>"; }).join("") +
       `<div class="leg"><span><i class="st"></i>gerando</span><span><i class="st baixa_perf"></i>corrente baixa</span><span><i class="st sem_corrente"></i>sem corrente</span><span><i class="st trancada"></i>trancada</span><span><i class="st desligado"></i>inversor desligado</span><span><i class="nv" style="margin:0">nova</i>parou desde a última vez; some ao abrir</span><span><i class="ferr" style="margin:0;width:16px;height:16px"></i>tem OS de performance; clique para ver</span></div>
       ${MARC.size ? `<div class="acao"><b>${MARC.size} inversor${MARC.size > 1 ? "es" : ""} escolhido${MARC.size > 1 ? "s" : ""}</b><span style="color:var(--mudo);flex:1">${[...MARC].map(n => n.replace("Inversor ", "")).join(", ")}</span><button class="btn2" data-acao="limpar">Limpar</button><button class="btn" data-acao="criar">Criar OS</button></div>` : ``}
       <div class="painel"><h3>Comentários <span style="color:var(--mudo);font-weight:400">${cs.length}</span></h3>
@@ -970,7 +1118,7 @@ function detalhe(u, bx) {
         (dr.trk.l.slice().sort((a, b) => ord.indexOf(a[4]) - ord.indexOf(b[4]) || (b[3] || 0) - (a[3] || 0)).map(x =>
           `<tr><td><b>${esc(x[0])}</b></td><td><span class="tag ${cor[x[4]] || "n"}">${nome[x[4]] || esc(x[4])}</span>${x[6] ? ' <span class="tag n">sem comunicação</span>' : ""}</td><td>${x[1] == null ? "—" : nf(x[1], 1) + "°"}</td><td>${x[2] == null ? "—" : nf(x[2], 1) + "°"}</td><td>${x[3] == null ? "—" : nf(x[3], 1) + "°"}</td><td>${x[5] ? `<span class="tag o">ticket: ${esc(x[5])}</span>` : (x[4] === "parado" ? '<span class="tag s">sem OS nem ticket</span>' : T)}</td></tr>`).join("") ||
          `<tr><td colspan="6" class="zero">Todos os trackers seguindo o alvo.</td></tr>`) + "</tbody></table></div>"); }
-    if (trkp.length) h += rec("quando", "Quando parou", `${trkp.length} paradas em novembro · clique na linha para abrir o gráfico no dia`,
+    if (trkp.length) h += rec("quando", "Quando parou", `${trkp.length} paradas no mês · clique na linha para abrir o gráfico no dia`,
         `<div class="rol"><table><thead><tr><th>Tracker</th><th>Quando parou</th><th>Voltou</th><th>Horas de sol parado</th><th>Perda estimada</th><th>Gráfico</th></tr></thead><tbody>` +
         trkp.slice(0, 20).map(q => { const d0 = q[1].slice(0, 10), tem = temC && d0 >= addDia(hoje, -45);
           return `<tr class="cl" data-tp="${esc(q[0])}" data-td="${d0}"><td><b>${esc(q[0])}</b>${q[5] ? ' <span class="tag n">crônico</span>' : ""}</td><td>${dm(d0)} às ${q[1].slice(11)}</td><td>${q[2] ? dm(q[2].slice(0, 10)) + (q[2].length > 10 ? " às " + q[2].slice(11) : "") : '<span class="tag c">segue parado</span>'}</td><td>${nf(q[3], 1)} h</td><td>${nf(q[4])} kWh</td><td>${tem ? '<span class="tag i">abrir no dia</span>' : '<span class="zero">—</span>'}</td></tr>`; }).join("") +
@@ -988,7 +1136,8 @@ function detalhe(u, bx) {
         <div class="diasel" style="margin-top:12px">${PODE ? '<button class="btnl" data-etmos="1">Abrir OS da estação</button>' : ""}<button class="btnl" data-etmhist="0">OSs da estação</button></div></div>`; }
   } else if (ABA === "gp") {
     const G = D.ger;
-    if (G.usina !== u.u) h += `<div class="aviso">Geração e PR: neste mockup só a Ipixuna 1 foi carregada.</div>`;
+    if (G.usina !== u.u) { if (GERF[u.u]) h += `<div class="erro"><b>Não consegui ler a geração desta usina.</b> ${esc(GERF[u.u])} <button class="btnl" data-denovo2="ger" style="margin-left:10px">Tentar de novo</button></div>`; else { lerGer(u); h += '<div class="carrega">Lendo a geração do mês por inversor… A primeira leitura da usina pode levar alguns minutos; pode olhar as outras abas enquanto isso.</div>'; } }
+    else if (!G.dias.length || !Object.keys(G.inv).length) h += `<div class="aviso">${esc(G.motivo || "Sem geração por inversor desta usina neste mês.")}</div>`;
     else {
       const sbx = (lbl, on, a, v) => `<button class="btnl ${on ? "on" : ""}" data-gp="${a}" data-v="${v}">${lbl}</button>`;
       h += `<div class="painel"><div class="diasel" style="gap:8px;margin-top:0">${sbx("Geração", GP === "ger", "ver", "ger")}${sbx("PR dos inversores", GP === "pr", "ver", "pr")}${GP === "ger" ? `<span style="margin-left:10px">Período:</span>${sbx("Ontem", GPER === "1", "per", "1")}${sbx("7 dias", GPER === "7", "per", "7")}${sbx("Mês", GPER === "0", "per", "0")}` : ""}<span style="flex:1"></span><button class="btnl" data-exp="ger">Exportar Excel</button></div>`;
@@ -1001,17 +1150,25 @@ function detalhe(u, bx) {
           lin.map(x => { const dv = x.y != null && med ? (x.y / med - 1) * 100 : null, c = dv == null ? "var(--fraco)" : dv <= -20 ? "var(--critico)" : dv <= -10 ? "var(--severo)" : dv <= -5 ? "var(--alerta)" : "var(--ok)";
             return `<div class="bh cl ${GI === x.n ? "sel" : ""}" data-gi="${esc(x.n)}" title="Clique para ver o que aconteceu com este inversor"><span>${esc(x.n)}</span><span class="tr"><i style="width:${Math.round(x.kwh / mx * 100)}%;background:${c}"></i></span><span>${nf(x.kwh)} kWh · ${x.y == null ? "—" : nf(x.y, 2) + " kWh/kWp"} · <b style="color:${c}">${dv == null ? "—" : (dv > 0 ? "+" : "") + nf(dv, 1) + "%"}</b></span></div>`; }).join("");
       } else {
-        const semPr = Object.values(G.hoje).every(v => v[1] == null);
-        h += `<h3 style="margin-top:10px">PR dos inversores · hoje</h3><p>${semPr ? "A estação desta usina não entregou irradiância hoje: sem ela não há PR, e a tela mostra a geração e o kWh/kWp de cada inversor." : "PR de cada inversor com a irradiância da estação."}</p>
-          <div class="rol"><table><thead><tr><th>Inversor</th><th>Potência (kWp)</th><th>Geração hoje</th><th>kWh/kWp</th><th>PR</th></tr></thead><tbody>` +
-          Object.keys(G.hoje).map(n => { const v = G.hoje[n], kwp = G.kwp[n]; return `<tr><td><b>${esc(n)}</b></td><td>${kwp ? nf(kwp, 1) : "—"}</td><td>${v[0] == null ? "—" : nf(v[0], 1) + " kWh"}</td><td>${v[0] != null && kwp ? nf(v[0] / kwp, 2) : "—"}</td><td>${v[1] == null ? '<span class="zero">sem irradiância</span>' : nf(v[1] * (v[1] <= 1.5 ? 100 : 1), 1) + "%"}</td></tr>`; }).join("") + "</tbody></table></div>";
+        if (!G.pr) lerPr(u);
+        if (!G.pr) h += `<h3 style="margin-top:10px">PR dos inversores · hoje</h3><p>Lendo o PR de hoje…</p>`;
+        else if (G.pr.erro) h += `<h3 style="margin-top:10px">PR dos inversores · hoje</h3><p>${esc(G.pr.erro)}</p>`;
+        else {
+          const semPr = Object.values(G.hoje).every(v => v[1] == null);
+          h += `<h3 style="margin-top:10px">PR dos inversores · hoje</h3><p>${semPr ? "A estação desta usina não entregou irradiância hoje: sem ela não há PR, e a tela mostra a geração e o kWh/kWp de cada inversor." : "PR de cada inversor com a irradiância da estação."}</p>
+            <div class="rol"><table><thead><tr><th>Inversor</th><th>Potência (kWp)</th><th>Geração hoje</th><th>kWh/kWp</th><th>PR</th></tr></thead><tbody>` +
+            Object.keys(G.hoje).map(n => { const v = G.hoje[n], kwp = G.kwp[n]; return `<tr><td><b>${esc(n)}</b></td><td>${kwp ? nf(kwp, 1) : "—"}</td><td>${v[0] == null ? "—" : nf(v[0], 1) + " kWh"}</td><td>${v[0] != null && kwp ? nf(v[0] / kwp, 2) : "—"}</td><td>${v[1] == null ? '<span class="zero">sem irradiância</span>' : nf(v[1] * (v[1] <= 1.5 ? 100 : 1), 1) + "%"}</td></tr>`; }).join("") + "</tbody></table></div>";
+        }
       }
       h += "</div>";
       if (GP === "ger" && GI) { const fech = G.dias.map((x, k) => k).filter(k => G.dias[k] < HOJE); h += inspecao(u, GI, GPER === "0" ? fech : fech.slice(-Math.max(7, +GPER))); }
     }
   } else if (ABA === "pot") {
+    if (D.pot.usina !== u.u && !POTF[u.u]) lerPot(u);
     const Pt = D.pot;
-    if (Pt.usina !== u.u) h += `<div class="aviso">Potência ativa + POA e GHI: neste mockup só a Ipixuna 1 foi carregada.</div>`;
+    if (Pt.usina !== u.u) h += POTF[u.u] ? `<div class="erro"><b>Não consegui ler a potência de hoje.</b> ${esc(POTF[u.u])} <button class="btnl" data-denovo2="pot" style="margin-left:10px">Tentar de novo</button></div>` : '<div class="carrega">Lendo a potência de hoje por inversor…</div>';
+    else if (Pt.sem) h += `<div class="aviso">${esc(Pt.sem)}</div>`;
+    else if (!Object.keys(Pt.inv).length) h += `<div class="aviso">${Pt.situacao === "falhou" ? "Não consegui ler a potência de hoje nesta fonte" + (Pt.motivo ? ": " + esc(Pt.motivo) : ".") : "A fonte ainda não trouxe potência por inversor hoje."} <button class="btnl" data-denovo2="pot2" style="margin-left:10px">Ler de novo</button></div>`;
     else {
       const nomes = Object.keys(Pt.inv), e = dr.etm, temIrr = e && (e.poa || e.ghi || []).some(v => v);
       let ser;
@@ -1026,33 +1183,50 @@ function detalhe(u, bx) {
         ${dir.length ? "" : '<p style="margin-top:8px">A estação desta usina não entregou POA nem GHI hoje; o gráfico mostra só a potência.</p>'}</div>`;
     }
   } else if (ABA === "cf") {
-    const C = D.conf, l = C.usinas[u.u];
-    if (!l) h += `<div class="aviso">Conferir fontes compara a fonte desta usina com o SCADA da Grid (a mesma leitura do Monitoramento do COS), inversor a inversor. O SCADA tem ${C.scada_total} usinas hoje: ${esc(C.scada_nomes.join(", "))}. Neste mockup a conferência foi carregada para a Aparecida do Taboado 1 e 2 (Thopen · Banco de dados).</div>`;
-    else { const dk = l.map(x => Math.abs((x.bkw || 0) - (x.skw || 0))), pior = Math.max(...dk), dh = l.filter(x => x.bkwh && x.skwh && Math.abs(x.bkwh - x.skwh) / x.bkwh > .1).length, ds = l.filter(x => x.bs !== x.ss).length;
-      h += `<div class="painel"><h3>Banco de dados × SCADA da Grid · lidos às ${esc(C.quando)}</h3><p>O mesmo inversor nas duas fontes. O SCADA é a leitura da hora; a do banco era de ${C.atraso_min} min antes, então a potência pode diferir com nuvem passando. A ligação aqui é pela ordem (${esc(l[0].eq)} = ${esc(l[0].n)}): é o de-para a confirmar.</p>
-        <div class="lt2" style="grid-template-columns:150px 1fr"><span>Inversores</span><span>${l.length} nas duas fontes</span>
-          <span>Potência agora</span><span>${pior < 2 ? `<b style="color:var(--ok)">batem</b> (maior diferença ${nf(pior, 2)} kW)` : `<b style="color:var(--severo)">${dk.filter(v => v >= 2).length} com diferença de 2 kW ou mais</b> (a maior, ${nf(pior, 1)} kW)`}</span>
-          <span>Geração do dia</span><span>${dh ? `<b style="color:var(--severo)">${dh} de ${l.length} diferem mais de 10%</b>: as fontes contam o kWh do dia de jeitos diferentes` : '<b style="color:var(--ok)">batem</b>'}</span>
-          <span>Strings gerando</span><span>${ds ? `<b style="color:var(--severo)">${ds} inversores com contagem diferente</b>` : '<b style="color:var(--ok)">a mesma contagem</b> nas duas'}</span>
+    const c = D.conf.usinas[u.u];
+    if (!c) { lerConf(u); h += '<div class="carrega">Lendo esta usina no SCADA da Grid…</div>'; }
+    else if (c.sit === "erro") h += `<div class="erro"><b>Não consegui conferir.</b> ${esc(c.erro)} <button class="btnl" data-denovo2="cf" style="margin-left:10px">Tentar de novo</button></div>`;
+    else if (c.sit === "ja") h += `<div class="aviso">Esta usina já é lida do SCADA da Grid (a mesma leitura do Monitoramento do COS): não há uma segunda fonte para conferir.</div>`;
+    else if (c.sit === "fora") h += `<div class="aviso">Conferir fontes põe a fonte desta usina ao lado do SCADA da Grid (a mesma leitura do Monitoramento do COS), inversor a inversor. O SCADA não tem esta usina com este nome. Ele tem ${c.total} usinas hoje: ${esc(c.nomes.join(", "))}.</div>`;
+    else if (c.sit === "desigual") h += `<div class="aviso">O SCADA da Grid tem ${c.n_scada} inversores em "${esc(c.scada.nome)}" e a fonte desta tela tem ${c.n_fonte}: sem a mesma quantidade não dá para ligar um ao outro pela ordem. Falta o de-para desta usina com o SCADA.</div>`;
+    else { const l = c.l, dk = l.map(x => x.bkw == null || x.skw == null ? null : Math.abs(x.bkw - x.skw)), com = dk.filter(v => v != null), pior = com.length ? Math.max(...com) : null, dh = l.filter(x => x.bkwh && x.skwh && Math.abs(x.bkwh - x.skwh) / x.bkwh > .1).length, ds = l.filter(x => x.ss != null && x.bs !== x.ss).length, fora = l.filter(x => x.ok === false).length;
+      h += `<div class="painel"><h3>${esc((NOME[u.g] || "").split(" · ")[1] || "A fonte")} × SCADA da Grid · lido às ${esc(c.quando)}</h3><p>O mesmo inversor nas duas fontes. O SCADA é a leitura de agora; a da fonte é a última do Tempo real (${esc(String(D.fresco.lido || "").slice(0, 5))}), então a potência pode diferir com nuvem passando. A ligação é pela ordem dos inversores (${esc(l[0].eq)} = ${esc(l[0].n)})${c.duas ? `, e o SCADA junta duas usinas em "${esc(c.scada.nome)}"` : ""}: é o de-para a confirmar.</p>
+        <div class="lt2" style="grid-template-columns:150px 1fr"><span>Inversores</span><span>${l.length} nas duas fontes${fora ? ` · <b style="color:var(--violeta)">${fora} sem comunicação no SCADA</b>` : ""}</span>
+          <span>Potência agora</span><span>${pior == null ? '<span class="zero">sem leitura para comparar</span>' : pior < 2 ? `<b style="color:var(--ok)">batem</b> (maior diferença ${nf(pior, 2)} kW)` : `<b style="color:var(--severo)">${com.filter(v => v >= 2).length} com diferença de 2 kW ou mais</b> (a maior, ${nf(pior, 1)} kW)`}</span>
+          <span>Geração do dia</span><span>${dh ? `<b style="color:var(--severo)">${dh} de ${l.length} diferem mais de 10%</b>: confira como cada fonte conta o kWh do dia` : '<b style="color:var(--ok)">batem</b> (até 10% de diferença)'}</span>
+          <span>Strings com corrente</span><span>${ds ? `<b style="color:var(--severo)">${ds} inversores com contagem diferente</b>` : '<b style="color:var(--ok)">a mesma contagem</b> nas duas'}</span>
           <span>Só no SCADA</span><span>o número de série de cada inversor</span></div></div>
-        <div class="sec" style="margin-top:14px"><div class="rol"><table><thead><tr><th>Inversor</th><th>No SCADA</th><th>kW no banco</th><th>kW no SCADA</th><th>Diferença</th><th>kWh hoje no banco</th><th>kWh hoje no SCADA</th><th>Strings gerando (banco · SCADA)</th><th>Nº de série</th></tr></thead><tbody>` +
-        l.map((x, k) => `<tr><td><b>${esc(x.n)}</b></td><td>${esc(x.eq)}</td><td>${x.bkw == null ? "—" : nf(x.bkw, 1)}</td><td>${x.skw == null ? "—" : nf(x.skw, 1)}</td><td>${dk[k] >= 2 ? `<span class="tag s">${nf(dk[k], 1)} kW</span>` : `<span class="zero">${nf(dk[k], 2)}</span>`}</td><td>${x.bkwh == null ? "—" : nf(x.bkwh, 1)}</td><td>${x.skwh == null ? "—" : nf(x.skwh, 1)}</td><td>${x.bs === x.ss ? x.bs + " · " + x.ss : `<span class="tag s">${x.bs} · ${x.ss}</span>`}</td><td>${esc(x.sn || "—")}</td></tr>`).join("") + "</tbody></table></div></div>"; }
+        <div class="sec" style="margin-top:14px"><div class="rol"><table><thead><tr><th>Inversor</th><th>No SCADA</th><th>kW na fonte</th><th>kW no SCADA</th><th>Diferença</th><th>kWh hoje na fonte</th><th>kWh hoje no SCADA</th><th>Strings com corrente (fonte · SCADA)</th><th>Nº de série</th></tr></thead><tbody>` +
+        l.map((x, k) => `<tr><td><b>${esc(x.n)}</b></td><td>${esc(x.eq || "—")}${x.ok === false ? ' <span class="tag n">sem comunicação</span>' : ""}</td><td>${x.bkw == null ? "—" : nf(x.bkw, 1)}</td><td>${x.skw == null ? "—" : nf(x.skw, 1)}</td><td>${dk[k] == null ? T : dk[k] >= 2 ? `<span class="tag s">${nf(dk[k], 1)} kW</span>` : `<span class="zero">${nf(dk[k], 2)}</span>`}</td><td>${x.bkwh == null ? "—" : nf(x.bkwh, 1)}</td><td>${x.skwh == null ? "—" : nf(x.skwh, 1)}</td><td>${x.ss == null ? x.bs + " · —" : x.bs === x.ss ? x.bs + " · " + x.ss : `<span class="tag s">${x.bs} · ${x.ss}</span>`}</td><td>${esc(x.sn || "—")}</td></tr>`).join("") + `</tbody></table></div><div class="diasel" style="margin-top:10px;justify-content:flex-end"><button class="btnl" data-denovo2="cf">Ler o SCADA de novo</button></div></div>`; }
   } else if (ABA === "dp") {
-    h += deparaHtml(u);
-  } else h += `<div class="sec" style="margin-top:14px"><p>Inversores desta usina com 70% ou menos da média dos outros, no mês. Clique na linha para ver os dias; clique no dia para abrir a curva por string dele.</p>${tabBaixo(bx, false)}</div>`;
+    h += deparaHtml(u); if (h.includes('class="dpj"')) cp.dataset.dp = u.g + "|" + u.u;
+  } else h += !ABX ? `<div class="aviso">${lerAbaixo.indo ? "Calculando o abaixo dos demais (a geração do mês por inversor, lida do banco)…" : "Não consegui ler o abaixo dos demais: " + esc(ABX_ERRO || "sem leitura") + ' <button class="btnl" data-denovo2="abx" style="margin-left:10px">Tentar de novo</button>'}</div>`
+    : `<div class="sec" style="margin-top:14px"><p>Inversores desta usina com 70% ou menos da média dos outros, no mês${ABX.fim ? " (até " + dm(ABX.fim) + ")" : ""}. Clique na linha para ver os dias; clique no dia para abrir a curva por string dele.</p>${tabBaixo(bx, false)}</div>`;
   $("corpo").innerHTML = h;
 }
 
 // o sino: as ocorrências novas (cada string ou tracker que parou desde a última vez); abrir uma tira ela da lista
 function sino() {
-  const s = novasS(), t = novasT(), n = s.length + t.length;
+  const por = {}, de = x => por[x.u] = por[x.u] || {u: x.u, g: x.g, s: 0, inv: new Set(), t: 0};
+  novasS().forEach(x => { const o = de(x); o.s++; o.inv.add(x.i); });
+  novasT().forEach(x => { de(x).t++; });
+  const l = Object.values(por).sort((a, b) => (b.s + b.t) - (a.s + a.t) || a.u.localeCompare(b.u)), n = l.reduce((a, o) => a + o.s + o.t, 0), pl = (q, um, mais) => q + " " + (q > 1 ? mais : um);
   $("sinoN").textContent = n; $("sinoN").hidden = !n;
-  $("sinoL").innerHTML = (n ? "" : '<div class="nt"><small>Nada novo desde a última vez.</small></div>') +
-    (s.length ? `<h4>Strings que pararam (${s.length})</h4>` + s.slice(0, 8).map(x => `<button class="nt" data-ns="${esc(x.u)}" data-ni="${esc(x.i)}" data-ng="${x.g}"><b>${esc(x.u)} · ${esc(x.i)}</b><small>${x.n} string${x.n > 1 ? "s" : ""} parou em ${dm(x.d)}</small></button>`).join("") + (s.length > 8 ? `<div class="nt"><small>e mais ${s.length - 8}</small></div>` : "") : "") +
-    (t.length ? `<h4>Trackers que pararam (${t.length})</h4>` + t.slice(0, 6).map(x => `<button class="nt" data-nt="${esc(x.u)}" data-ng="${x.g}"><b>${esc(x.u)}</b><small>${x.n} tracker${x.n > 1 ? "s" : ""} parou em ${dm(x.d)}</small></button>`).join("") + (t.length > 6 ? `<div class="nt"><small>e mais ${t.length - 6}</small></div>` : "") : "");
+  $("sinoL").innerHTML = !n ? `<div class="nt"><small>${D.novas.desde ? "Nada novo que você ainda não tenha aberto." : "O registro do que você já viu não abriu agora."}</small></div>`
+    : `<h4>Pararam desde ${dm(D.novas.desde.slice(0, 10))} às ${esc(D.novas.desde.slice(11, 16))}, por usina</h4>` +
+      l.slice(0, 12).map(o => `<button class="nt" data-nu="${esc(o.u)}" data-ng="${o.g}" data-na="${o.s ? "str" : "trk"}"><b>${esc(o.u)}</b><small>${[o.s ? pl(o.s, "string", "strings") + " em " + pl(o.inv.size, "inversor", "inversores") : "", o.t ? pl(o.t, "tracker", "trackers") : ""].filter(Boolean).join(" · ")}</small></button>`).join("") +
+      (l.length > 12 ? `<div class="nt"><small>e mais ${l.length - 12} usinas</small></div>` : "");
 }
-const verS = (u, i) => D.novas.s.filter(x => x.u === u && x.i === i).forEach(x => VISTO.add("s|" + x.u + "|" + x.i + "|" + x.d));
-const verT = u => D.novas.t.filter(x => x.u === u).forEach(x => VISTO.add("t|" + x.u + "|" + x.d));
+// ver = marcar como visto por mim: some para mim e os outros passam a ver quem viu. Grava em fundo (a falha não desfaz a tela).
+const marcaVisto = l => { const ks = l.filter(x => !VISTO.has(x.k)).map(x => x.k); if (!ks.length) return;
+  ks.forEach(k => { VISTO.add(k); (D.vis.vistos[k] = D.vis.vistos[k] || []).push({nome: EU.nome || "você", quando: HOJE + " " + agora(), eu: true}); });
+  fetch("/api/sala/visto", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify({chaves: ks})}).catch(() => {}); };
+const verS = (u, i) => marcaVisto(D.novas.s.filter(x => x.u === u && x.i === i));
+const verT = u => marcaVisto(D.novas.t.filter(x => x.u === u));
+// quem já viu as strings paradas deste inversor (para todos: evita OS em dobro)
+const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
+  const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
+  return [eu ? "visto por <b>você</b> em " + q(eu) : "", ou.length ? "visto por <b>" + esc(lst(ou)) + "</b>" : ""].filter(Boolean).join(" · "); };
 const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; };
 
 function desenhar() {
@@ -1099,8 +1273,12 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { fecharJane
 document.addEventListener("click", e => {
   const q = s => e.target.closest(s);
   let x;
-  if ((x = q(".nt[data-ns]"))) { abrirUsina(x.dataset.ng, x.dataset.ns); ABA = "str"; INV = x.dataset.ni; verS(x.dataset.ns, INV); $("sino").open = false; desenhar(); return; }
-  if ((x = q(".nt[data-nt]"))) { abrirUsina(x.dataset.ng, x.dataset.nt); ABA = "trk"; verT(x.dataset.nt); $("sino").open = false; desenhar(); return; }
+  if ((x = q(".nt[data-nu]"))) { abrirUsina(x.dataset.ng, x.dataset.nu); CLICADAS.add("u|" + x.dataset.nu); CLICADAS.add("g|" + x.dataset.ng); ABA = x.dataset.na;
+    if (ABA === "trk") verT(SEL.u); else { const n1 = novasS(SEL.u)[0]; if (n1) { INV = n1.i; verS(SEL.u, INV); } }
+    $("sino").open = false; desenhar(); scrollTo(0, 0); return; }
+  if ((x = q("[data-denovo2]"))) { const k = x.dataset.denovo2, u = usinas()[0];
+    if (k === "ger" && u) delete GERF[u.u]; else if (k === "pot" && u) delete POTF[u.u]; else if (k === "pot2") D.pot = {usina: null}; else if (k === "cf" && u) delete D.conf.usinas[u.u]; else if (k === "abx") { ABX_ERRO = ""; lerAbaixo(); } else if (k === "disp") DISP_ERRO = "";
+    desenhar(); return; }
   if ((x = q(".chip[data-q]"))) { MODO[x.dataset.q] = x.dataset.m; visaoGeral.aberto = true; desenhar(); return; }
   if ((x = q("[data-sdia]"))) { DIA = x.dataset.sdia; desenhar(); return; }
   if ((x = q("[data-tdia]"))) { TDIA = x.dataset.tdia; desenhar(); return; }
@@ -1124,23 +1302,18 @@ document.addEventListener("click", e => {
   if (q(".modal")) return;
   if ((x = q("[data-gi]"))) { GI = GI === x.dataset.gi ? null : x.dataset.gi; desenhar(); const pn = $("insp"); if (pn) pn.scrollIntoView({block: "nearest"}); return; }
   if ((x = q("[data-ir]"))) { ABA = "str"; INV = x.dataset.ir; DIA = null; desenhar(); scrollTo(0, 0); return; }
-  if ((x = q("[data-exp]"))) { const G = D.ger, Pt = D.pot, ns = Object.keys(G.inv);
-    if (x.dataset.exp === "ger") baixar("geracao_" + SEL.u + "_2026-11.csv", [["Data"].concat(ns.map(n => n + " (kWh)"))].concat(G.dias.map((d0, k) => [dm(d0) + "/2026"].concat(ns.map(n => G.inv[n][k] ?? "")))));
-    else { const np = Object.keys(Pt.inv), ts = [...new Set(np.flatMap(n => Pt.inv[n].map(v => v[0])))].sort((a, b) => a - b), mp = {}; np.forEach(n => { mp[n] = Object.fromEntries(Pt.inv[n]); });
-      baixar("potencia_" + SEL.u + "_" + Pt.dia + ".csv", [["Hora"].concat(np.map(n => n + " (kW)"), ["Usina (kW)"])].concat(ts.map(m => [hm(m)].concat(np.map(n => mp[n][m] ?? ""), [np.reduce((a, n) => a + (mp[n][m] || 0), 0)])))); }
-    return; }
+  if ((x = q("[data-exp]"))) { exportar(x.dataset.exp); return; }
   if ((x = q("[data-solar]"))) { SOLAR = !SOLAR; desenhar(); return; }
   if ((x = q("[data-gp]"))) { if (x.dataset.gp === "ver") GP = x.dataset.v; else GPER = x.dataset.v; desenhar(); return; }
   if ((x = q("[data-pv]"))) { PV = x.dataset.pv; desenhar(); return; }
   if ((x = q("[data-vg]"))) { VG = x.dataset.vg; desenhar(); return; }
   if ((x = q("[data-idf]"))) { IDF = IDF === x.dataset.idf ? null : x.dataset.idf; desenhar(); return; }
-  if ((x = q("[data-pu]"))) { abrirUsina(x.dataset.pg, x.dataset.pu); CLICADAS.add("u|" + x.dataset.pu); CLICADAS.add("g|" + x.dataset.pg); ABA = "str"; if (x.dataset.pi) { INV = x.dataset.pi; if (novasS(SEL.u, INV).length) VISTOEM[SEL.u + "|" + INV] = agora(); verS(SEL.u, INV); } desenhar(); scrollTo(0, 0); return; }
+  if ((x = q("[data-pu]"))) { abrirUsina(x.dataset.pg, x.dataset.pu); CLICADAS.add("u|" + x.dataset.pu); CLICADAS.add("g|" + x.dataset.pg); ABA = x.dataset.pa || "str"; if (ABA === "trk") verT(SEL.u); if (x.dataset.pi) { INV = x.dataset.pi; verS(SEL.u, INV); } desenhar(); scrollTo(0, 0); return; }
   if ((x = q("[data-bxt]"))) { BXM = x.dataset.bxt; desenhar(); return; }
   if ((x = q("[data-kpi]"))) { const k = x.dataset.kpi; if (SEL.u) { ABA = k; if (k === "trk") verT(SEL.u); desenhar(); const a = document.querySelector(".abas"); if (a) a.scrollIntoView({block: "start"}); }
     else { VG = k === "bx" ? "ger" : k; if (k === "bx") BXM = "sem"; desenhar(); } return; }
-  if ((x = q("[data-mock]"))) { toast(x.dataset.mock + " (no mockup não abre)"); return; }
   if ((x = q(".ferr[data-os]"))) { OSINV = OSINV === x.dataset.os ? null : x.dataset.os; desenhar(); return; }
-  if ((x = q("button[data-tk]"))) { const a = x.dataset.tk; if (a === "red") TRK.red = !TRK.red; else if (a === "exp") TRK.exp = !TRK.exp; else if (a === "csv") { toast("Baixa o CSV da curva (no mockup não baixa)"); return; } else if (a === "filtro") trkFiltro(x.dataset.v); desenhar(); return; }
+  if ((x = q("button[data-tk]"))) { const a = x.dataset.tk; if (a === "red") TRK.red = !TRK.red; else if (a === "exp") TRK.exp = !TRK.exp; else if (a === "filtro") trkFiltro(x.dataset.v); desenhar(); return; }
   if ((x = q(".tc"))) { const n = x.dataset.tc; if (TRK.soUm) { Object.keys((D.trkc.dias[TRK.fim] || {t: {}}).t).forEach(id => { if (id !== TRK.soUm) TRK.hide[id] = 1; }); TRK.soUm = null; } if (TRK.hide[n]) delete TRK.hide[n]; else TRK.hide[n] = 1; TRK.filtro = "custom"; desenhar(); return; }
   if ((x = q("tr[data-etm]"))) { abrirUsina(x.dataset.g, x.dataset.u); ABA = "etm"; desenhar(); scrollTo(0, 0); return; }
   if ((x = q(".st[data-st]"))) { const era = x.classList.contains("trancada"), sid = x.dataset.st, s0 = String(sid).replace(/^\D+/, ""), sinv = x.dataset.sinv, u = usinas()[0];
@@ -1156,9 +1329,10 @@ document.addEventListener("click", e => {
   if ((x = q(".dchip"))) { ABA = "str"; INV = x.dataset.inv; DIA = x.dataset.dia; desenhar(); scrollTo(0, 0); return; }
   if ((x = q("tr[data-tp]"))) { TRK.ini = TRK.fim = x.dataset.td; TRK.soUm = x.dataset.tp; TRK.hide = {}; TRK.filtro = "custom"; desenhar(); const pn = document.querySelector(".painel"); if (pn) pn.scrollIntoView({block: "start"}); return; }
   if ((x = q("[data-denovo]"))) { delete FALHOU[SEL.u]; desenhar(); return; }
-  if ((x = q("tr[data-bx]"))) { if (!SEL.u) { abrirUsina(x.dataset.bg === "?" ? SEL.g : x.dataset.bg, x.dataset.bu); ABA = "bx"; BXA = x.dataset.bx; scrollTo(0, 0); } else BXA = BXA === x.dataset.bx ? null : x.dataset.bx; desenhar(); return; }
+  if ((x = q("tr[data-bx]"))) { if (!SEL.u && x.dataset.bg === "?") { toast("A " + x.dataset.bu + " não está no Tempo real com este nome: não há usina para abrir"); return; }
+    if (!SEL.u) { abrirUsina(x.dataset.bg === "?" ? SEL.g : x.dataset.bg, x.dataset.bu); ABA = "bx"; BXA = x.dataset.bx; scrollTo(0, 0); } else BXA = BXA === x.dataset.bx ? null : x.dataset.bx; desenhar(); return; }
   if ((x = q(".aba"))) { ABA = x.dataset.aba; if (ABA === "trk") verT(SEL.u); desenhar(); return; }
-  if ((x = q(".inv"))) { INV = x.dataset.inv; DIA = null; if (novasS(SEL.u, INV).length) VISTOEM[SEL.u + "|" + INV] = agora(); verS(SEL.u, INV); desenhar(); return; }
+  if ((x = q(".inv"))) { INV = x.dataset.inv; DIA = null; verS(SEL.u, INV); desenhar(); return; }
   if ((x = q(".u, tr.cl[data-u]"))) { CLICADAS.add("u|" + x.dataset.u); CLICADAS.add("g|" + x.dataset.g); const mesma = SEL.u === x.dataset.u && SEL.g === x.dataset.g; if (mesma) { SEL = {g: x.dataset.g, u: null}; INV = null; } else { abrirUsina(x.dataset.g, x.dataset.u); ABA = "str"; } desenhar(); scrollTo(0, 0); return; }
   if ((x = q(".g"))) { const id = x.dataset.g; if (id) CLICADAS.add("g|" + id); if (!id) SEL = {g: null, u: null}; else { if (SEL.g === id && !SEL.u && ABERTOS.has(id)) ABERTOS.delete(id); else ABERTOS.add(id); SEL = {g: id, u: null}; } INV = null; desenhar(); return; }
   document.querySelectorAll(".explica[open], .sino[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; });
@@ -1167,13 +1341,16 @@ $("q").addEventListener("input", () => { if (D) arvore(); });
 // a partida: o tempo real e as falhas do mês; relê a cada 5 min (com a aba à vista) sem perder a usina aberta
 async function ligar(primeira) {
   try {
-    const [ent, fal] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas?mes=" + HOJE.slice(0, 7), 150000).catch(() => null)]);
-    const ant = D; D = montar(ent, fal);
+    const [ent, fal, idr, vis] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas?mes=" + HOJE.slice(0, 7), 150000).catch(() => null),
+      pega("/api/sala/idade", 60000).catch(() => null), pega("/api/sala/visto", 20000).catch(() => null)]);
+    const ant = D; D = montar(ent, fal, idr && idr.strings ? idr : null, vis && vis.eu ? vis : null);
     if (ant) { D.osHist = ant.osHist; D.osHistFalhou = ant.osHistFalhou; D.osHistMotivo = ant.osHistMotivo; }
     Object.keys(ETMG_LIDO).forEach(g => { if (ETMG_LIDO[g] === 3) delete ETMG_LIDO[g]; });
-    if (ant) { D.drill = ant.drill; D.curvas = ant.curvas; D.etmG = ant.etmG; D.estado = ant.estado; D.trkc = ant.trkc; }
+    if (ant) { D.drill = ant.drill; D.curvas = ant.curvas; D.etmG = ant.etmG; D.estado = ant.estado; D.trkc = ant.trkc; D.ger = ant.ger; D.pot = ant.pot; D.conf = ant.conf; }
+    poeAbaixo(); DISP_ERRO = "";
     $("aviso0").hidden = !!(fal && fal.strings);
-    desenhar();
+    if (primeira) desenhar(); else redesenhar();
+    if (!ABX || Date.now() - ABX_EM > 18e5) lerAbaixo();          // a conta do mês muda com a subida dos BDs: de 30 em 30 min basta
   } catch (e) {
     if (primeira) $("corpo").innerHTML = `<div class="erro"><b>Não consegui ler o tempo real.</b> ${esc(e && e.message || e)} <button class="btnl" onclick="location.reload()" style="margin-left:10px">Tentar de novo</button></div>`;
   }

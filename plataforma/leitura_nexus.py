@@ -187,6 +187,7 @@ def permitido(metodo: str, caminho: str, parametros=()) -> bool:
 
 # leituras (GET/HEAD) das telas do mapa que a ponte não alcançava; "x" casa "x" e "x/..."
 _GET_GESTOR = (
+    "/api/sala",                                              # Sala de controle: a idade real, o visto e a conferência com o SCADA
     "/api/cos/mtta",                                          # Acompanhamento COS
     "/api/gerencial",                                         # Visão gerencial, grupos e Disponibilidade (e o Excel)
     "/api/cascata", "/api/macro", "/api/g", "/api/inv/pr-mes",  # Painel NOC e Diagnóstico
@@ -210,7 +211,10 @@ _GET_GESTOR = (
 
 # POSTs que só consultam: os da ponte, as OS do Fracttal da usina (corpo com usina e inversores) e o Excel da aba Strings
 # e trackers (20/10/2026: a tela manda as linhas que mostra e o servidor só formata; o gestor também baixa)
-POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os", "/api/painel/falhas/exportar"}
+# e, da Sala de controle (16/11/2026): o Excel do que a tela mostra, e o visto, que é o que a PESSOA já olhou e não dado
+# da Performance (o gestor também marca)
+POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os", "/api/painel/falhas/exportar", "/api/sala/visto",
+                                                "/api/sala/exportar"}
 
 # o que as telas do mapa gravam além do que a ponte já listava (documentação e teste): para o gestor, tudo é 403
 GRAVACOES_GESTOR = GRAVACOES + (

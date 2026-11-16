@@ -2549,9 +2549,6 @@ real faz hoje tem de estar aqui, transformado.
 - a usina, SÓ ao abrir (`lerUsina`): as rotas da fonte dela, com as mesmas chaves do Monitoramento (`SKEY`, `VKEY`,
   `PLANT`, trackers e ETM), mais `/api/state` (acompanhamento e comentários) e `/api/os-performance`;
 - a curva por string e a dos trackers, por dia, quando se pede (`lerCurva`, `lerTrk`); a ETM da visão geral, ao abrir a aba.
-Escondido por CSS até a entrega 3 (nada de botão ou número de mentira): o sino e as marcas de "nova", e as abas Abaixo
-dos demais, Geração e PR, Potência, Conferir fontes e De-para.
-
 **Entrega 2 (16/11/2026): as ações gravam, pelas rotas do Tempo real.** Nenhuma rota de gravação nova.
 - **Quem grava:** o `window.gcEu.grava` das outras telas (`PODE`). O perfil de gestor e a chave de leitura só leem: a
   tela ganha a classe `soleitura` (somem a caixa de marcar, a barra de OS e o campo de comentário) e o portão do
@@ -2577,16 +2574,52 @@ dos demais, Geração e PR, Potência, Conferir fontes e De-para.
 Prova de 16/11 numa cópia local que lê do servidor e segura os POST: na Ipixuna 2 o Inversor 2.13 avisou a OS 18739,
 concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam fora de novo.
 
+**Entrega 3 (16/11/2026): o que é novo.** Nada mais fica escondido. O que cada pedaço lê, e a regra de cada um:
+- **Abaixo dos demais** (a aba Geração da visão geral, o 4º número e a aba da usina): a conta é do NEXUS (a Baixa
+  performance da Coletas, `servico.furos_mural`: os BDs do banco e as paradas do COS). A tela lê
+  `/t/performance/sala-de-controle/abaixo?mes=` pela mesma origem, com a sessão do Nexus, e não refaz nada. Aberta direto
+  pela senha (sem o Nexus) não há essa sessão: a tela diz e o resto funciona. Relê de 30 em 30 min (a conta muda com a
+  subida dos BDs, não a cada 5 min).
+- **A idade real da string** (`/api/sala/idade`, `sala_controle.idade_real`): quem já vinha parado no dia 1 ganha a
+  data em que parou de verdade, seguindo os pacotes de falhas publicados para trás (só continua quando a mesma string
+  vai até o último dia do mês anterior). Sem data segura, "desde antes de <1º dia olhado>". Guardado enquanto os
+  arquivos dos meses não mudam. Na prova de 16/11: strings paradas desde 04/09 (73 dias), sem OS.
+- **O novo, por pessoa** (`/api/sala/visto`, `sala_controle.Vistos`, arquivo `sala_visto.json`): novo = parou depois da
+  1ª vez que ESTA pessoa abriu a tela, segue parado e ela ainda não abriu. Abrir o inversor (ou a aba Trackers) grava o
+  visto; o cartão mostra a todos quem já viu. O sino da tela junta POR USINA. A senha compartilhada é "uma pessoa só".
+  O gestor também marca (é o que a pessoa olhou, não dado da Performance: `POSTS_DE_CONSULTA_GESTOR`).
+- **Geração e PR**: `/api/<fonte>/inversores/historico/<id>` (frio, o servidor leva até uns 3 min; depois vale 10 min) e,
+  só quando a pessoa pede, o PR de hoje da fonte (`/api/<fonte>/pr/<id>`; na API PV custa). **Potência**:
+  `/api/relatorio/potencia-ativa` de hoje (as fontes com histórico por inversor). **Exportar Excel**: `/api/sala/exportar`
+  (`sala_controle.planilha`: .xlsx de verdade, datas na 1ª coluna, um inversor por coluna, a irradiação noutra aba).
+- **O que aconteceu com o inversor** (clicar nele na Geração): a disponibilidade do inversor e a da usina são as do
+  cálculo OFICIAL (`/api/gerencial/disponibilidade`, o da tela Disponibilidade: a parada da usina derruba todos, a da
+  cabine os dela); as paradas e os trechos de cada dia saem do mesmo pacote. A tela não faz conta à parte. As OS de
+  string são as do pacote de falhas do mês (sem ir ao Fracttal).
+- **Conferir fontes** (`/api/sala/conferir`): a leitura de AGORA da usina no SCADA da Grid ao lado da fonte da tela,
+  inversor a inversor, ligados pela ORDEM (o de-para a confirmar; a usina do SCADA que junta duas, a "1 e 2", é fatiada
+  pela quantidade de inversores de cada uma). Quem já é lido do SCADA (GreenYellow, Sal, Apolo) não tem segunda fonte.
+  Hoje o SCADA é segunda fonte de poucas usinas (Aparecida do Taboado 1 e 2, Araputanga, Crateús, Ipixuna do Pará).
+  1 chamada ao SCADA por clique, em série com o resto da plataforma, mais 2 a cada 10 min para a lista.
+- **De-para**: o MESMO editor do Modo de-para (`/admin/de-para?editar=<fonte>|<id>&janela=1`) dentro da usina, para quem
+  o `/api/eu` diz que abre a administração. A releitura de 5 min não recarrega o editor aberto.
+
 **Armadilhas.** (1) Toda leitura tem espera limitada (`pega`, AbortController) e a falha é dita na tela com "Tentar de
 novo". (2) Rota que falha NÃO pode ser pedida de novo dentro do desenho: na prova de 16/11 a aba ETM da visão geral
 redesenhava, pedia outra vez e travou o navegador; a falha fica marcada e só a releitura de 5 min tenta de novo.
 (3) A classe `acao` é a COR do número do cartão; a barra de Criar OS é `div.acao` (esconder `.acao` sumia com os números).
-(4) O template foi GERADO do mockup por um script na 1ª entrega (por isso ainda carrega o código das abas escondidas);
-daqui em diante se edita no template.
+(4) O template foi GERADO do mockup por um script na 1ª entrega; daqui em diante se edita no template.
+(5) O que NÃO é o coração da usina não pode segurar a abertura dela: as OS de performance dependem do Fracttal e chegam
+depois (na prova de 16/11 cada abertura esperava 30 s por elas); a Geração e o De-para abrem com a usina ainda sendo lida.
+(6) A releitura de 5 min usa `redesenhar()`, que não atropela quem está digitando (o comentário) nem o editor do de-para.
+(7) Cada leitura sob demanda (geração, potência, disponibilidade, SCADA, abaixo) marca a própria falha e só o clique em
+"Tentar de novo" pede outra vez: a lição da armadilha (2).
 
 **Como provar.** `tests/test_sala_de_controle.py` (a rota, as rotas lidas, nada embutido, quem grava, a confirmação da
 trava e o log, as rotas do acompanhamento e do comentário, a OS só no clique e num link só, o escondido, a espera
-limitada, a falha sem laço). Na tela: `/painel/sala-de-controle`; os números do alto são os dos cartões da Entrada
+limitada, a falha sem laço, e da entrega 3: nada escondido, o abaixo lido do Nexus, a idade e o visto na montagem, o
+sino por usina, as rotas `/api/sala/*` e o que o gestor alcança) e `tests/test_sala_controle_regras.py` (a regra pura:
+a idade real, o visto, a usina do SCADA, o Excel). A prova local que lê do servidor e segura os POST: 16/11. Na tela: `/painel/sala-de-controle`; os números do alto são os dos cartões da Entrada
 do Tempo real. Prova de 16/11 com as respostas reais das rotas (fonte Thopen · Banco de dados): 144 strings sem
 acompanhamento de 183, 667 trackers sem OS de 876; a Ipixuna 1 abre com 9 inversores, a curva de 12 strings do Inversor
 1.6 e a curva de 41 trackers. **No ar desde 16/11 15:02** e no menu do Nexus (Performance > Sala de controle, 17ª tela do

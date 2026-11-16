@@ -70,9 +70,13 @@ novo. Ele pediu a partir do "Control room" de um portal de fora, sem o mapa, o d
 | De-para | `/api/admin/de-para/usina?fonte=&id=` |
 | Paradas do COS/Fracttal | livro `falhas_performance · disponibilidade_os_dia` no banco |
 
-O que NÃO existe e precisa nascer: a conta do "abaixo dos demais" na plataforma (hoje é o `mural.py` do Conversor, na
-Coletas do Nexus); a marca de visto por pessoa; a idade da string além do mês; a notificação no sino do Nexus; a
-conferência com o SCADA da Grid para usinas fora das 21 que ele lê.
+O que nasceu na entrega 3: `/api/sala/idade` (a idade além do mês), `/api/sala/visto` (o visto por pessoa),
+`/api/sala/conferir` (o SCADA de agora), `/api/sala/exportar` (o Excel) e, no Nexus, a leitura do "abaixo dos demais"
+(`/t/performance/sala-de-controle/abaixo`; a conta segue no `mural.py` do Conversor, que é o dono).
+
+O que ainda NÃO existe: a novidade no sino DO NEXUS (o do topo, fora da tela); a conferência com o SCADA para usinas que
+ele não tem, ou tem com outro nome (falta a lista do COS e o de-para com o SCADA); o atalho para o prontuário da usina
+(o Comando > Usinas abre pelo id do cadastro do Nexus, que a plataforma não conhece).
 
 ## Entregas
 
@@ -81,12 +85,16 @@ conferência com o SCADA da Grid para usinas fora das 21 que ele lê.
 2. **Ações** (feita em 16/11/2026): trancar com confirmação e só a Performance, acompanhamento, comentários, criar OS
    com o aviso. Gravam pelas rotas do Tempo real; a OS nasce na tela do OS Creator, aberta por cima, com todos os
    inversores marcados numa OS só. Detalhe em `plataforma/CLAUDE.md`.
-3. **O que é novo**: o "abaixo dos demais" e a Geração no servidor, as ocorrências novas por pessoa com o pulso e o sino,
-   a idade real das strings, a conferência com o SCADA, o de-para dentro da tela.
+3. **O que é novo** (feita em 16/11/2026): o "abaixo dos demais" (lido do Nexus, o dono da conta), Geração e PR,
+   Potência e o Excel, o que aconteceu com o inversor pelo cálculo oficial da Disponibilidade, as ocorrências novas por
+   pessoa com o pulso e o sino da tela por usina, a idade real das strings, a conferência com o SCADA e o de-para dentro
+   da usina. Detalhe em `plataforma/CLAUDE.md`.
 
 ## Em aberto com o Levi
 
-- O corte do "Ver agora" (no mockup, 8 dias ou mais sem OS).
+- O corte do "Ver agora" (no mockup, 8 dias ou mais sem OS; agora com a idade real).
+- A 1ª leitura da Geração do mês de uma usina leva até uns 3 min no servidor (a rota do histórico por inversor, que o
+  Tempo real também usa): vale olhar o porquê.
 - Buscar a OS do Fracttal por inversor parado sem depender do vínculo manual (custo: uma consulta por inversor).
 - Onde entram "desligada" e "sem produção" na ordem de criticidade.
 - A lista de usinas do Monitoramento do COS (ele diz que Altair, Linhares e Barretos estão lá; nenhuma está nas 21 do
