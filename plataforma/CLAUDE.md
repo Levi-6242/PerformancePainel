@@ -2528,6 +2528,35 @@ por ano); sem o disco, o inventário das Fontes do tempo real (o que a SunOp dev
 (nunca inventa usina). Depois de uma falha, 30 min sem pedir o catálogo (`SUNOP_CATALOGO_ESPERA_S`). Prova:
 `tests/test_sunop_catalogo_504.py`.
 
+## Banco da Thopen: o kWh do dia conta do começo da produção (16/11/2026)
+
+**Para que serve.** O "Hoje kWh" do drill, o PR do dia e a geração por dia da fonte Thopen · Banco de dados saem do
+contador `daily_active_energy` do `public.raw_inverter`, em três consultas do `app.py` com a MESMA régua:
+`_pg_geracao_periodo` (usina × dia), `_pg_pr_build` (inversor, hoje) e a de geração por inversor por dia.
+
+**O caso.** O contador não zera à meia-noite. Até 16/11 a conta era o MAX depois da 1ª queda do dia. Na Aparecida do
+Taboado 1 cada inversor tem duas séries de leitura intercaladas (:00/:05 e :03:45/:08:45): das 00:00 às 05:30 uma delas
+repete o total de ONTEM depois de a outra já ter zerado, e o MAX ficava com o de ontem até hoje passar dele (Inversor 1.1:
+350,9 kWh na tela com o contador em 174,9; 13 inversores em 16/11, e 14/11 e 15/11 gravados a mais). Apareceu ao conferir o
+banco com o SCADA da Grid para a Sala de controle.
+
+**A régua.** A conta começa na 1ª leitura do dia COM potência (`t_prod`): resto de ontem só existe antes de o inversor
+gerar. Duas ressalvas: (a) quem só zera DEPOIS de começar a gerar (Guaratinguetá V, 11/11) começa na queda que parte do
+valor que o contador trazia na 1ª leitura do dia (`t_acorda`); (b) dia sem nenhuma leitura com potência segue a régua da
+1ª queda. Sem parâmetro (nenhum limite de hora ou de minutos).
+
+**Reprovadas na mesma prova** (não voltar a elas): contar da ÚLTIMA queda (uma das séries zera perto das 23:55 e o dia
+fechado virava 0: quebrava 18 casos certos); contar só leitura com potência (na São Bento V a potência vem zerada com o
+contador andando: 1.755 virava 1.113, 23 casos); tirar as leituras iguais ao total de ontem (zerava o 13/11 da Taboado 1).
+
+**Como provar.** A verdade independente é a 1ª leitura do dia SEGUINTE, que ainda carrega o total do dia. Em 01-15/11 e
+12-31/10 (5.983 inversor-dias): a régua nova muda 41 (39 da Taboado 1), acerta os que a antiga errava ali e não quebra
+NENHUM caso que estava certo; em outubro não muda nada. Os valores novos da Taboado 1 batem com o BD_Thopen (14/11,
+Inversor 1.1: 513,9; a antiga dava 559,3). Antes × depois das três consultas reais em 13-16/11: só a Taboado 1 muda (13
+inversores hoje, 39 inversor-dias, 3 dias da usina). Fora da Taboado 1 a prova do dia seguinte ainda acusa ~100
+inversor-dias iguais nas duas réguas (Santa Bárbara I, Guaratinguetá V, Ibaté 1 e 2, Piracicaba I): não investigado.
+Teste: `tests/test_pg_kwh_dia_inicio_producao.py` (as três consultas com a régua e a régua em Python nas séries reais).
+
 ## Tokens
 
 **Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado

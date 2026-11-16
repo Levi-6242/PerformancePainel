@@ -21120,10 +21120,22 @@ def _pg_geracao_periodo(start: str, end: str):
         -- Régua: só conta a partir do RESET do dia (1ª queda do contador). Sem queda no dia
         -- (nunca houve carry-over), vale o dia todo. Não usa hora fixa de corte porque uma
         -- fracao dos inversores zera ao ACORDAR (06-07h), não à meia-noite.
+        -- 16/11/2026 (Aparecida do Taboado 1, 13 inversores): a 1a queda do dia NAO basta. O inversor tem
+        -- duas series de leitura intercaladas; das 00:00 as 05:30 uma delas segue repetindo o total de
+        -- ONTEM depois de a outra ja ter zerado, e o MAX ficava com o de ontem ate hoje passar dele
+        -- (350,9 kWh na tela com o contador em 174,9). Agora a conta comeca na 1a leitura do dia COM
+        -- potencia (t_prod): resto de ontem so existe antes de o inversor gerar. Duas ressalvas, medidas
+        -- em 01-15/11 e 12-31/10 contra a 1a leitura do dia seguinte (5.983 inversor-dias, nenhum caso
+        -- certo quebrado): (a) quem so zera DEPOIS de comecar a gerar (Guaratingueta V, 11/11) comeca na
+        -- queda que parte do valor trazido de ontem (t_acorda); (b) dia sem nenhuma leitura com potencia
+        -- segue a regua da 1a queda. Reprovadas na mesma prova: a ULTIMA queda (uma serie zera 23:55 e o
+        -- dia fechado virava 0) e contar so leitura com potencia (Sao Bento V: potencia zerada com o
+        -- contador andando).
         SELECT power_plant_id, device_id,
                (timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts,
                (timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
                (json_data->>'daily_active_energy')::numeric AS dae,
+               (json_data->>'active_power')::numeric AS pot,
                LAG((json_data->>'daily_active_energy')::numeric)
                  OVER (PARTITION BY power_plant_id, device_id ORDER BY timestamp) AS dae_prev
         FROM public.raw_inverter
@@ -21135,12 +21147,25 @@ def _pg_geracao_periodo(start: str, end: str):
                     OVER (PARTITION BY power_plant_id, device_id, dia) AS t_reset
         FROM lidos
       ),
+      carga AS (          -- a 1ª leitura do dia COM potência e o valor que o contador trazia na 1ª leitura do dia
+        SELECT *, MIN(ts) FILTER (WHERE pot > 0) OVER (PARTITION BY power_plant_id, device_id, dia) AS t_prod,
+               FIRST_VALUE(dae) OVER (PARTITION BY power_plant_id, device_id, dia ORDER BY ts) AS dae_ini
+        FROM ciclo
+      ),
+      acorda AS (         -- o inversor que só zera DEPOIS de começar a gerar: a queda que parte do valor trazido de ontem
+        SELECT *, MIN(ts) FILTER (WHERE dae_prev IS NOT NULL AND dae < dae_prev - 1 AND ts >= t_prod
+                                    AND ABS(dae_prev - dae_ini) < 0.05)
+                    OVER (PARTITION BY power_plant_id, device_id, dia) AS t_acorda
+        FROM carga
+      ),
       gen AS (
         SELECT power_plant_id, dia, ROUND(SUM(ger_inv), 2) AS geracao_kwh,
                COUNT(*) FILTER (WHERE ger_inv > 0) AS invs
         FROM (SELECT power_plant_id, device_id, dia,
-                     MAX(dae) FILTER (WHERE t_reset IS NULL OR ts >= t_reset) AS ger_inv
-              FROM ciclo GROUP BY power_plant_id, device_id, dia) x
+                     MAX(dae) FILTER (WHERE CASE WHEN t_prod IS NULL THEN (t_reset IS NULL OR ts >= t_reset)
+                                            WHEN t_acorda IS NOT NULL THEN ts >= t_acorda
+                                            ELSE ts >= t_prod END) AS ger_inv
+              FROM acorda GROUP BY power_plant_id, device_id, dia) x
         GROUP BY power_plant_id, dia
       ),
       pts AS (            -- irradiância do CRU public.raw_weather_station (timestamptz → hora local)
@@ -21247,6 +21272,7 @@ def _pg_pr_build(dia: str):
         SELECT a.power_plant_id AS pid, a.device_id AS did, d.device_name AS dev,
                (a.timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts,
                (a.json_data->>'daily_active_energy')::numeric AS dae,
+               (a.json_data->>'active_power')::numeric AS pot,
                LAG((a.json_data->>'daily_active_energy')::numeric)
                  OVER (PARTITION BY a.power_plant_id, a.device_id ORDER BY a.timestamp) AS dae_prev
         FROM public.raw_inverter a
@@ -21259,9 +21285,22 @@ def _pg_pr_build(dia: str):
                     OVER (PARTITION BY pid, did) AS t_reset
         FROM lidos
       ),
+      carga AS (          -- a 1ª leitura do dia COM potência e o valor que o contador trazia na 1ª leitura do dia
+        SELECT *, MIN(ts) FILTER (WHERE pot > 0) OVER (PARTITION BY pid, did) AS t_prod,
+               FIRST_VALUE(dae) OVER (PARTITION BY pid, did ORDER BY ts) AS dae_ini
+        FROM ciclo
+      ),
+      acorda AS (         -- o inversor que só zera DEPOIS de começar a gerar: a queda que parte do valor trazido de ontem
+        SELECT *, MIN(ts) FILTER (WHERE dae_prev IS NOT NULL AND dae < dae_prev - 1 AND ts >= t_prod
+                                    AND ABS(dae_prev - dae_ini) < 0.05)
+                    OVER (PARTITION BY pid, did) AS t_acorda
+        FROM carga
+      ),
       gen AS (
-        SELECT pid, did, dev, MAX(dae) FILTER (WHERE t_reset IS NULL OR ts >= t_reset) AS ger
-        FROM ciclo GROUP BY pid, did, dev
+        SELECT pid, did, dev, MAX(dae) FILTER (WHERE CASE WHEN t_prod IS NULL THEN (t_reset IS NULL OR ts >= t_reset)
+                                            WHEN t_acorda IS NOT NULL THEN ts >= t_acorda
+                                            ELSE ts >= t_prod END) AS ger
+        FROM acorda GROUP BY pid, did, dev
       ),
       pts AS (            -- irradiância do CRU public.raw_weather_station
         SELECT power_plant_id, (timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts,
@@ -21468,6 +21507,7 @@ def _pg_geracao_pivo(start: str, end: str):
                (a.timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts,
                (a.timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
                (a.json_data->>'daily_active_energy')::numeric AS dae,
+               (a.json_data->>'active_power')::numeric AS pot,
                LAG((a.json_data->>'daily_active_energy')::numeric)
                  OVER (PARTITION BY a.power_plant_id, a.device_id ORDER BY a.timestamp) AS dae_prev
         FROM public.raw_inverter a
@@ -21480,9 +21520,22 @@ def _pg_geracao_pivo(start: str, end: str):
                     OVER (PARTITION BY pid, did, dia) AS t_reset
         FROM lidos
       ),
+      carga AS (          -- a 1ª leitura do dia COM potência e o valor que o contador trazia na 1ª leitura do dia
+        SELECT *, MIN(ts) FILTER (WHERE pot > 0) OVER (PARTITION BY pid, did, dia) AS t_prod,
+               FIRST_VALUE(dae) OVER (PARTITION BY pid, did, dia ORDER BY ts) AS dae_ini
+        FROM ciclo
+      ),
+      acorda AS (         -- o inversor que só zera DEPOIS de começar a gerar: a queda que parte do valor trazido de ontem
+        SELECT *, MIN(ts) FILTER (WHERE dae_prev IS NOT NULL AND dae < dae_prev - 1 AND ts >= t_prod
+                                    AND ABS(dae_prev - dae_ini) < 0.05)
+                    OVER (PARTITION BY pid, did, dia) AS t_acorda
+        FROM carga
+      ),
       gen AS (
-        SELECT pid, dia, dev, MAX(dae) FILTER (WHERE t_reset IS NULL OR ts >= t_reset) AS ger
-        FROM ciclo GROUP BY pid, dia, dev
+        SELECT pid, dia, dev, MAX(dae) FILTER (WHERE CASE WHEN t_prod IS NULL THEN (t_reset IS NULL OR ts >= t_reset)
+                                            WHEN t_acorda IS NOT NULL THEN ts >= t_acorda
+                                            ELSE ts >= t_prod END) AS ger
+        FROM acorda GROUP BY pid, dia, dev
       ),
       pts AS (            -- irradiância do CRU public.raw_weather_station
         SELECT power_plant_id, (timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
