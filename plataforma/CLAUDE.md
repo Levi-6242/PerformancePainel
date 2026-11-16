@@ -2549,9 +2549,33 @@ real faz hoje tem de estar aqui, transformado.
 - a usina, SÓ ao abrir (`lerUsina`): as rotas da fonte dela, com as mesmas chaves do Monitoramento (`SKEY`, `VKEY`,
   `PLANT`, trackers e ETM), mais `/api/state` (acompanhamento e comentários) e `/api/os-performance`;
 - a curva por string e a dos trackers, por dia, quando se pede (`lerCurva`, `lerTrk`); a ETM da visão geral, ao abrir a aba.
-Escondido por CSS até a entrega dele (nada de botão ou número de mentira): trancar string, digitar o acompanhamento,
-comentar, criar OS, o sino e as marcas de "nova", e as abas Abaixo dos demais, Geração e PR, Potência, Conferir fontes e
-De-para. `const ACOES = false` trava o clique da string.
+Escondido por CSS até a entrega 3 (nada de botão ou número de mentira): o sino e as marcas de "nova", e as abas Abaixo
+dos demais, Geração e PR, Potência, Conferir fontes e De-para.
+
+**Entrega 2 (16/11/2026): as ações gravam, pelas rotas do Tempo real.** Nenhuma rota de gravação nova.
+- **Quem grava:** o `window.gcEu.grava` das outras telas (`PODE`). O perfil de gestor e a chave de leitura só leem: a
+  tela ganha a classe `soleitura` (somem a caixa de marcar, a barra de OS e o campo de comentário) e o portão do
+  servidor recusa o POST de qualquer jeito. É assim que vale o "só pessoas da performance podem trancar e destrancar".
+- **Trancar/destrancar string:** o clique só PERGUNTA (Levi: "para não ter perigo de alguém clicar sem querer"), com o
+  aviso de OS/ticket aberto que cita a string (`/api/strings/trava-aviso`, ajuda e não porteiro); o botão da pergunta
+  grava em `/api/state/string-trancada` e a usina é relida calada. A trava recém-gravada vale na tela até a leitura
+  concordar com ela (há fonte que responde do cache). Quem fez fica em `logs/strings_trancadas.log` (`_tranca_log`,
+  vale para toda tela que chama a rota).
+- **Acompanhamento:** digitável, por usina, em `/api/state/tracking` (a chave `VKEY:pid` do Tempo real). A lateral e os
+  números mudam na hora (sem acompanhamento = fora - acompanhadas, a conta da Entrada), sem esperar os 5 min.
+- **Comentários:** `/api/state/comment/add` e `/del`; o autor é o da sessão (pela senha compartilhada, o nome digitado e
+  guardado em `gcAnalistaNick`, como no Tempo real); só aparece o "apagar" de quem pode.
+- **Criar OS:** marcar um ou vários inversores e "Criar OS". SÓ nesse clique a tela consulta o Fracttal
+  (`/api/painel/falhas/os`), só dos marcados, e para na 1ª falha (em 16/11, 22 consultas seguidas bateram o teto de 200
+  por minuto da empresa). O aviso: OS de recomposição do inversor nos últimos 60 dias (`JANELA`), com as strings que ela
+  citava. Depois a tela abre POR CIMA a criação do OS Creator (`/os/performance/criar?janela=1`) com TODOS os marcados
+  no mesmo link (`ativo` e `obs` repetidos, `obs_os`, `evento` = a 1ª parada entre eles, tirada dos episódios do mês):
+  mais de um ativo já agrupa em UMA OS lá. A tela não cria OS sozinha: a sessão do Fracttal, o responsável e o plano
+  são do OS Creator; a ponte do Nexus avisa (`{gc: "os-criada"}`) e o comentário automático é ele quem grava
+  (`?comentario=`). O contrato do link está no Nexus (`perf_web.sugestao_do_link`, `tests/test_oscreator_perf_link_varios.py`).
+- **Estação:** "Abrir OS da estação" usa o mesmo link do Tempo real (modo `etm`); "OSs da estação" lê `/api/etm/os/historico`.
+Prova de 16/11 numa cópia local que lê do servidor e segura os POST: na Ipixuna 2 o Inversor 2.13 avisou a OS 18739,
+concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam fora de novo.
 
 **Armadilhas.** (1) Toda leitura tem espera limitada (`pega`, AbortController) e a falha é dita na tela com "Tentar de
 novo". (2) Rota que falha NÃO pode ser pedida de novo dentro do desenho: na prova de 16/11 a aba ETM da visão geral
@@ -2560,8 +2584,9 @@ redesenhava, pedia outra vez e travou o navegador; a falha fica marcada e só a 
 (4) O template foi GERADO do mockup por um script na 1ª entrega (por isso ainda carrega o código das abas escondidas);
 daqui em diante se edita no template.
 
-**Como provar.** `tests/test_sala_de_controle.py` (a rota, as rotas lidas, nada embutido nem gravado, o escondido, a
-espera limitada, a falha sem laço). Na tela: `/painel/sala-de-controle`; os números do alto são os dos cartões da Entrada
+**Como provar.** `tests/test_sala_de_controle.py` (a rota, as rotas lidas, nada embutido, quem grava, a confirmação da
+trava e o log, as rotas do acompanhamento e do comentário, a OS só no clique e num link só, o escondido, a espera
+limitada, a falha sem laço). Na tela: `/painel/sala-de-controle`; os números do alto são os dos cartões da Entrada
 do Tempo real. Prova de 16/11 com as respostas reais das rotas (fonte Thopen · Banco de dados): 144 strings sem
 acompanhamento de 183, 667 trackers sem OS de 876; a Ipixuna 1 abre com 9 inversores, a curva de 12 strings do Inversor
 1.6 e a curva de 41 trackers. **No ar desde 16/11 15:02** e no menu do Nexus (Performance > Sala de controle, 17ª tela do

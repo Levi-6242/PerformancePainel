@@ -78,7 +78,9 @@ conferência com o SCADA da Grid para usinas fora das 21 que ele lê.
 
 1. **Leitura** (`/painel/sala-de-controle`): a lateral, os números, a visão geral em abas e a usina com Strings, Trackers
    e ETM, lendo as rotas que já existem. Não grava nada.
-2. **Ações**: trancar com confirmação e só a Performance, acompanhamento, comentários, criar OS com o aviso.
+2. **Ações** (feita em 16/11/2026): trancar com confirmação e só a Performance, acompanhamento, comentários, criar OS
+   com o aviso. Gravam pelas rotas do Tempo real; a OS nasce na tela do OS Creator, aberta por cima, com todos os
+   inversores marcados numa OS só. Detalhe em `plataforma/CLAUDE.md`.
 3. **O que é novo**: o "abaixo dos demais" e a Geração no servidor, as ocorrências novas por pessoa com o pulso e o sino,
    a idade real das strings, a conferência com o SCADA, o de-para dentro da tela.
 

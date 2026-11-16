@@ -21906,6 +21906,25 @@ def _ident_da_sessao():
     return _cm.identidade(session, bool(getattr(flask_g, "nexus_leitura_ok", False)))
 
 
+_TRANCA_LOG = os.path.join(_AQUI, "logs", "strings_trancadas.log")
+
+
+def _tranca_log(plant_id, inv_id, nomes, trancada, body) -> None:
+    """Quem trancou ou destrancou, e quando (16/11/2026, a Sala de controle: a confirmação diz "Fica registrado quem fez e
+    quando"; Levi: "é importante que confirma antes de salvar para não ter perigo de alguém clicar sem querer"). Vale
+    para toda tela que chama a rota. Vai ao log da máquina, como os vínculos de OS; o log nunca derruba a gravação."""
+    try:
+        os.makedirs(os.path.dirname(_TRANCA_LOG), exist_ok=True)
+        extra = " · ".join(x for x in (" ".join(str(body.get("usina") or "").split())[:80],
+                                       " ".join(str(body.get("inversor") or "").split())[:40],
+                                       " ".join(str(body.get("origem") or "").split())[:40]) if x)
+        with open(_TRANCA_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {_quem_na_sessao()}  {'trancou' if trancada else 'destrancou'}  "
+                    f"{plant_id}|{inv_id}|{','.join(nomes)}  {extra}\n")
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[strings] log das trancadas: {e}")
+
+
 @app.route("/api/state/string-trancada", methods=["POST"])
 def api_state_string_trancada():
     """Marca/desmarca uma string como 'trancada' (MPPT sem string conectada). Persiste no
@@ -21935,6 +21954,7 @@ def api_state_string_trancada():
         _rebuild_tranc_inv()
         _tranc_marca_lido()      # este processo já está em dia: o watch daqui não precisa refazer nada
     _marca_invalidacao_local()   # o snapshot do worker (calculado antes da trava) não pode repor nada disto
+    _tranca_log(plant_id, inv_id, nomes, trancada, body)
     # As curvas de strings excluem as trancadas → invalida os caches da usina afetada
     # (API PV e SunOp) p/ a próxima abertura do gráfico recomputar já sem a string.
     # O ck[0] é o id da usina em ambos (idusina / plant_name) = o plant_id do POST.
