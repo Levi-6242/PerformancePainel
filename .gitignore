@@ -193,6 +193,9 @@ plataforma/entrada_trk_ultimo.json.tmp
 # (um `git add -A` subiria o pacote do mês e o registro da régua, e o `git pull` do servidor pisaria nos de lá)
 falhas_20[0-9][0-9]-[0-9][0-9].json
 falhas_strings.json
+# Sala de controle: quem viu o quê (estado da máquina, como as notas do relatório semanal)
+sala_visto.json
+sala_visto.json.tmp
 falhas_pv_dev.json
 falhas_os_abertas.json
 falhas_importar_perdas.json*
