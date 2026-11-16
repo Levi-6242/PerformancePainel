@@ -2564,7 +2564,12 @@ daqui em diante se edita no template.
 espera limitada, a falha sem laço). Na tela: `/painel/sala-de-controle`; os números do alto são os dos cartões da Entrada
 do Tempo real. Prova de 16/11 com as respostas reais das rotas (fonte Thopen · Banco de dados): 144 strings sem
 acompanhamento de 183, 667 trackers sem OS de 876; a Ipixuna 1 abre com 9 inversores, a curva de 12 strings do Inversor
-1.6 e a curva de 41 trackers. **Ainda não está no menu do Nexus** (falta a tela no mapa da porta única, dos dois lados).
+1.6 e a curva de 41 trackers. **No ar desde 16/11 15:02** e no menu do Nexus (Performance > Sala de controle, 17ª tela do
+mapa da porta única, Nexus `d3f5813e`); quem a vê se marca em Base > Acessos. Conferido no servidor: a Entrada dava 190
+strings sem acompanhamento de 223 e 608 trackers sem OS de 779, e uma usina de cada fonte gratuita abriu pela rota da tela
+(banco 0,2 s; Axis 0,5 s; SolarEdge 16,7 s; GreenYellow, Sal e Apolo em até 1,6 s). As cinco usinas da 2C estavam sem
+comunicação e as rotas `/api/owen/*` delas passaram de 60 s (504): a tela diz "Não consegui ler esta usina", como manda a
+armadilha (1). API PV e SunOp não foram abertas na conferência (fonte paga).
 
 ## Banco da Thopen: o kWh do dia conta do começo da produção (16/11/2026)
 
