@@ -562,7 +562,7 @@ async function lerConf(u) {
   if (D.conf.usinas[u.u] || CFL[u.u]) return;
   CFL[u.u] = 1;
   let o;
-  try { const r = await pega("/api/sala/conferir?usina=" + encodeURIComponent(u.u) + "&fonte=" + encodeURIComponent(SKEY[u.g]), 90000), dr = D.drill[u.u];
+  try { const r = await pega("/api/sala/conferir?usina=" + encodeURIComponent(u.u) + "&fonte=" + encodeURIComponent(SKEY[u.g]) + "&id=" + encodeURIComponent(u.pid), 90000), dr = D.drill[u.u];
     if (r.situacao === "ja_e_scada") o = {sit: "ja"};
     else if (r.situacao === "fora_do_scada") o = {sit: "fora", total: r.scada_total, nomes: r.scada_nomes || []};
     else { // a usina do SCADA que junta duas do Tempo real (a "1 e 2"): a fatia desta é a dos inversores dela, na ordem
@@ -670,15 +670,21 @@ async function lerCosInv() { if (lerCosInv.indo || (COSI && Date.now() - COSI_EM
 // a usina do COS e as do Tempo real que casam com ela pelo nome (sem acento; "X 1 e 2" cobre a X 1 e a X 2; a sub-usina entra no nome)
 const nomesDoCos = x => { const b = normN(x.nome), cs = normN(x.nome + " " + (x.sub_usina || "")), m = b.match(/^(.*\D)\s*(\d+|i{1,3})\s+e\s+(\d+|i{1,3})$/); return [b, cs].concat(m ? [m[1].trim() + " " + m[2], m[1].trim() + " " + m[3]] : []); };
 const cosDe = u => COS && COS.usinas ? COS.usinas.filter(x => nomesDoCos(x).includes(normN(u.u))) : [];
+// A REGRA (Levi, 16/11/2026): "a API do COS só substitui o que não temos ou o que é por uma API diferente da API do SCADA
+// Grid". A API do SCADA da Grid vem primeiro; a usina que o Tempo real já lê dela não ganha nada do COS (é a mesma leitura).
+const doScadaGrid = u => /scadaGridco/.test(NOME[u.g] || "");
 function cosHtml() {
   if (!COS) return '<p style="margin-top:14px">Lendo o que o Monitoramento do COS lê…</p>';
   if (COS.erro) return `<p style="margin-top:14px">Não consegui ler a lista do Monitoramento do COS: ${esc(COS.erro)} <button class="btnl" data-denovo2="cos" style="margin-left:8px">Tentar de novo</button></p>`;
-  const tr = todas(), us = COS.usinas.slice().sort((a, b) => String(a.cliente).localeCompare(String(b.cliente)) || a.nome.localeCompare(b.nome)), fora = us.filter(x => !tr.some(u => nomesDoCos(x).includes(normN(u.u))));
-  return `<h3 style="margin:18px 0 4px;font-size:14px">O que o Monitoramento do COS lê <span style="color:var(--mudo);font-weight:400">${us.length} usinas · ${us.filter(x => x.fonte === "SCADA Grid").length} com logger (SCADA Grid) e ${us.filter(x => x.fonte === "SunOP").length} do SunOP</span></h3>
-    <p>A mesma lista da tela Monitoramento do COS no Nexus (a Ronda COS), com o kW de agora. Clique na usina para abrir o Conferir fontes dela: a fonte do Tempo real ao lado do logger, inversor a inversor.${fora.length ? ` <b style="color:var(--severo)">${fora.length} não ${fora.length > 1 ? "estão" : "está"} no Tempo real com este nome.</b>` : ""}${COS.velha ? " A Ronda COS não respondeu agora: vale a última leitura boa." : ""}</p>
-    <div class="rol"><table><thead><tr><th>No Monitoramento do COS</th><th>Fonte</th><th>Cliente</th><th>kW agora</th><th>Inversores</th><th>Situação</th><th>No Tempo real</th></tr></thead><tbody>` +
-    us.map(x => { const ms = tr.filter(u => nomesDoCos(x).includes(normN(u.u)));
-      return `<tr><td><b>${esc(x.nome)}</b>${x.sub_usina ? ` <small style="color:var(--fraco)">${esc(x.sub_usina)}</small>` : ""}</td><td>${esc(x.fonte)}</td><td>${esc(x.cliente || "—")}</td><td>${esc(x.kw_txt || "—")}</td><td>${x.inversores_total ? (x.inversores_online ?? "—") + " de " + x.inversores_total : "—"}</td><td><span class="tag ${x.tom === "ok" ? "o" : x.tom === "critico" ? "c" : x.tom === "alerta" ? "a" : "n"}">${esc(x.situacao)}</span>${x.lido ? ` <small style="color:var(--fraco)">${esc(x.lido)}</small>` : ""}</td><td style="text-align:left">${ms.map(u => `<button class="btnl" data-pu="${esc(u.u)}" data-pg="${u.g}" data-pa="cf">${esc(u.u)}</button> <small style="color:var(--fraco)">${esc(NOME[u.g] || "")}</small>`).join("<br>") || '<span class="tag s">não está no Tempo real com este nome</span>'}</td></tr>`; }).join("") + "</tbody></table></div>";
+  const tr = todas(), com = COS.usinas.map(x => ({x, ms: tr.filter(u => nomesDoCos(x).includes(normN(u.u)))}));
+  // o que o COS acrescenta: a usina que o Tempo real não tem, e a que ele lê de OUTRA API (a 2ª leitura para conferir)
+  const mesmas = com.filter(c => c.ms.length && c.ms.every(doScadaGrid)), uteis = com.filter(c => !mesmas.includes(c)).sort((a, b) => (a.ms.length ? 1 : 0) - (b.ms.length ? 1 : 0) || String(a.x.cliente).localeCompare(String(b.x.cliente)) || a.x.nome.localeCompare(b.x.nome));
+  const soCos = uteis.filter(c => !c.ms.length).length;
+  return `<h3 style="margin:18px 0 4px;font-size:14px">O que o Monitoramento do COS acrescenta <span style="color:var(--mudo);font-weight:400">${uteis.length} de ${com.length} usinas</span></h3>
+    <p>A API do SCADA da Grid vem primeiro; a do COS (a Ronda COS: loggers e SunOP) só entra para a usina que não temos e como segunda leitura da que o Tempo real lê de outra API. ${soCos ? `<b style="color:var(--severo)">${soCos} ${soCos > 1 ? "usinas só existem" : "usina só existe"} no COS</b> (não ${soCos > 1 ? "estão" : "está"} no Tempo real com este nome). ` : ""}Clique na usina para abrir o Conferir fontes dela.${COS.velha ? " A Ronda COS não respondeu agora: vale a última leitura boa." : ""}</p>
+    <div class="rol"><table><thead><tr><th>No Monitoramento do COS</th><th>Fonte no COS</th><th>Cliente</th><th>kW agora</th><th>Inversores</th><th>Situação</th><th>No Tempo real</th><th>O COS serve de</th></tr></thead><tbody>` +
+    (uteis.map(({x, ms}) => `<tr><td><b>${esc(x.nome)}</b>${x.sub_usina ? ` <small style="color:var(--fraco)">${esc(x.sub_usina)}</small>` : ""}</td><td>${esc(x.fonte)}</td><td>${esc(x.cliente || "—")}</td><td>${esc(x.kw_txt || "—")}</td><td>${x.inversores_total ? (x.inversores_online ?? "—") + " de " + x.inversores_total : "—"}</td><td><span class="tag ${x.tom === "ok" ? "o" : x.tom === "critico" ? "c" : x.tom === "alerta" ? "a" : "n"}">${esc(x.situacao)}</span>${x.lido ? ` <small style="color:var(--fraco)">${esc(x.lido)}</small>` : ""}</td><td style="text-align:left">${ms.map(u => `<button class="btnl" data-pu="${esc(u.u)}" data-pg="${u.g}" data-pa="cf">${esc(u.u)}</button> <small style="color:var(--fraco)">${esc(NOME[u.g] || "")}</small>`).join("<br>") || '<span class="zero">não temos</span>'}</td><td>${!ms.length ? '<span class="tag s">única leitura</span>' : x.fonte === "SunOP" && ms.every(u => /SunOp/i.test(NOME[u.g] || "")) ? '<span class="tag n" title="No COS e no Tempo real esta usina vem do SunOP: não é uma leitura independente">mesma fonte (SunOP)</span>' : '<span class="tag i">segunda leitura</span>'}</td></tr>`).join("") || `<tr><td colspan="8" class="zero">Tudo o que o COS lê o Tempo real já lê da API do SCADA da Grid.</td></tr>`) + "</tbody></table></div>" +
+    (mesmas.length ? `<div class="mais">Fora desta lista, ${mesmas.length} ${mesmas.length > 1 ? "usinas que o Tempo real já lê" : "usina que o Tempo real já lê"} da API do SCADA da Grid (o COS seria a mesma leitura): ${mesmas.map(c => esc(c.x.nome)).join(", ")}.</div>` : "");
 }
 // Conferir fontes pelo logger do COS: os inversores de agora do cartão do SCADA da Ronda COS ao lado dos da fonte da tela
 function cosConf(u, dr) {
@@ -1311,7 +1317,7 @@ function detalhe(u, bx) {
     const c = D.conf.usinas[u.u];
     if (!c) { lerConf(u); h += '<div class="carrega">Lendo esta usina no SCADA da Grid…</div>'; }
     else if (c.sit === "erro") h += `<div class="erro"><b>Não consegui conferir pela API do SCADA da Grid.</b> ${esc(c.erro)} <button class="btnl" data-denovo2="cf" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, dr);
-    else if (c.sit === "ja") h += `<div class="aviso">Esta usina já é lida do SCADA da Grid (a mesma leitura do Monitoramento do COS): não há uma segunda fonte para conferir.</div>`;
+    else if (c.sit === "ja") h += `<div class="aviso">Esta usina já é lida da API do SCADA da Grid: não há segunda fonte para conferir aqui. A API do COS só entra para a usina que não temos e para a que o Tempo real lê de outra API.</div>`;
     else if (c.sit === "fora") h += `<div class="aviso">Conferir fontes põe a fonte desta usina ao lado de uma segunda leitura, inversor a inversor. A API do SCADA da Grid (a da Automação, ${c.total} usinas) não tem esta usina com este nome; abaixo, o que o Monitoramento do COS lê dela.</div>` + cosConf(u, dr);
     else if (c.sit === "desigual") h += `<div class="aviso">O SCADA da Grid tem ${c.n_scada} inversores em "${esc(c.scada.nome)}" e a fonte desta tela tem ${c.n_fonte}: sem a mesma quantidade não dá para ligar um ao outro pela ordem. Falta o de-para desta usina com o SCADA.</div>` + cosConf(u, dr);
     else { const l = c.l, dk = l.map(x => x.bkw == null || x.skw == null ? null : Math.abs(x.bkw - x.skw)), com = dk.filter(v => v != null), pior = com.length ? Math.max(...com) : null, dh = l.filter(x => x.bkwh && x.skwh && Math.abs(x.bkwh - x.skwh) / x.bkwh > .1).length, ds = l.filter(x => x.ss != null && x.bs !== x.ss).length, fora = l.filter(x => x.ok === false).length;

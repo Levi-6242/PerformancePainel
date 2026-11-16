@@ -2651,6 +2651,15 @@ lados, senão pela ordem com a mesma quantidade, senão sem par. **Não vi a res
 PC): a tela foi provada com uma resposta de mentira no formato que o código do Nexus mostra (`cos/monitoramento._linha`
 e `static/cos/inversores.js`); conferir no 1º uso real.
 
+**A ordem das fontes (regra do Levi, 16/11/2026, noite):** "a API do COS só substitui o que não temos ou o que é por
+uma API diferente da API do SCADA Grid". A API do SCADA da Grid (scadaGridco) vem primeiro. O COS (a Ronda COS) só entra
+(1) para a usina que ela não tem e (2) como segunda leitura da usina que o Tempo real lê de OUTRA API (API PV, banco da
+Thopen, SolarEdge, Owen). A usina que o Tempo real já lê da API do SCADA da Grid (GreenYellow, Sal Energia, Apolo e a
+Axis pelo supervisório, `axisscada`) não é conferida: nem com o COS, nem com o próprio SCADA (`ja_e_scada`; até esta
+correção a Marialva, a PE II, a PE III e a Ponto Belo saíam "conferidas" contra a própria leitura). Na lista do COS do
+raio-x só aparece o que ele acrescenta ("única leitura" ou "segunda leitura"); o resto fica numa linha embaixo. SunOP dos
+dois lados sai como "mesma fonte".
+
 **O deploy no meio do dia (lição de 16/11/2026).** Cada push reinicia a plataforma e a coleta recomeça a frio: a 1ª
 tabela da API PV depois da largada leva de 13 a 23 min com o servidor livre (medido em 22/09) e, enquanto isso, tudo
 responde devagar (a Geração do mês levou 212 s 17 min depois de um reinício; assentado, 0,4 s). Em 16/11 foram SEIS

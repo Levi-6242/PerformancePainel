@@ -506,3 +506,34 @@ def test_a_sala_le_o_que_o_monitoramento_do_cos_le():
     assert "lerCosInv.indo || (COSI && Date.now() - COSI_EM < 30000)" in html      # sem laço: uma leitura a cada 30 s no máximo
     assert "if (lerCos.indo || COS) return;" in html
 
+
+def test_o_cos_so_entra_onde_o_scada_da_grid_nao_serve(cli, monkeypatch):
+    """Levi, 16/11/2026: "a API do COS só substitui o que não temos ou o que é por uma API diferente da API do SCADA
+    Grid". A usina que o Tempo real já lê da API do SCADA da Grid (GreenYellow, Sal, Apolo e a Axis pelo supervisório) não
+    é conferida: nem com o COS, nem com o próprio SCADA. Na lista do COS só aparece o que ele acrescenta."""
+    chamadas = []
+
+    class Sg:
+        FONTES = {"greenyellow": {}, "axisscada": {}}
+
+        @staticmethod
+        def configurado():
+            chamadas.append("configurado")
+            return True
+
+        @staticmethod
+        def usina_cfg(fonte, pid):
+            return {"id": pid} if (fonte, pid) == ("axisscada", "pe_ii") else None
+    monkeypatch.setattr(app, "_sg", Sg)
+    assert cli.get("/api/sala/conferir?usina=PEII&fonte=axis&id=pe_ii").get_json() == {"ok": True, "situacao": "ja_e_scada"}
+    assert cli.get("/api/sala/conferir?usina=Castelo&fonte=greenyellow&id=castelo").get_json()["situacao"] == "ja_e_scada"
+    assert chamadas == []                                    # nem pergunta ao SCADA
+    html = _html()
+    assert '"&id=" + encodeURIComponent(u.pid), 90000), dr = D.drill[u.u];' in html      # a tela diz a chave da usina
+    cos = html[html.index("function cosHtml() {"):html.index("// Conferir fontes pelo logger do COS")]
+    assert "const doScadaGrid = u => /scadaGridco/.test(NOME[u.g] || \"\");" in html
+    assert "mesmas = com.filter(c => c.ms.length && c.ms.every(doScadaGrid))" in cos and "uteis = com.filter(c => !mesmas.includes(c))" in cos
+    assert "segunda leitura" in cos and "única leitura" in cos
+    cf = html[html.index('} else if (ABA === "cf") {'):html.index('} else if (ABA === "dp") {')]
+    ja = cf[cf.index('c.sit === "ja"'):cf.index('c.sit === "fora"')]
+    assert "cosConf" not in ja                               # a usina do SCADA da Grid não vai ao COS

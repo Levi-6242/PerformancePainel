@@ -31251,7 +31251,10 @@ def api_sala_conferir():
     fonte = (flask_request.args.get("fonte") or "").strip()
     if not usina:
         return jsonify({"ok": False, "motivo": "informe a usina"}), 400
-    if fonte in _sg.FONTES:
+    # a usina que JÁ é lida da API do SCADA da Grid não tem segunda fonte aqui: seria o SCADA contra ele mesmo. Vale
+    # também para a Axis que chega pelo supervisório (as rotas /api/axis/* juntam a `axisscada`; em 16/11/2026 a Marialva,
+    # a PE II, a PE III e a Ponto Belo saíam "conferidas" contra a própria leitura)
+    if fonte in _sg.FONTES or (fonte == "axis" and _sg.usina_cfg("axisscada", flask_request.args.get("id") or "")):
         return jsonify({"ok": True, "situacao": "ja_e_scada"})
     if not _sg.configurado():
         return jsonify({"ok": False, "motivo": "sem a chave do SCADA da Grid nesta máquina"}), 503
