@@ -1103,3 +1103,9 @@ def test_corrente_das_strings_ao_lado_da_potencia_e_os_trackers_lado_a_lado():
     cs = html[html.index("function correnteStrings(u, dr) {"):html.index("// AS OCORRÊNCIAS DA USINA")]
     assert "if (b === undefined) lerCurva(u, i.n, dia);" in cs and "dr.inv.slice().sort((a, b) => natural(a.n, b.n)).map(um).join(\"\")" in cs
     assert "grid-template-columns:repeat(auto-fit,minmax(${dias.length > 1 ? 330 : 600}px,1fr))" in html and "Trackers · ${dm(dia)}" in html
+
+
+def test_o_cartao_criar_os_tem_o_dobro_da_largura():
+    html = _html()
+    assert ".modal>div{background:var(--janela);border-radius:14px;padding:20px 22px;width:min(760px,100%)}" in html
+    assert '.modal>div[aria-label="Criar OS"]{width:min(1520px,100%)}' in html and html.count('aria-label="Criar OS"') >= 3
