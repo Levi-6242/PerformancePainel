@@ -62,9 +62,13 @@ USINAS = {
                          "inversores": {**{f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 9)},
                                         **{f"inversor-{i:02d}-12": f"Inversor 2.{i}" for i in range(1, 9)}}},
     # O supervisório renomeou de "N" para "inversor-NN" (Demerval 04/11/2026, Irecê 05/11): o mesmo conserto do coletor
-    # (coletar_greenyellow.USINAS), pela ordem; a UG 02 da Demerval ("inversor-NN-12") espera o Levi decidir as colunas.
+    # (coletar_greenyellow.USINAS), pela ordem.
+    # UG 02 da Demerval (Levi, 17/11/2026: "pode botar agora"): o grupo "inversor-NN-12" apareceu no supervisório em
+    # 04/11 (antes não estava; as colunas 2.1-2.8 da aba ficavam vazias), 8 inversores -> Inversor 2.N, PELA ORDEM, como
+    # a Cedro 2 (sem histórico anterior para fechar pelo valor).
     "Demerval Lobão": {"scada": "dermeval_lobao",
-                       "inversores": {f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 13)}},
+                       "inversores": {**{f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 13)},
+                                      **{f"inversor-{i:02d}-12": f"Inversor 2.{i}" for i in range(1, 9)}}},
     "Irece 2": {"scada": "irece_2",
                 "inversores": {f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 11)}},
     "Cedro 1": {"scada": "cedro",
