@@ -1005,6 +1005,13 @@ def test_os_inversores_da_api_pv_saem_da_leitura_que_o_ciclo_ja_fez(cli, monkeyp
     chamadas = []
     monkeypatch.setattr(app, "_PV_DET_BOOT", 0.0)
     monkeypatch.setattr(app, "_pv_det_cache", {"ts": 0.0, "payload": None})
+    # DESLIGADO por padrão desde 17/11 11:36 (a API PV lenta: a chamada a mais do detalhe pesava no disjuntor)
+    assert app.os.environ.get("PV_DET_CICLO") == "1" or app.PV_DET_CICLO is False
+    monkeypatch.setattr(app, "PV_DET_CICLO", False)
+    monkeypatch.setattr(app, "_pv_plant_inversores_busca", lambda pid, force=False, records=None: chamadas.append("nao devia"))
+    app._pv_det_guarda(776, [{"idefinversor": 1}])
+    assert chamadas == [] and not app._pv_det_cache["payload"]            # desligado: o ciclo não faz nada a mais
+    monkeypatch.setattr(app, "PV_DET_CICLO", True)
     monkeypatch.setattr(app, "_pv_plant_inversores_busca", lambda pid, force=False, records=None: chamadas.append((pid, force, len(records))) or [{"id": 1, "nome": "Inversor 1.1"}])
     app._pv_det_guarda(777, [{"idefinversor": 1}])
     assert chamadas == [(777, True, 1)]                                   # monta com as leituras que o ciclo já tem

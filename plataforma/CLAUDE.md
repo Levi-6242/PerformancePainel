@@ -2709,6 +2709,10 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     cor do Tempo real, pela regra EXATA de lá (`bate = dif === -acomp` no Monitoramento): azul só quando o
     acompanhamento é IGUAL às zeradas, laranja quando os dois números não batem (a mais ou a menos); o cartão da fonte
     é azul quando todas as usinas dele batem. A lateral ficou 10% maior.
+  - **⚠ O detalhe da API PV pelo ciclo está DESLIGADO (17/11, 11:36):** foi ao ar às 11:15 com a API PV lenta (28 a
+    60 s, 504) e a tabela parada nas 10:57 (de antes da subida). O detalhe pede o `plant_devices` da usina com o cache
+    frio, e essa chamada a mais soma falhas no disjuntor da API PV. Fica no código atrás de `PV_DET_CICLO=1`; para
+    religar, o detalhe tem de montar só com o que já está em cache. Com ele desligado, a Sala cai na leitura ao vivo.
   - **Os inversores da API PV sem esperar o portal (17/11):** cada abertura baixava de novo o `day_inverter` (o dia
     inteiro, fonte paga): Altair 504 aos 61,7 s e depois 38,9 s, Céu Azul 12,3 s. O ciclo do worker, que já baixa isso
     de 5 em 5 min para a tabela, passou a guardar o detalhe por inversor das MESMAS leituras (`_pv_det_guarda`, cache

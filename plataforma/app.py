@@ -5081,6 +5081,12 @@ def build_summary(plant: dict, records: list) -> dict:
 #   (em 16/11, com várias subidas, a tabela da API PV ficou parada a tarde toda).
 # - O detalhe que falha não derruba a linha da usina.
 # - Sem `?tabela=1` (o Tempo real, o Diagnóstico) a rota continua ao vivo, como sempre.
+# ⚠ DESLIGADO POR PADRÃO desde 17/11/2026, 11:36 (21 min depois de ir ao ar): a API PV respondia em 28 a 60 s (504 no
+# drill) e a tabela estava parada nas 10:57, de antes da subida. O detalhe pede o `plant_devices` da usina quando o cache
+# dele está frio (20 s de teto), e com a fonte lenta essa chamada a mais soma falhas de rede no disjuntor da API PV, o
+# mesmo que protege o `day_inverter` da tabela. Para religar (`PV_DET_CICLO=1` no ambiente do worker), o detalhe precisa
+# antes montar só com o que já está em cache, sem chamada nova.
+PV_DET_CICLO = os.environ.get("PV_DET_CICLO", "0") == "1"
 PV_DET_VALE_S = 900                 # o detalhe do ciclo vale 15 min (três ciclos): mais velho que isso, a rota vai à fonte
 PV_DET_ESPERA_BOOT_S = 600          # depois da subida, 10 min sem o detalhe
 _PV_DET_BOOT = time.time()
@@ -5090,7 +5096,7 @@ _pv_det_lock = threading.Lock()
 
 def _pv_det_guarda(pid, records) -> None:
     """Guarda o detalhe por inversor da usina, a partir das leituras que o ciclo acabou de baixar."""
-    if not isinstance(records, list) or not records or time.time() - _PV_DET_BOOT < PV_DET_ESPERA_BOOT_S:
+    if not PV_DET_CICLO or not isinstance(records, list) or not records or time.time() - _PV_DET_BOOT < PV_DET_ESPERA_BOOT_S:
         return
     try:
         invs = _pv_plant_inversores_busca(pid, force=True, records=records)
