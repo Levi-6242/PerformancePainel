@@ -2472,6 +2472,9 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   zero no lugar de "não li". Fonte que atrasou usa a lista da última montagem boa com a hora dela (`atrasado: true`), até
   3 h (`_ENTRADA_TRK_ULTIMO_MAX_S`, o mesmo teto da contagem do card). Processo recém-subido, antes da 1ª montagem: 503
   com `"aquecendo": true`.
+- **`cabine`** (17/11/2026, Levi: na ronda do App, os trackers da API PV "venha com qual a cabine antes"): em cada
+  tracker, "Cabine N" pelo N do "Inversor N.M" a que o BD_Trackers o liga; sem inversor ou com nome fora do padrão,
+  vazio. O App só precisa mostrar o campo.
 - **`usina_fracttal`** (05/11/2026, pedido do App: ele guarda a usina pelo nome do Fracttal e, pelo nome do tempo real,
   só 29 de 95 casavam): na usina e em cada tracker, o nome da coluna "Usina Fractall" da aba Equipamentos (com as chaves
   do Nexus), pelo nome EXATO ("Usina" ou "Usina Supervisório", com ou sem o "(577)"), nunca pelo trecho. O tracker usa o
@@ -2725,6 +2728,12 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     zero. A ligação era "pela ordem" (o 1.3 com o SKID 1 · INV02) e a numeração das strings do logger não é a da API PV.
     Só religa com o de-para de inversor E de string entre as duas fontes conferido. As strings passaram a sair em ordem
     numérica (vinham 1, 10, 11, ..., 2, 20).
+  - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no
+    eixo e na dica; o "lado a lado" da tarde virou uma coluna Y por dia e foi desfeito); a curva das fontes do SCADA
+    da Grid e da SunOp vai **em fila** (`EM_FILA`, `FILA_CURVA`: a Corrente das strings pedia todos os inversores juntos
+    e voltava 502), com uma nova tentativa; a Corrente das strings pinta também pelo que a curva do dia diz (sem
+    corrente no dia = vermelho, abaixo da referência = laranja); as usinas da lateral saem **pela ordem das strings**
+    (as que o acompanhamento não bate em cima, da maior para a menor; as que batem embaixo).
   - **17/11, tarde:** a observação da OS sai com o texto do Tempo real (`_osObs` do Monitoramento: "Strings 4, 7 e 9
     com corrente nula, verificar e normalizar", só as SEM CORRENTE de agora, sem as trancadas); a **Ocorrências não
     mostra string trancada** (a da leitura e a que acabou de ser trancada na tela, na hora); a Potência ganhou

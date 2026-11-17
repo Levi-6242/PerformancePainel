@@ -724,7 +724,7 @@ def test_a_curva_abre_embaixo_do_inversor_e_varios_ficam_abertos():
     assert "if (INV) GRAF.add(u.u + \"|\" + INV); }" not in html                               # nada abre sozinho: a curva só no clique (17/11)
     assert "INV = null; GRAF.clear();" in html                                                 # outra usina começa do zero
     # abrir vários inversores da mesma usina não repete a leitura da usina inteira: um pedido no ar por endereço
-    assert "await (CURVAP[url] || (CURVAP[url] = pega(url, 90000).finally(() => { delete CURVAP[url]; })))" in html
+    assert "const d = await (CURVAP[url] || (CURVAP[url] = (EM_FILA.includes(sk) ? (FILA_CURVA = FILA_CURVA.then(pedir, pedir)) : pedir()).finally(() => { delete CURVAP[url]; })))" in html
     # o destaque no mouse fica no gráfico do inversor da string
     assert '(x.closest("[data-hlbox]") || document).querySelectorAll("svg[data-ch] path[data-sn]")' in html
     assert 'data-curvafonte="${esc(i.n)}"' in html and 'SEL.u + "|" + x.dataset.curvafonte + "|" + (DIA || HOJE)' in html
@@ -1104,7 +1104,8 @@ def test_corrente_das_strings_ao_lado_da_potencia_e_os_trackers_lado_a_lado():
     assert html.count('data-pv="str"') >= 2                                                       # o botão nas duas visões
     cs = html[html.index("function correnteStrings(u, dr) {"):html.index("// AS OCORRÊNCIAS DA USINA")]
     assert "if (b === undefined) lerCurva(u, i.n, dia);" in cs and "dr.inv.slice().sort((a, b) => natural(a.n, b.n)).map(um).join(\"\")" in cs
-    assert "grid-template-columns:repeat(auto-fit,minmax(${dias.length > 1 ? 330 : 600}px,1fr))" in html and "Trackers · ${dm(dia)}" in html
+    # desde 17/11 (16h40) vários dias são UM gráfico contínuo (o "lado a lado" virou uma coluna Y por dia: não era isso)
+    assert "${dias.length ? (dias.length > 1 ? grafJunto() : graf(dias[0])) :" in html
 
 
 def test_o_cartao_criar_os_tem_o_dobro_da_largura():
@@ -1117,3 +1118,26 @@ def test_as_strings_saem_em_ordem_numerica():
     """17/11/2026, o print do Roger (Rodrigues 1): as entradas vinham 1, 10, 11, 12, ..., 2, 20, na ordem de texto da fonte."""
     html = _html()
     assert 'i.s.slice().sort((a, b) => natural(String(a[0]).replace(/^\\D+/, ""), String(b[0]).replace(/^\\D+/, ""))).map(s => { const e = est(i, s);' in html
+
+
+def test_trackers_de_varios_dias_num_grafico_so_a_fila_do_scada_e_a_ordem_das_usinas():
+    """Levi, 17/11/2026 (16h40): os trackers de vários dias "vir tudo junto se ligando"; o 502 do SCADA da Grid na Corrente
+    das strings; a cor da string nula; as usinas "ordenadas por strings em ordem regressiva, as que não batem em cima"."""
+    html = _html()
+    gj = html[html.index("const grafJunto = () => {"):html.index("const graf = dia => { const c = D.trkc.dias[dia];")]
+    assert "xs.push(k * 1440 + q[0])" in gj and "{x0: 0, x1: dias.length * 1440, dias," in gj          # um eixo só, do 1º ao último dia
+    assert "if (o.dias) o.dias.forEach((d, k) => {" in html and "dias: o.dias || null});" in html      # a data no eixo e na dica
+    assert 'c.dias ? dm(c.dias[Math.min(c.dias.length - 1, Math.floor(m / 1440))]) + " " + hm(Math.round(m % 1440))' in html
+    assert 'EM_FILA = ["greenyellow", "salenergia", "apolo", "axis", "sunop"]' in html and "FILA_CURVA = FILA_CURVA.then(pedir, pedir)" in html
+    assert "[z.nome, [z.energia, z.pct, z.ativa, !!z.sub]]" in html and 'c0[2] === false ? "sem_corrente" : c0[3] ? "baixa_perf" : ""' in html
+    assert "const totS = z => z.sf || z.sd, rkS = z => !totS(z) ? 2 : z.sa === totS(z) ? 1 : 0;" in html
+    assert "rkS(a) - rkS(b) || totS(b) - totS(a) ||" in html
+
+
+def test_a_api_do_campo_manda_a_cabine_do_tracker():
+    """Levi, 17/11/2026: na ronda de trackers do App de Campo, os da API PV "venha com qual a cabine antes"."""
+    import inspect
+    fonte = inspect.getsource(app)
+    assert '"cabine": (lambda m: f"Cabine {int(m.group(1))}" if m else "")(re.search(r"(\\d+)\\.\\d+\\s*$", str(r.get("inversor") or ""))),' in fonte
+    m = app.re.search(r"(\d+)\.\d+\s*$", "Inversor 02.13")
+    assert m and int(m.group(1)) == 2 and app.re.search(r"(\d+)\.\d+\s*$", "INVERSOR08") is None      # sem o padrão N.M, sem cabine

@@ -35936,6 +35936,9 @@ def _campo_trk_linha(r: dict, partes: dict | None = None) -> dict:
             "atual": None if sc else r.get("atual"), "alvo": None if sc else r.get("alvo"),
             "disparidade": None if sc else r.get("disparidade"),
             "inversor": r.get("inversor") or "", "parte": parte, "com_os": bool(r.get("ticket_status")),
+            # a cabine do tracker (Levi, 17/11/2026: na ronda do App, os da API PV "venha com qual a cabine antes"): o N do
+            # "Inversor N.M" a que o BD_Trackers liga o tracker; sem inversor (ou nome fora do padrão), vazio, nunca chute
+            "cabine": (lambda m: f"Cabine {int(m.group(1))}" if m else "")(re.search(r"(\d+)\.\d+\s*$", str(r.get("inversor") or ""))),
             "usina_fracttal": _campo_fracttal(parte) or _campo_fracttal(r.get("usina"))}
 
 
