@@ -31160,6 +31160,40 @@ def api_sala_arranjo():
         return jsonify({"ok": False, "motivo": f"o arquivo dos nomes e grupos não abriu ({type(e).__name__})"}), 500
 
 
+@app.route("/api/sala/depara")
+def api_sala_depara():
+    """O de-para REAL de uma usina (Levi, 16/11/2026: "Tem que vir o de-para real!"): o que o cadastro desta plataforma
+    diz de cada inversor dela. ?usina=<nome de exibição> → {chaves: [{chave, exibicao, inversores: [{esup (o nome que a
+    fonte manda), nome (o da plataforma), cod_fracttal, nome_fracttal, cabine, esp (strings esperadas), kwp, ug}]}]}.
+    Sai do que já está na memória (a mesma carga do `/api/admin/de-para/cadastro`), só leitura, para quem abre a Sala; o
+    editor continua sendo administração. Uma usina pode ter mais de uma chave (a "Coração 1 (111)" e a "Coração 2 (112)")."""
+    usina = " ".join((flask_request.args.get("usina") or "").split())
+    if not usina:
+        return jsonify({"ok": False, "motivo": "diga a usina"}), 400
+    alvo, apelidos, out = _nrm(usina), set(_dp_aliases()), []
+    num = lambda x: x if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf") else None
+    for chave in sorted(set(ESPERADO_INV) | set(EQUIP_NAMES)):
+        if chave in apelidos or alvo not in {_nrm(chave), _nrm(USINA_DISPLAY.get(chave) or ""), _nrm(USINA_GRUPO.get(chave) or "")}:
+            continue
+        esp, nomes, pot, par = (ESPERADO_INV.get(chave) or {}, EQUIP_NAMES.get(chave) or {}, POWER_INV.get(chave) or {},
+                                EQUIP_PARENTE.get(chave) or {})
+        cods, invs = FRAC_COD_INV.get(chave) or {}, []
+        for esup in dict.fromkeys(list(nomes) + list(esp)):
+            nome = nomes.get(esup) or esup
+            k = pot.get(_nrm(esup))
+            if k is None:
+                k = pot.get(_nrm(nome))
+            try:
+                rot = _dp_rotulos_fracttal(chave, esup, nome) or {}
+            except Exception:                                             # noqa: BLE001 — o rótulo é um extra: sem ele, a linha segue
+                rot = {}
+            invs.append({"esup": esup, "nome": nome, "esp": num(esp.get(esup)), "kwp": num(k), "ug": par.get(esup) or None,
+                         "cod_fracttal": next((cods[_nrm(n)] for n in (esup, nome) if n and _nrm(n) in cods), None),
+                         "nome_fracttal": rot.get("nome_fracttal"), "cabine": rot.get("cabine")})
+        out.append({"chave": chave, "exibicao": USINA_GRUPO.get(chave) or USINA_DISPLAY.get(chave) or None, "inversores": invs})
+    return jsonify({"ok": True, "usina": usina, "chaves": out, "carregado_em": _EN_ESTADO.get("carregado_em")})
+
+
 _sala_pacote_mem = {"marca": None, "dado": None}
 
 
@@ -34008,7 +34042,18 @@ def _inv_historico(fonte: str, pid, usina: str, ano: int, mes: int, agora: datet
                          "pct_meta": round(t["g_meta"] / t["meta"] * 100, 1) if t["meta"] else None,
                          "pct_ipoa": round(t["g_mip"] / t["meta_ipoa"] * 100, 1) if t["meta_ipoa"] else None,
                          "pr": round(t["g_ip"] / (t["ipoa"] * pt), 3) if (t["ipoa"] and pt) else None}
+    # A USINA no mês (16/11/2026, Levi: "Ao lado do nome da UFV seria interessante mostrar PR do mês e acompanhamento da
+    # meta do mês"): a soma dos inversores, pela MESMA conta de cada um (o PR pondera pela energia: Σ geração nos dias com
+    # IPOA ÷ Σ IPOA × kWp de cada inversor), para o cabeçalho da Sala não ter uma conta à parte da aba Geração e PR.
+    _g_ip = sum(t["g_ip"] for t in tot.values())
+    _den = sum(t["ipoa"] * pot_inv[n] for n, t in tot.items() if pot_inv.get(n))
+    _meta, _g_meta = sum(t["meta"] for t in tot.values()), sum(t["g_meta"] for t in tot.values())
+    da_usina = {"ger": round(sum(t["ger"] for t in tot.values()), 1), "dias": len(out_dias),
+                "pr": round(_g_ip / _den, 3) if (_g_ip and _den) else None,
+                "meta": round(_meta, 1) if _meta else None,
+                "pct_meta": round(_g_meta / _meta * 100, 1) if _meta else None}
     return {"fonte": fonte, "plant_id": pid, "usina": usina, "mes": ym, "dias": out_dias, "inversores": inversores,
+            "da_usina": da_usina,
             "motivo": None if out_dias else _inv_sem_base(fonte, usina),
             "pot_kwp": pot_ufv, "pr_meta": prm, "meta_dia_kwh": mger, "ipoa_meta_dia": mpoa,
             "rateio": "potencia" if rateio_pot else "igual", "n_dias": len(out_dias),

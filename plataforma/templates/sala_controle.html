@@ -24,7 +24,7 @@
   /* Sala de controle da Performance (16/11/2026): o desenho aprovado pelo Levi em docs/mockups/sala-de-controle e as
      regras em docs/sala-de-controle.md. GERADO do mockup por um script na 1ª entrega; daqui em diante se edita aqui.
      Um nível de superfície; a cor só no estado. */
-  :root{--fundo:#090d18;--sup:#161d30;--linha:#1f2940;--linha2:#2a3550;--tinta:#e9eef6;--mudo:#94a3b8;--fraco:#64748b;
+  :root{--c-ger:#5aa9f5;--c-poa:#f59a4a;--c-ghi:#e6c84f;--neutro:#7b879d;--grade:#1f2940;--janela:#161d30;--fundo:#090d18;--sup:#161d30;--linha:#1f2940;--linha2:#2a3550;--tinta:#e9eef6;--mudo:#94a3b8;--fraco:#64748b;
         --verde:#a3d900;--ok:#4ade80;--alerta:#ffd83d;--severo:#ff8f3c;--critico:#ff5b6e;--info:#7cb7ff;--violeta:#b497ff;
         --rolagem:#243154;--rolagem-hover:#34426b}
   *{box-sizing:border-box}
@@ -215,7 +215,7 @@
   .btn{background:var(--verde);color:#191528;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
   .btn2{background:transparent;border:1px solid rgba(255,255,255,.16);border-radius:8px;padding:8px 14px;cursor:pointer}
   .modal{position:fixed;inset:0;z-index:70;background:rgba(4,7,14,.72);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
-  .modal>div{background:#161d30;border-radius:14px;padding:20px 22px;width:min(760px,100%)}
+  .modal>div{background:var(--janela);border-radius:14px;padding:20px 22px;width:min(760px,100%)}
   .modal h3{margin:0 0 2px;font-size:17px}.modal p{margin:0 0 12px;color:var(--mudo)}
   .osi{border-top:1px solid var(--linha);padding:14px 0}
   .osi h4{margin:0 0 6px;font-size:14px}
@@ -312,7 +312,12 @@
   .lado .tri b.z{color:var(--fraco);font-weight:400}
   .lado .tri i{font-style:normal;text-transform:none;letter-spacing:0;font-size:11px}
   .lado .f .us{margin:0;border-left:0;border-top:1px solid rgba(255,255,255,.09);padding:6px 6px 8px}
-  .lado .uc,.lado .f .u{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 34px;align-items:center;gap:0}
+  .lado .uc,.lado .f .u{display:grid;grid-template-columns:minmax(0,1fr) 38px 38px 40px 30px;align-items:center;gap:0}
+  .lado .ac{border-radius:5px}.lado .ac.ed{cursor:text}.lado .ac.ed:hover{background:rgba(148,163,184,.16)}
+  .lado .aci{width:34px;padding:1px 2px;text-align:center;font:inherit;border-radius:5px;border:1px solid var(--verde);background:var(--fundo);color:var(--tinta)}
+  .dvg{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:5px;border-radius:50%;border:1.5px solid var(--alerta);color:var(--alerta);font-size:9.5px;font-weight:700;line-height:1;cursor:pointer;flex:none}
+  .st.cv{width:auto;min-width:58px;padding:0 6px;gap:5px;height:21px;font-size:10.5px}.st.cv small{font-size:10px;opacity:.85;font-weight:400}
+  .coment small{min-width:108px}
   .lado .uc{padding:0 8px 2px;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fraco)}
   .lado .uc span:not(:first-child),.lado .f .u>span:not(.n){text-align:right;font-variant-numeric:tabular-nums}
   .lado .f .u{padding:5px 8px;font-size:12px;border-radius:7px}
@@ -369,6 +374,12 @@
   @media (max-width:1250px){.grade2{grid-template-columns:1fr}}
 
   /* nomes e grupos só na Sala (16/11, noite): o cabeçalho do grupo na lateral e a janela da engrenagem */
+  .ocl{margin-top:8px;border-radius:10px;overflow:hidden;background:var(--sup)}
+  .oc{display:grid;grid-template-columns:118px minmax(0,1.5fr) minmax(0,1.2fr) 150px 96px auto;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--linha);border-left:3px solid var(--fraco);cursor:pointer;font-size:12.5px}
+  .oc.cab{cursor:default;border-top:0;border-left-color:transparent;color:var(--fraco);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+  .oc.ab{border-left-color:var(--critico)}.oc.on{background:rgba(163,217,0,.07)}.oc:not(.cab):hover{background:rgba(148,163,184,.07)}
+  .oc>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.oc b{font-weight:600}
+  .ocx{padding:6px 12px 12px;border-left:3px solid transparent}
   .gi{margin:2px 0 10px;padding:10px 12px;border-radius:10px;background:var(--fundo)}.gi p{margin:0;color:var(--mudo);font-size:12.5px}
   .lado .f .ug{display:flex;align-items:baseline;gap:6px;padding:8px 8px 3px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--verde)}
   .lado .f .ug small{color:var(--fraco);text-transform:none;letter-spacing:0;font-size:10.5px}
@@ -421,8 +432,32 @@
   .carrega{color:var(--mudo);padding:40px 0;text-align:center}
   .erro{background:var(--sup);border-left:3px solid var(--critico);border-radius:10px;padding:14px 16px;margin-top:14px}
   /* o tema claro do Nexus, pelos mesmos nomes */
-  html[data-tema="claro"]{--fundo:#ffffff;--sup:#eef1f5;--linha:rgba(15,23,42,.10);--linha2:rgba(15,23,42,.18);--tinta:#0f172a;--mudo:#475569;--fraco:#64748b;
+  html[data-tema="claro"]{--c-ger:#1f6fd0;--c-poa:#c8640f;--c-ghi:#a8860a;--neutro:#8a94a6;--grade:rgba(15,23,42,.10);--janela:#ffffff;--fundo:#ffffff;--sup:#eef1f5;--linha:rgba(15,23,42,.10);--linha2:rgba(15,23,42,.18);--tinta:#0f172a;--mudo:#475569;--fraco:#64748b;
     --verde:#566610;--ok:#15803d;--alerta:#a16207;--severo:#c2410c;--critico:#be123c;--info:#1d4ed8;--violeta:#6d28d9;--rolagem:#c7cdd8;--rolagem-hover:#aab2c0}
+  /* O TEMA CLARO da Sala (Levi, 16/11/2026: "Trabalhe melhor o tema claro da sala de controle"): o que era cor fixa
+     pensada para o navy ganha o par claro. A grade do gráfico e as linhas neutras seguem os tokens; as marcas de
+     string e de status ficam com tinta escura sobre fundo suave; a janela é branca com sombra. */
+  html[data-tema="claro"] .modal{background:rgba(15,23,42,.38)}
+  html[data-tema="claro"] .modal>div{box-shadow:0 18px 50px rgba(15,23,42,.22)}
+  html[data-tema="claro"] .lado .f,html[data-tema="claro"] .painel,html[data-tema="claro"] .ilista,html[data-tema="claro"] .faixa{box-shadow:inset 0 0 0 1px rgba(15,23,42,.06)}
+  html[data-tema="claro"] .st{background:rgba(21,128,61,.12);color:#166534}
+  html[data-tema="claro"] .st.sem_corrente{background:#be123c;color:#fff}
+  html[data-tema="claro"] .st.baixa_perf{background:#c2410c;color:#fff}
+  html[data-tema="claro"] .st.inativa,html[data-tema="claro"] .st.desligado{background:rgba(15,23,42,.07);color:#475569}
+  html[data-tema="claro"] .il.on{background:rgba(86,102,16,.10)}
+  html[data-tema="claro"] .il:not(.cab):hover{background:rgba(15,23,42,.04)}
+  html[data-tema="claro"] .gi{background:#ffffff;box-shadow:inset 0 0 0 1px rgba(15,23,42,.08)}
+  html[data-tema="claro"] .lado .tri b.z,html[data-tema="claro"] .zero{color:#94a3b8}
+  html[data-tema="claro"] .btn{color:#ffffff}
+  html[data-tema="claro"] .btnl{background:#ffffff;color:#334155}html[data-tema="claro"] .legb{color:#334155}
+  html[data-tema="claro"] .btnl:hover{border-color:#566610;color:#0f172a}
+  html[data-tema="claro"] .btnl.on{background:rgba(86,102,16,.12);border-color:#566610;color:#3d4a0a}
+  html[data-tema="claro"] .toast,html[data-tema="claro"] #dica,html[data-tema="claro"] .sino>div,html[data-tema="claro"] .acao{background:#ffffff;color:#0f172a;box-shadow:0 10px 30px rgba(15,23,42,.18)}
+  html[data-tema="claro"] .sino>summary em,html[data-tema="claro"] .nv{color:#ffffff}
+  html[data-tema="claro"] .expb,html[data-tema="claro"] .eng{color:#475569}
+  html[data-tema="claro"] .campo{color:#0f172a}
+  html[data-tema="claro"] .explica div{background:#ffffff;color:#0f172a;box-shadow:0 10px 30px rgba(15,23,42,.18)}
+  html[data-tema="claro"] .lado .g .gn:hover{text-decoration-color:rgba(86,102,16,.6)}
   /* o cartão Novo (ocorrências desde a última vez) é da entrega 3 */
 </style>
 </head>
@@ -477,6 +512,33 @@ async function pega(url, ms) {
 }
 const CLI = {"2C": "2c", "SEMP": "semp", "Alves Lima": "alveslima", "Sal Energia": "salenergia", "Axis": "axis", "Athon": "athon", "Renogrid": "renogrid", "RenoGrid": "renogrid", "Apolo": "apolo", "Greenyellow": "greenyellow", "GreenYellow": "greenyellow"};
 // o pacote de falhas do mês (Strings e trackers) vira o que a visão geral precisa: por dia, a idade de cada parada, a perda
+// AS OCORRÊNCIAS DA USINA (Levi, 16/11/2026, 23h30: "Criar aba de ocorrências mostrando o que aconteceu e quando [...] em
+// formato de lista mostrando equipamento, o que foi, quando foi, clicando dá para plotar gráfico [...] um botão de criar OS
+// direto. Caso seja trackers ou strings caindo ao mesmo tempo aparecerão juntos, tolerância de 10 minutos"). Sai do que a
+// tela já tem (o pacote de falhas do mês: cada string sem corrente e cada tracker parado, com o início e o fim); nada é
+// lido de novo. Junta o que começou até 10 min depois do PRIMEIRO do grupo (não em cadeia: uma fila de quedas de 9 em 9
+// min não vira uma ocorrência só).
+const OC_TOL_MIN = 10, OC = {aberta: null, soAb: false};
+const plu = (q, um, varios) => q + " " + (q === 1 ? um : varios);
+const ocMin = s => { const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(String(s || "")); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)) / 60000 : null; };
+function ocorrenciasDe(u) {
+  const ev = [];
+  Object.keys(D.eps).forEach(k => { if (!k.startsWith(u.u + "|")) return; const inv = k.slice(u.u.length + 1);
+    D.eps[k].forEach(e => { const m = ocMin(e.ini); if (m != null) ev.push({m, t: String(e.ini), tipo: "s", inv, s: e.s, fim: e.fim, aberta: e.aberta, kwh: e.kwh || 0, antes: e.antes}); }); });
+  D.trkRows.forEach(r => { if (r.usina !== u.u) return; const m = ocMin(r.inicio); if (m != null) ev.push({m, t: String(r.inicio), tipo: "t", id: r.tracker, fim: r.fim || "", aberta: !r.fim, kwh: r.perda_kwh || 0, cron: !!r.cronico}); });
+  ev.sort((a, b) => a.m - b.m);
+  const gs = [];
+  ev.forEach(e => { const g = gs[gs.length - 1]; if (g && e.m - g.m <= OC_TOL_MIN) g.ev.push(e); else gs.push({m: e.m, t: e.t, ev: [e]}); });
+  return gs.map(g => { const ss = g.ev.filter(e => e.tipo === "s"), ts = g.ev.filter(e => e.tipo === "t"), invs = [...new Set(ss.map(e => e.inv))].sort(natural);
+    const fins = g.ev.map(e => e.fim).filter(Boolean).sort();
+    return {k: g.t + "|" + (ss[0] ? ss[0].inv + ss[0].s : ts[0].id), t: g.t, dia: g.t.slice(0, 10), comHora: g.t.length > 10, ss, ts, invs, aberta: g.ev.some(e => e.aberta), fim: g.ev.every(e => e.fim) ? fins[fins.length - 1] : "", kwh: g.ev.reduce((a, e) => a + e.kwh, 0), antes: g.ev.some(e => e.antes)}; }).reverse();
+}
+// a OS dos trackers de uma ocorrência: a mesma página do OS Creator, com a frase dos trackers e um ativo por tracker
+function osDosTrackers(u, ids) { const p = new URLSearchParams();
+  p.set("frase", "verificacao de tracker parado"); p.set("usina", u.u);
+  ids.forEach(id => { p.append("ativo", id); p.append("obs", ""); });
+  p.set("origem", "sala-de-controle-ocorrencia"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
+  abreJanela(p, {u: u.u, g: u.g, nomes: []}); }
 // O nome que a Sala mostra: o que foi dado na engrenagem (só aqui), ou o da fonte. A CHAVE da usina segue a da fonte.
 const rotN = (n, g) => (D && D.rot && (D.rot[g + "|" + n] || D.rot[n])) || n;
 function montar(ent, fal, idr, vis, arr) {
@@ -522,7 +584,7 @@ function montar(ent, fal, idr, vis, arr) {
     if (conta) { sdU[e.usina] = (sdU[e.usina] || 0) + 1; d.sdI[k] = (d.sdI[k] || 0) + 1; } });
   grupos.forEach(g => g.usinas.forEach(u => { u.sd = sdU[u.u] || 0; }));
   d.idadeAte = (idr && idr.ate) || d1mes || ""; d.osMes = oss; d.donoDe = u => dono[u] || "?";
-  (fal.strings.episodios || []).forEach(e => { const r = re0(e); (d.eps[e.usina + "|" + e.inversor] = d.eps[e.usina + "|" + e.inversor] || []).push({s: e.string, d0: r.d0, d1: e.d1, ini: r.ini, antes: r.antes, dias: e.dias || 0, kwh: e.perda_kwh || 0, aberta: !!ult && e.d1 >= ult, g: grupo(e), k: "s|" + e.usina + "|" + e.inversor + "|" + e.string + "|" + r.d0}); });
+  (fal.strings.episodios || []).forEach(e => { const r = re0(e); (d.eps[e.usina + "|" + e.inversor] = d.eps[e.usina + "|" + e.inversor] || []).push({s: e.string, d0: r.d0, d1: e.d1, ini: r.ini, antes: r.antes, dias: e.dias || 0, kwh: e.perda_kwh || 0, aberta: !!ult && e.d1 >= ult, fim: e.fim || "", g: grupo(e), k: "s|" + e.usina + "|" + e.inversor + "|" + e.string + "|" + r.d0}); });
   d.trkRows = fal.trackers.rows || [];
   // O NOVO, por pessoa (entrega 3; Levi: "ocorrência nova. E aí quando eu clico para ver, já some"): o que parou desde a
   // 1ª vez que ESTA pessoa abriu a tela, segue parado e ela ainda não abriu. Quem viu fica guardado para todos verem.
@@ -562,11 +624,11 @@ async function lerGer(u) {
   GERL[u.u] = 1; delete GERF[u.u];
   try { const g = await pega("/api/" + SKEY[u.g] + "/inversores/historico/" + encodeURIComponent(u.pid) + "?usina=" + encodeURIComponent(u.u) + "&mes=" + HOJE.slice(0, 7), 300000);      // frio, o servidor leva até uns 3 min (16/11/2026: 212 s na Ipixuna 1; depois, 0,2 s por 10 min)
     if (g.erro) throw new Error(g.erro);
-    const dias = g.dias || [], G = {usina: u.u, dias: dias.map(x => x.data), ipoa: dias.map(x => x.ipoa ?? null), inv: {}, kwp: {}, hoje: {}, pr: null, motivo: g.motivo || ""};
+    const dias = g.dias || [], G = {usina: u.u, dias: dias.map(x => x.data), ipoa: dias.map(x => x.ipoa ?? null), inv: {}, kwp: {}, hoje: {}, pr: null, motivo: g.motivo || "", tot: g.da_usina || null, prMeta: g.pr_meta ?? null};
     Object.keys(g.inversores || {}).forEach(n => { G.inv[n] = dias.map(x => { const v = (x.inv || {})[n]; return v && v.ger != null ? v.ger : null; }); G.kwp[n] = g.inversores[n].pot_kwp || null; });
     D.ger = G; }
   catch (e) { GERF[u.u] = String(e && e.message || e); }
-  finally { delete GERL[u.u]; if (SEL.u === u.u) redesenhar(); }
+  finally { delete GERL[u.u]; if (SEL.u === u.u) { cabecalho(); if (ABA === "gp") redesenhar(); } }
 }
 async function lerPr(u) {
   const G = D.ger; if (G.usina !== u.u || G.pr || lerPr.indo) return;
@@ -580,6 +642,32 @@ async function lerPr(u) {
   finally { lerPr.indo = false; if (SEL.u === u.u) redesenhar(); }
 }
 // (c) Potência ativa de hoje, do relatório de potência que a plataforma já tem (as fontes com histórico por inversor)
+// A Potência por dia (Levi, 16/11/2026, 23h30: "Dados do dia todo"; "Conseguir selecionar para ver mais que um dia"; "o
+// filtro só vai caber 5 dias"; "um botão de correlação que abre abaixo os gráficos de trackers [...] no mesmo período").
+// Um pedido por dia (o servidor guarda cada dia e deixa um pedido no ar por usina e dia), e o POA/GHI do dia quando a
+// fonte entrega (hoje, o da estação; no banco da Thopen, qualquer dia).
+const POT = {ini: null, fim: null, corr: false};
+// Athon e Axis ficaram fora do histórico de potência em 13/10/2026 (a SunOp é fonte paga: seria um pedido novo por usina e
+// dia). A tela diz isso, em vez de "a fonte não guarda".
+const POT_FORA = {athon: "A Athon (SunOp) está fora do histórico de potência por inversor desde 13/10/2026: a SunOp é fonte paga, e cada usina e dia custaria um pedido novo da cota. Não é falta de dado na fonte; é uma decisão de custo que ainda não foi ligada.",
+  axis: "A Axis está fora do histórico de potência por inversor desde 13/10/2026, junto com a Athon (decisão de custo da época). Não é falta de dado na fonte."};
+async function lerPotDia(u, dia) {
+  if (!D.potd || D.potd.usina !== u.u) D.potd = {usina: u.u, dias: {}, irr: {}, sem: ""};
+  const Pp = D.potd; if (Pp.sem || Pp.dias[dia] !== undefined) return;
+  const f = u.g === "2c" ? (/^\d+$/.test(String(u.pid)) ? "2capi" : null) : PA_FONTE[u.g];
+  if (!f) { Pp.sem = POT_FORA[u.g] || "Esta fonte não guarda o histórico de potência por inversor."; return; }
+  Pp.dias[dia] = null;
+  if (f === "pg" && dia !== HOJE && Pp.irr[dia] === undefined) { Pp.irr[dia] = null;      // o POA/GHI do dia que passou, do banco
+    pega("/api/pg/etm/chart?plant_id=" + encodeURIComponent(u.pid) + "&date=" + dia, 60000).then(e => { Pp.irr[dia] = {x: e.labels || [], poa: e.poa || [], ghi: e.ghi || []}; }).catch(() => { Pp.irr[dia] = {x: [], poa: [], ghi: []}; }).finally(() => { if (D.potd === Pp && SEL.u === u.u && ABA === "pot") redesenhar(); }); }
+  try { const r = await pega("/api/relatorio/potencia-ativa?fonte=" + f + "&usina=" + encodeURIComponent(u.pid) + "&ini=" + dia + "&fim=" + dia, 150000);
+    if (r.sem_historico) { Pp.sem = r.motivo || "Esta fonte não guarda o histórico de potência por inversor."; delete Pp.dias[dia]; }
+    else { const d = (r.dias || [])[0] || {}, inv = {};
+      (d.inversores || []).forEach(i => { inv[i.nome] = (i.pontos || []).filter(p => p[1] != null).map(p => [p[0], p[1]]); });
+      Pp.dias[dia] = {inv, situacao: d.situacao || "", motivo: d.motivo || "", lido: agora(), grandeza: r.grandeza || ""};
+      if (dia === POT.fim) D.pot = {usina: u.u, dia, lido: agora(), inv, situacao: d.situacao || "", motivo: d.motivo || "", grandeza: r.grandeza || ""}; } }
+  catch (e) { Pp.dias[dia] = {inv: {}, erro: String(e && e.message || e)}; }
+  if (D.potd === Pp && SEL.u === u.u) redesenhar();
+}
 const POTL = {}, POTF = {}, PA_FONTE = {"thopen-pv": "pv", "thopen-db": "pg", renogrid: "solaredge", semp: "semp", alveslima: "alveslima", greenyellow: "greenyellow", apolo: "apolo", salenergia: "salenergia"};
 async function lerPot(u) {
   if (D.pot.usina === u.u || POTL[u.u]) return;
@@ -657,6 +745,7 @@ async function lerUsina(u, calada) {
     Object.keys(TRANCA).forEach(k => { if (!k.startsWith(u.u + "|")) return; const [, n, sid] = k.split("|"), iv = inv.find(i => i.n === n), s = iv && iv.s.find(x => String(x[0]) === sid); if (!s || (s[2] === "trancada") === TRANCA[k]) delete TRANCA[k]; });
     const pinta = aba => { if (SEL.u === u.u && D.drill[u.u] === dr && (!aba || ABA === aba)) redesenhar(); };
     pinta();
+    if (!calada && D.ger.usina !== u.u) lerGer(u);              // sai dos BDs em memória do servidor (não é fonte paga): o PR do mês no cabeçalho e a aba Geração já prontos
     const extras = [];
     if (EPT[sk]) extras.push(pega(EPT[sk] + "/" + encodeURIComponent(pid), 90000).then(tk => { if (tk && tk.tem_trackers !== false && (tk.trackers || []).length) dr.trk = {total: tk.total, parados: tk.parados, com: tk.parados_com, sem: tk.parados_sem, severos: tk.severos, lido: tk.ultima_leitura || "", semHist: !!tk.sem_historico,
       l: tk.trackers.filter(x => x.status !== "normal" || x.sem_comunicacao).map(x => [x.id, x.atual, x.alvo, x.disparidade, x.status, x.ticket_status, !!x.sem_comunicacao])}; else dr.trk = {fora: true, l: []}; }).catch(() => { dr.trk = {fora: true, erro: true, l: []}; }).finally(() => pinta("trk")));
@@ -765,6 +854,37 @@ async function curvaCos(u, dr, invNome, dia) {
     return {s, e: {}, un: "A", cos: {inv: p.s.nome || p.s.id, logger: p.s.logger || "", porNome: pr.porNome, passo}};
   } catch (e) { return null; }
 }
+// AS FONTES QUE NÃO BATEM (Levi, 16/11/2026, 23h30: "Não faz sentido esse botão conferir fonte [...] Se já pedi para você
+// mapear! O mínimo seria ter algum símbolo de aviso ao lado da UFV"). A conferência é da tela, não da pessoa: com a lista
+// do Monitoramento do COS (um pedido para todas as usinas, relido a cada volta de 5 min), a usina que o Tempo real lê de
+// OUTRA API e que tem logger ganha o aviso quando as duas leituras discordam no que as duas dizem do mesmo jeito: a
+// QUANTIDADE de inversores (ligação errada, ou inversor que uma fonte não vê) e a COMUNICAÇÃO (uma lendo, a outra sem
+// comunicação). Nada de limiar inventado: é igual ou não é. O clique no aviso abre as duas leituras lado a lado.
+function cabecalho() { const r = $("recorte"); if (!r) return;
+  const dv = SEL.u ? divergeCos({u: SEL.u, g: SEL.g}) : "";
+  r.innerHTML = (SEL.u ? "· " + esc(rotN(SEL.u, SEL.g)) : SEL.g ? "· " + esc(NOME[SEL.g]) : "") + (dv ? `<span class="dvg" data-dvg="1" style="width:18px;height:18px;font-size:12px;vertical-align:middle" title="As fontes não batem: ${esc(dv)}. Clique para ver lado a lado.">!</span>` : "") + (SEL.u ? prDoMes() : ""); }
+// O PR do mês e a geração contra a meta, ao lado do nome (Levi, 16/11/2026): os números são os da aba Geração e PR (a
+// soma dos inversores nos dias fechados do mês, pelos BDs do banco); sem base no mês, não aparece nada.
+function prDoMes() { const G = D && D.ger; if (!G || G.usina !== SEL.u || !G.tot) return "";
+  const T = G.tot, p = [], tag = (rot, v, ok, dica) => `<span class="tag ${ok == null ? "n" : ok ? "o" : "s"}" style="margin-left:8px;font-size:11.5px;font-weight:500;vertical-align:middle" title="${dica}">${rot} <b>${v}</b></span>`;
+  if (T.pr != null) p.push(tag("PR do mês", nf(T.pr * 100, 1) + "%" + (G.prMeta ? " · meta " + nf(G.prMeta * 100, 1) + "%" : ""), G.prMeta ? T.pr >= G.prMeta : null, `PR do mês em ${T.dias} dia${T.dias > 1 ? "s" : ""} fechado${T.dias > 1 ? "s" : ""}: a geração dos inversores nos dias com IPOA sobre o IPOA × kWp (a conta da aba Geração e PR)`));
+  if (T.pct_meta != null) p.push(tag("Geração", nf(T.pct_meta, 1) + "% da meta", T.pct_meta >= 100, `Geração dos dias fechados do mês (${nf(T.ger)} kWh) sobre a meta de geração dos mesmos dias (${nf(T.meta)} kWh)`));
+  return p.join(""); }
+let DVG = {};
+function calcDvg() {
+  DVG = {};
+  if (!D || !COS || COS.erro || !COS.usinas) return;
+  const por = {};
+  COS.usinas.forEach(x => { if (x.fonte !== "SCADA Grid") return; trDoCos(x).forEach(u => { const k = u.g + "|" + u.u; (por[k] = por[k] || {u, ms: []}).ms.push(x); }); });
+  Object.entries(por).forEach(([k, {u, ms}]) => { if (doScadaGrid(u)) return;
+    const tot = ms.reduce((a, m) => a + (m.inversores_total || 0), 0), d = [];
+    if (tot && u.inv && tot !== u.inv) d.push(`a fonte tem ${u.inv} inversores e o logger do COS, ${tot}`);
+    const semC = ms.every(m => m.grupo === "sem_comunicacao"), euSem = u.st === "sem_comm";
+    if (semC !== euSem && ms.every(m => m.minutos_atras != null && m.minutos_atras <= 15)) d.push(euSem ? "a fonte está sem comunicação e o logger do COS está lendo" : "a fonte está lendo e o logger do COS está sem comunicação");
+    if (d.length) DVG[k] = d.join("; "); });
+}
+const divergeCos = u => DVG[u.g + "|" + u.u] || "";
+async function atualizaCos() { try { const c = await nexusPega("/t/performance/sala-de-controle/cos/usinas"); if (c && c.usinas) { COS = c; calcDvg(); arvore(); if (SEL.u) { const r = $("recorte"); if (r) cabecalho(); } } } catch (e) { if (!COS) COS = {erro: String(e && e.message || e)}; } }
 // A REGRA (Levi, 16/11/2026): "a API do COS só substitui o que não temos ou o que é por uma API diferente da API do SCADA
 // Grid". A API do SCADA da Grid vem primeiro; a usina que o Tempo real já lê dela não ganha nada do COS (é a mesma leitura).
 const doScadaGrid = u => /scadaGridco/.test(NOME[u.g] || "");
@@ -925,6 +1045,8 @@ const tot = l => par(soma(l, "sf"), soma(l, "sn")) + par(soma(l, "tp"), soma(l, 
   (l.filter(u => u.ea).length ? `<span class="par"><em class="s">${l.filter(u => u.ea).length}</em></span>` : '<span class="par zero">—</span>');
 
 function arvore() {
+  // quem está digitando o acompanhamento de uma usina na lateral não perde o campo para a releitura de 5 min
+  if (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("aci")) return;
   const q = $("q").value.trim().toLowerCase();
   // cada fonte é um cartão com os três números que pedem ação (e o total embaixo); as usinas abrem dentro dele
   const tri = l => { const c = (rot, p, sub, tit) => `<div${tit ? ` title="${tit}"` : ""}>${rot}<b class="${p ? "" : "z"}">${nf(p)}</b>${sub ? `<i>${sub}</i>` : ""}</div>`;
@@ -939,19 +1061,19 @@ function arvore() {
     if (!us.length) return;
     const aberto = ABERTOS.has(g.id) || (q && us.length < g.usinas.length);
     h += `<div class="f ${aberto ? "aberto" : ""} ${nNovas(g.usinas) && !CLICADAS.has("g|" + g.id) ? "pulsa" : ""}"><div class="g ${SEL.g === g.id && !SEL.u ? "on" : ""}" data-g="${g.id}"><div class="l1"><span class="seta" title="Abrir ou recolher as usinas desta fonte, sem sair da tela">›</span><b><span class="gn" title="Ver só esta fonte na tela">${esc(NOME[g.id])}</span>${pill(nNovas(g.usinas))}</b><small>${g.usinas.length} usinas</small></div>${tri(g.usinas)}</div>` +
-      `<div class="us"><div class="uc"><span>Usina</span><span>Str.</span><span>Trk.</span><span>ETM</span></div>` +
+      `<div class="us"><div class="uc"><span>Usina</span><span title="Strings fora sem acompanhamento">Str.</span><span title="Strings em acompanhamento: quantas das que estão fora já estão sendo tratadas${PODE ? ". Clique no número para mudar" : ""}">Ac.</span><span>Trk.</span><span>ETM</span></div>` +
       // os grupos da engrenagem primeiro (em ordem de nome), cada um com o cabeçalho dele; dentro, a ordem de sempre.
       // O grupo só JUNTA: cada usina segue com os números dela (Levi: "cada usina diferente!")
       us.slice().sort((a, b) => (a.gr ? 0 : 1) - (b.gr ? 0 : 1) || natural(a.gr, b.gr) || (CRIT[a.st] ?? 5) - (CRIT[b.st] ?? 5) || (b.sn + b.tp - b.to) - (a.sn + a.tp - a.to) || a.rot.localeCompare(b.rot)).map((u, k, l) =>
         (us.some(z => z.gr) && (!k || l[k - 1].gr !== u.gr) ? `<div class="ug">${u.gr ? esc(u.gr) : "Sem grupo"} <small>${l.filter(z => z.gr === u.gr).length}</small></div>` : "") +
-        `<div class="u ${u.gr ? "dg" : ""} ${SEL.g === g.id && SEL.u === u.u ? "on" : ""} ${nNovas([u]) && !CLICADAS.has("u|" + u.u) ? "pulsa" : ""}" data-g="${g.id}" data-u="${esc(u.u)}" title="${esc(u.rot)}${u.rot !== u.u ? " (na fonte: " + esc(u.u) + ")" : ""}${u.gr ? " · grupo " + esc(u.gr) : ""} · ${esc(SIT[u.st] || "")}${u.causa ? " · " + esc(u.causa) : ""} · strings sem acompanhamento ${u.sn} de ${u.sf}${u.sd ? " · " + u.sd + " com mais de 2 h sem corrente hoje" : ""} · trackers sem OS ${u.tp - u.to} de ${u.tp}"><span class="n"><span class="pt ${u.st}"></span>${esc(u.rot)}${pill(nNovas([u]))}</span><span>${v(u.sf ? u.sn : u.sd)}</span><span>${v(u.tp - u.to)}</span><span>${v(u.ea ? 1 : 0)}</span></div>`).join("") + "</div></div>";
+        `<div class="u ${u.gr ? "dg" : ""} ${SEL.g === g.id && SEL.u === u.u ? "on" : ""} ${nNovas([u]) && !CLICADAS.has("u|" + u.u) ? "pulsa" : ""}" data-g="${g.id}" data-u="${esc(u.u)}" title="${esc(u.rot)}${u.rot !== u.u ? " (na fonte: " + esc(u.u) + ")" : ""}${u.gr ? " · grupo " + esc(u.gr) : ""} · ${esc(SIT[u.st] || "")}${u.causa ? " · " + esc(u.causa) : ""} · strings sem acompanhamento ${u.sn} de ${u.sf}${u.sd ? " · " + u.sd + " com mais de 2 h sem corrente hoje" : ""} · trackers sem OS ${u.tp - u.to} de ${u.tp}"><span class="n"><span class="pt ${u.st}"></span>${esc(u.rot)}${(dv => dv ? `<span class="dvg" data-dvg="1" title="As fontes não batem: ${esc(dv)}. Clique para ver lado a lado.">!</span>` : "")(divergeCos({...u, g: g.id}))}${pill(nNovas([u]))}</span><span>${v(u.sf ? u.sn : u.sd)}</span><span class="ac ${PODE && (u.sf || u.sd) ? "ed" : ""}" data-ac="1" title="Em acompanhamento: ${u.sa} de ${u.sf || u.sd} ${u.sf ? "fora" : "com mais de 2 h sem corrente hoje"}${PODE && (u.sf || u.sd) ? ". Clique para mudar" : ""}">${u.sa ? u.sa : '<span class="zero">—</span>'}</span><span>${v(u.tp - u.to)}</span><span>${v(u.ea ? 1 : 0)}</span></div>`).join("") + "</div></div>";
   });
   $("arvore").innerHTML = h;
 }
 
 function barras(vals, cor, rot) {
   const W = 520, H = 170, L = 30, B = 22, n = vals.length, mx = Math.max(1, ...vals.map(v => v.v)), lw = (W - L) / n;
-  const gr = [0, .5, 1].map(f => `<line x1="${L}" x2="${W}" y1="${(H - B) * (1 - f) + 4}" y2="${(H - B) * (1 - f) + 4}" stroke="#1f2940"/><text x="${L - 5}" y="${(H - B) * (1 - f) + 8}" text-anchor="end">${nf(Math.round(mx * f))}</text>`).join("");
+  const gr = [0, .5, 1].map(f => `<line x1="${L}" x2="${W}" y1="${(H - B) * (1 - f) + 4}" y2="${(H - B) * (1 - f) + 4}" stroke="var(--grade)"/><text x="${L - 5}" y="${(H - B) * (1 - f) + 8}" text-anchor="end">${nf(Math.round(mx * f))}</text>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(rot)}">${gr}` + vals.map((v, i) => {
     const h = (H - B - 4) * v.v / mx, x = L + i * lw + lw * .16;
     return `<rect x="${x}" y="${H - B - h + 4}" width="${lw * .68}" height="${Math.max(h, v.v ? 1.5 : 0)}" rx="2" fill="${v.parcial ? "#3a4664" : cor}"><title>${v.d.slice(8)}/${v.d.slice(5, 7)}: ${nf(v.v)}${v.parcial ? " (dia em curso)" : ""}</title></rect>` +
@@ -968,7 +1090,7 @@ function linhas(series, rot, un, o) {
   const x0 = o.x0 != null ? o.x0 : Math.min(...pts.map(p => p[0])), x1 = o.x1 != null ? o.x1 : Math.max(...pts.map(p => p[0]), x0 + 1);
   const lo = Math.min(0, ...pts.map(p => p[1])), hi = Math.max(1, ...pts.map(p => p[1]));
   const X = x => L + (W - L - R) * (x - x0) / (x1 - x0), Y = v => T + (H - B - T) * (1 - (v - lo) / (hi - lo));
-  const gr = [0, .25, .5, .75, 1].map(f => { const v = lo + (hi - lo) * f; return `<line x1="${L}" x2="${W}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1f2940"/><text x="${L - 5}" y="${Y(v) + 3}" text-anchor="end">${nf(v, 1)}</text>`; }).join("");
+  const gr = [0, .25, .5, .75, 1].map(f => { const v = lo + (hi - lo) * f; return `<line x1="${L}" x2="${W}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grade)"/><text x="${L - 5}" y="${Y(v) + 3}" text-anchor="end">${nf(v, 1)}</text>`; }).join("");
   let eixo = ""; for (let h = Math.ceil(x0 / 120) * 120; h <= x1; h += 120) eixo += `<text x="${X(h)}" y="${H - 6}" text-anchor="middle">${String(h / 60).padStart(2, "0")}h</text>`;
   const ps = series.slice().sort((a, b) => (a.forte ? 1 : 0) - (b.forte ? 1 : 0)).map(s => { let d = "", pen = false; s.y.forEach((v, i) => { const x = s.x[i]; if (v == null || (o.x0 != null && (x < o.x0 || x > o.x1))) { pen = false; return; } d += (pen ? "L" : "M") + X(x).toFixed(1) + " " + Y(v).toFixed(1); pen = true; });
     return `<path data-sn="${esc(s.sn ?? s.nome)}" d="${d}" fill="none" stroke="${s.cor}" stroke-width="${s.larg || (s.forte ? 2.4 : 1.1)}" opacity="${s.op || (s.forte ? 1 : .7)}"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}><title>${esc(s.nome)}</title></path>`; }).join("");
@@ -988,7 +1110,7 @@ function destaca(x) {
   document.querySelectorAll("path.hl").forEach(p => { p.classList.remove("hl"); p.style.stroke = ""; p.style.strokeWidth = ""; p.style.opacity = ""; });
   HL = x;
   if (!x) return;
-  const cor = x.dataset.hlc || "#4da3ff";
+  const cor = x.dataset.hlc || "var(--c-ger)";
   (x.closest("[data-hlbox]") || document).querySelectorAll("svg[data-ch] path[data-sn]").forEach(p => { if (p.dataset.sn !== x.dataset.hl) return;
     p.classList.add("hl"); p.style.stroke = cor; p.style.strokeWidth = "3"; p.style.opacity = "1"; const cur = p.parentNode.querySelector(".cur"); if (cur) p.parentNode.insertBefore(p, cur); });
 }
@@ -1163,7 +1285,11 @@ window.addEventListener("message", ev => { const d = ev.data;
   if (d.falhas) return;                                        // saiu só parte: a janela fica aberta com o que o OS Creator disse
   j.nomes.forEach(n => { CRIADAS[j.u + "|" + n] = agora(); delete D.osHist[j.u + "|" + n]; MARC.delete(n); });
   fecharJanela();
-  if (u) lerUsina(u, true); else desenhar();
+  // O comentário automático da OS (Levi, 16/11/2026: "garantir aquela automatização que tinha no tempo real que quando a
+  // OS fosse criada já gerava um comentário"): quem grava é a página do OS Creator, com a chave da conversa que o link
+  // leva (`comentario`). Aqui a conversa é relida na hora (e de novo em 5 s: o comentário pode chegar logo depois do aviso)
+  ESTADO = null;
+  if (u) { lerUsina(u, true); setTimeout(() => { ESTADO = null; if (SEL.u === u.u) lerUsina(u, true); }, 5000); } else desenhar();
 });
 // O que aconteceu com o inversor no período (Levi, 16/11/2026: "clicar nesse 1.4 e ver o que aconteceu com ele, quais foram
 // as OS"; e a disponibilidade "tem que ser feita da maneira correta": a parada da usina derruba todos, a da cabine os
@@ -1326,12 +1452,35 @@ function visaoGeral(us, bx) {
 // De-para (Levi, 16/11/2026: "Tem que ter um de-para"): o MESMO editor do Modo de-para do Tempo real, aberto na usina.
 // É administração da plataforma: abre para quem o /api/eu diz que abre; a fonte que liga pelo nome se corrige no cadastro.
 const DP_FONTES = ["pv", "semp", "alveslima", "2capi", "greenyellow", "salenergia", "apolo", "sunop", "axis"];
+// O DE-PARA REAL (Levi, 16/11/2026, 23h30: "O de-para não faz sentido! Tem que vir o de-para real!"). A aba mostrava
+// só o editor, que para a fonte que liga pelo nome dizia "nada a decidir aqui". Agora é a tabela do que o cadastro diz de
+// cada inversor (como a fonte chama, como a plataforma chama, o do Fracttal, a cabine, as strings esperadas, o kWp) ao
+// lado de quem está lendo agora; o que a fonte manda e o cadastro não conhece aparece marcado. O editor fica num botão.
+const DPR = {}; let DPED = false;
+async function lerDepara(u) { if (DPR[u.u] !== undefined) return; DPR[u.u] = null;
+  try { DPR[u.u] = await pega("/api/sala/depara?usina=" + encodeURIComponent(u.u), 30000); } catch (e) { DPR[u.u] = {erro: String(e && e.message || e)}; }
+  if (SEL.u === u.u && ABA === "dp") redesenhar(); }
 function deparaHtml(u) {
-  const sk = SKEY[u.g], f = sk === "owen" ? (/^\d+$/.test(String(u.pid)) ? "2capi" : null) : sk;
-  if (!DP_FONTES.includes(f)) return `<div class="aviso">Esta fonte manda cada inversor já com o nome do cadastro: não há de-para a fazer aqui. O que estiver errado se corrige no cadastro (Base > Equipamentos das usinas, no Nexus).</div>`;
-  if (!ADM) { lerEu(); return '<div class="carrega">Abrindo o de-para…</div>'; }
-  if (!ADM.abre_admin) return `<div class="aviso">O de-para é administração da plataforma: abre para quem é administrador do Nexus. Peça a um administrador para ligar o que estiver sem de-para.</div>`;
-  return `<div class="painel" style="padding:0;overflow:hidden;margin-top:14px"><iframe class="dpj" title="De-para de equipamentos" src="/admin/de-para?editar=${encodeURIComponent(f + "|" + u.pid)}&janela=1"></iframe></div>`;
+  const sk = SKEY[u.g], f = sk === "owen" ? (/^\d+$/.test(String(u.pid)) ? "2capi" : null) : sk, dr = D.drill[u.u], R = DPR[u.u];
+  if (R === undefined) lerDepara(u);
+  if (!ADM) lerEu();
+  let h = "";
+  if (!R) h += '<div class="carrega">Lendo o de-para desta usina no cadastro…</div>';
+  else if (R.erro) h += `<div class="erro"><b>Não consegui ler o de-para.</b> ${esc(R.erro)} <button class="btnl" data-dpdenovo="1" style="margin-left:10px">Tentar de novo</button></div>`;
+  else {
+    const vivos = dr ? dr.inv : [], usados = new Set(), cs = R.chaves || [];
+    const linha = (c, i) => { const v = vivos.find(z => normN(z.n) === normN(i.nome) || normN(z.n) === normN(i.esup)); if (v) usados.add(v.n);
+      return `<tr><td style="text-align:left">${esc(i.esup)}</td><td style="text-align:left"><b>${esc(i.nome)}</b></td><td style="text-align:left">${i.nome_fracttal ? esc(i.nome_fracttal) : ""}${i.cod_fracttal ? ` <small style="color:var(--fraco)">${esc(i.cod_fracttal)}</small>` : (i.nome_fracttal ? "" : '<span class="zero">—</span>')}</td><td>${esc(i.cabine || i.ug || "—")}</td><td>${i.esp == null ? T : i.esp}</td><td>${i.kwp == null ? T : nf(i.kwp, 1)}</td><td>${!dr ? T : v ? `<span class="tag o">lendo</span>${v.id != null ? ` <small style="color:var(--fraco)">id ${esc(v.id)}</small>` : ""}` : '<span class="tag n">sem leitura agora</span>'}</td></tr>`; };
+    const corpo = cs.map(c => (cs.length > 1 ? `<tr><td colspan="7" style="text-align:left;color:var(--verde);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Chave ${esc(c.chave)}</td></tr>` : "") + c.inversores.map(i => linha(c, i)).join("")).join("");
+    const fora = vivos.filter(v => !usados.has(v.n));
+    h += `<div class="painel"><h3>De-para da usina${cs.length === 1 ? ` · chave do cadastro <span style="color:var(--mudo);font-weight:400">${esc(cs[0].chave)}</span>` : ""}</h3>
+      <p>O que o cadastro desta plataforma diz de cada inversor: o nome que a fonte manda, o nome que a plataforma mostra (e grava nos BDs), o inversor do Fracttal, as strings esperadas e o kWp. À direita, quem está na leitura de agora.${R.carregado_em ? " Cadastro carregado em " + esc(R.carregado_em) + "." : ""}</p>
+      ${cs.length ? `<div class="rol"><table><thead><tr><th style="text-align:left">Na fonte</th><th style="text-align:left">Na plataforma</th><th style="text-align:left">No Fracttal</th><th>Cabine</th><th>Strings esperadas</th><th>kWp</th><th>Agora</th></tr></thead><tbody>${corpo}</tbody></table></div>` : `<div class="aviso">O cadastro não tem chave para esta usina com este nome: nenhum inversor dela tem strings esperadas nem kWp aqui.</div>`}
+      ${fora.length ? `<div class="aviso" style="margin-top:12px;border-left:3px solid var(--severo)"><b>${fora.length} inversor${fora.length > 1 ? "es" : ""} que a fonte manda e o cadastro não conhece:</b> ${fora.map(v => esc(v.n)).join(", ")}. Sem o de-para, ${fora.length > 1 ? "ficam" : "fica"} sem strings esperadas e sem kWp.</div>` : ""}
+      ${DP_FONTES.includes(f) && ADM && ADM.abre_admin ? `<div class="diasel" style="margin-top:12px"><button class="btnl ${DPED ? "on" : ""}" data-dped="1">${DPED ? "Fechar o editor" : "Editar o de-para"}</button></div>` : `<div class="mais">${DP_FONTES.includes(f) ? "Mudar o de-para é administração da plataforma (administrador do Nexus)." : "Nesta fonte o inversor chega com o nome do cadastro: o que estiver errado se corrige em Base > Equipamentos das usinas, no Nexus."}</div>`}</div>`;
+  }
+  if (DPED && DP_FONTES.includes(f) && ADM && ADM.abre_admin) h += `<div class="painel" style="padding:0;overflow:hidden;margin-top:14px"><iframe class="dpj" title="De-para de equipamentos" src="/admin/de-para?editar=${encodeURIComponent(f + "|" + u.pid)}&janela=1"></iframe></div>`;
+  return h;
 }
 function detalhe(u, bx) {
   const dr = D.drill[u.u], cp = $("corpo");
@@ -1341,8 +1490,10 @@ function detalhe(u, bx) {
   if (!dr && !FALHOU[u.u]) lerUsina(u);
   const est = (i, s) => { const k = u.u + "|" + i.n + "|" + s[0]; return k in TRANCA ? (TRANCA[k] ? "trancada" : (s[2] === "trancada" ? "ativa" : s[2])) : s[2]; };
   const ruins = i => i.s.filter(s => ["sem_corrente", "baixa_perf"].includes(est(i, s))).length;
+  const temOc = doScadaGrid(u) || SKEY[u.g] === "pg", ocs = temOc ? ocorrenciasDe(u) : [];
+  if (ABA === "oc" && !temOc) ABA = "str";
   const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
-  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("cf", "Conferir fontes")}${aba("dp", "De-para")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
+  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
   if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
   if (!dr && !["gp", "dp"].includes(ABA)) { cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : '<div class="carrega">Lendo os inversores, as strings, os trackers e a estação desta usina…</div>'); return; }
@@ -1351,8 +1502,6 @@ function detalhe(u, bx) {
     const ac = D.estado.acomp[u.u] || 0;
     const oss = D.estado.os[u.u] || [], cs = D.estado.coment[u.u] || [];
     const osDe = n => oss.filter(o => o.inv === n);
-    h += `<div class="faixa"><label>Strings em acompanhamento <input class="campo n" id="acomp" type="text" inputmode="numeric" ${PODE ? "" : 'readonly tabindex="-1"'} value="${ac}" aria-label="Strings em acompanhamento" title="${PODE ? "Quantas strings desta usina já estão em acompanhamento: a mesma quantidade do Tempo real, por usina" : "A quantidade que o Tempo real guarda"}"> <span>de <b>${u.sf}</b> fora · <b>${Math.max(0, u.sf - ac)}</b> sem acompanhamento</span></label>
-      <label>OS de performance <b>${oss.length}</b>${oss.length ? ` <span>${oss.map(o => esc(o.os) + (o.inv ? " (" + esc(o.inv.replace("Inversor ", "")) + ")" : "")).join(" · ")}</span>` : ` <span>${D.estado.osErro[u.u] ? "não consegui ler agora" : !(u.u in D.estado.os) ? "lendo…" : "nenhuma em aberto"}</span>`}</label></div>`;
     // o gráfico fica em cima dos cartões: clicar num inversor troca o gráfico, sem sair do lugar
     if (!INV) { INV = (dr.inv.find(i => novasS(u.u, i.n).length) || dr.inv.find(i => ruins(i)) || dr.inv[0] || {}).n; if (INV) GRAF.add(u.u + "|" + INV); }
     // A CURVA ABRE EMBAIXO DO INVERSOR (Levi, 16/11/2026, noite: "O gráfico abrisse em Drill [...] clicando no inversor. E
@@ -1368,18 +1517,18 @@ function detalhe(u, bx) {
       if (!cv) return `<div class="gi"><p>${!bruta ? "Lendo a curva…" : bruta.erro ? "Não consegui ler a curva: " + esc(bruta.erro) : "A fonte não trouxe curva por string deste inversor neste dia."}</p></div>`;
       const stDe = {}; i.s.forEach(s => { stDe[numS(s[0])] = est(i, s); });
       const ser = Object.keys(cv.s).map(n => { const e = stDe[numS(n)] || (cv.e[n] && cv.e[n][2] === false ? "sem_corrente" : ""), ruim = e === "sem_corrente" || e === "baixa_perf";
-        return {nome: n, sn: numS(n), x: cv.s[n][0].map(mm), y: cv.s[n][1], cor: e === "sem_corrente" ? "#ff5b6e" : e === "baixa_perf" ? "#ff8f3c" : "#7b879d", forte: ruim, larg: ruim ? 2.2 : 1.1, op: ruim ? 1 : .6}; });
+        return {nome: n, sn: numS(n), x: cv.s[n][0].map(mm), y: cv.s[n][1], cor: e === "sem_corrente" ? "var(--critico)" : e === "baixa_perf" ? "var(--severo)" : "var(--neutro)", forte: ruim, larg: ruim ? 2.2 : 1.1, op: ruim ? 1 : .6}; });
+      // sem a legenda das strings no gráfico (elas estão logo abaixo, com a corrente): só o que as cores dizem
       return `<div class="gi">${linhas(ser, "Curva por string · " + i.n, cv.un || "A", Object.assign({alto: 210}, SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440}))}
-        <div class="lin">${ser.map(s => `<span data-hl="${esc(s.sn)}" style="cursor:default"><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join("")}</div>
+        <div class="mais" style="margin-top:2px">Cinza = gerando · <b style="color:var(--severo)">laranja</b> = corrente baixa · <b style="color:var(--critico)">vermelho</b> = sem corrente · o mouse na string abaixo destaca a dela em azul.</div>
         ${cv.cos ? `<div class="mais">Curva do <b>logger do COS</b>${cv.cos.logger ? " (" + esc(cv.cos.logger) + ")" : ""}, gravada de ${cv.cos.passo} em ${cv.cos.passo} min: este inversor é o <b>${esc(cv.cos.inv)}</b> de lá, ligado ${cv.cos.porNome ? "pelo nome" : "pela ordem (a conferir em Conferir fontes)"}. <button class="btnl" data-curvafonte="${esc(i.n)}" style="margin-left:6px">Ver pela ${esc((NOME[u.g] || "").split(" · ")[1] || "fonte da usina")}</button></div>` : ""}</div>`; };
-    h += `<div class="painel" style="padding:10px 14px"><div class="diasel">Curva por string · dia: <input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}">
-      <span style="color:var(--mudo);font-size:12.5px">Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários. Cinza = gerando · <b style="color:#ff8f3c">laranja</b> = corrente baixa · <b style="color:#ff5b6e">vermelho</b> = sem corrente · o mouse na string destaca a dela em azul.</span>
-      <span style="flex:1"></span>${nG > 1 ? `<button class="btnl" data-grafx="1">Fechar as ${nG} curvas</button>` : ""}<button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button></div></div>`;
     // os inversores por cabine (o N de "Inversor N.M"), cada cabine recolhe
     const cab = {}; dr.inv.forEach(i => { const c = (i.n.match(/(\d+)\.\d+\s*$/) || [0, "—"])[1]; (cab[c] = cab[c] || []).push(i); });
-    const chips = i => `<div class="sts">${i.s.map(s => { const e = est(i, s); return `<button class="st ${e}${SELS.has(i.n + "|" + s[0]) ? " sel" : ""}" data-st="${esc(s[0])}" data-sinv="${esc(i.n)}"${GRAF.has(u.u + "|" + i.n) ? ` data-hl="${esc(String(s[0]).replace(/^\D+/, "").replace(/^0+(?=\d)/, ""))}"` : ""} title="String ${esc(s[0])}: ${e === "trancada" ? "trancada" : (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A") + (e === "sem_corrente" ? " · sem corrente" : e === "baixa_perf" ? " · corrente baixa" : "")}">${esc(String(s[0]).replace(/^\D+/, ""))}</button>`; }).join("")}</div>`;
+    const chips = i => `<div class="sts">${i.s.map(s => { const e = est(i, s); return `<button class="st ${e}${GRAF.has(u.u + "|" + i.n) ? " cv" : ""}${SELS.has(i.n + "|" + s[0]) ? " sel" : ""}" data-st="${esc(s[0])}" data-sinv="${esc(i.n)}"${GRAF.has(u.u + "|" + i.n) ? ` data-hl="${esc(String(s[0]).replace(/^\D+/, "").replace(/^0+(?=\d)/, ""))}"` : ""} title="String ${esc(s[0])}: ${e === "trancada" ? "trancada" : (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A") + (e === "sem_corrente" ? " · sem corrente" : e === "baixa_perf" ? " · corrente baixa" : "")}">${esc(String(s[0]).replace(/^\D+/, ""))}${GRAF.has(u.u + "|" + i.n) ? `<small>${e === "trancada" ? "tranc." : s[1] == null ? "—" : nf(s[1], 2) + " A"}</small>` : ""}</button>`; }).join("")}</div>`;
     const osBox = i => OSINV === i.n ? `<div class="osbox">${osRecentes(u.u, i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag n">${esc(o.status)}</span> · recomposição de string<br>${esc(o.desc)}${o.strings.length ? " · strings " + o.strings.join(", ") : ""}<br>criada em ${dm(o.criada)}${o.concluida ? " · concluída em " + dm(o.concluida) : ""}</div>`).join("")}${osDe(i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag ${/andamento/i.test(o.status) ? "a" : "n"}">${esc(o.status)}</span><br>${esc(o.nota)}<br>aberta em ${dm(o.data)} · ${esc(o.sub || "")}</div>`).join("")}</div>` : "";
-    h += `<div class="diasel" style="margin-top:14px;justify-content:flex-end"><button class="btnl" data-expi="*">${dr.inv.every(i => EXPI.has(u.u + "|" + i.n)) ? "Recolher as strings de todos" : "Abrir as strings de todos"}</button></div>` +
+    h += `<div class="diasel" style="margin-top:14px;gap:8px"><span>Dia</span><input type="date" class="campo" style="background:var(--sup);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}" aria-label="Dia da curva das strings"><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button>
+      <span style="color:var(--mudo);font-size:12.5px;margin-left:8px" title="Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários">OS de performance <b style="color:var(--tinta)">${oss.length}</b> ${oss.length ? esc(oss.map(o => o.os + (o.inv ? " (" + o.inv.replace("Inversor ", "") + ")" : "")).join(" · ")) : D.estado.osErro[u.u] ? "· não consegui ler agora" : !(u.u in D.estado.os) ? "· lendo…" : "· nenhuma em aberto"}</span>
+      <span style="flex:1"></span>${nG > 1 ? `<button class="btnl" data-grafx="1">Fechar as ${nG} curvas</button>` : ""}<button class="btnl" data-expi="*">${dr.inv.every(i => EXPI.has(u.u + "|" + i.n)) ? "Recolher as strings de todos" : "Abrir as strings de todos"}</button></div>` +
       Object.keys(cab).sort((a, b) => a - b).map(c => { const l = cab[c], fora = soma(l.map(i => ({n: ruins(i)})), "n"), nov = l.reduce((a, i) => a + novasS(u.u, i.n).length, 0);
       return `<details class="cabine" data-cab="${c}" ${FECHADAS.has(u.u + "|" + c) ? "" : "open"}><summary>${c === "—" ? "Inversores" : "Cabine " + esc(c)} <small>${l.length} inversor${l.length > 1 ? "es" : ""} · ${fora ? fora + " string" + (fora > 1 ? "s" : "") + " fora" : "nenhuma string fora"}</small>${pill(nov)}</summary>
         <div class="ilista"><div class="il cab"><span></span><span class="n">Inversor</span><span>Potência</span><span>Hoje</span><span title="Strings gerando agora / esperadas pelo cadastro">Ativas / esperadas</span><span title="Ativas menos esperadas">Diferença</span><span title="Strings com mais de 2 h sem corrente no período solar de hoje">+2 h hoje</span><span class="sit">Situação</span><span></span></div>` +
@@ -1401,7 +1550,7 @@ function detalhe(u, bx) {
       ${MARC.size || SELS.size ? `<div class="acoes">${SELS.size ? (() => { const l = [...SELS.values()], a = l.filter(x => !x.trancada).length, b = l.length - a, por = {}; l.forEach(x => (por[x.inv] = por[x.inv] || []).push(String(x.sid).replace(/^\D+/, "")));
           return `<div class="acao"><b>${l.length} string${l.length > 1 ? "s" : ""} escolhida${l.length > 1 ? "s" : ""}</b><span style="color:var(--mudo);flex:1">${Object.entries(por).map(([n, ss]) => esc(n.replace("Inversor ", "")) + ": " + ss.join(", ")).join(" · ")}</span><button class="btn2" data-stacao="limpar">Limpar</button>${b ? `<button class="btn2" data-stacao="destrancar">Destrancar ${b}</button>` : ""}${a ? `<button class="btn" data-stacao="trancar">Trancar ${a}</button>` : ""}</div>`; })() : ""}${MARC.size ? `<div class="acao"><b>${MARC.size} inversor${MARC.size > 1 ? "es" : ""} escolhido${MARC.size > 1 ? "s" : ""}</b><span style="color:var(--mudo);flex:1">${[...MARC].map(n => n.replace("Inversor ", "")).join(", ")}</span><button class="btn2" data-acao="limpar">Limpar</button><button class="btn" data-acao="criar">Criar OS</button></div>` : ""}</div>` : ``}
       <div class="painel"><h3>Comentários <span style="color:var(--mudo);font-weight:400">${cs.length}</span></h3>
-        ${cs.slice().reverse().map(c => `<div class="coment"><b>${esc(c.nick || "—")}</b><span style="flex:1;white-space:pre-line">${esc(c.texto)}</span><small>${esc((c.ts || "agora").replace(/^(\d{4})-(\d{2})-(\d{2})/, "$3/$2/$1"))}</small>${c.pode && c.tsf ? `<button class="delc" data-delc="${esc(c.tsf)}" title="Apagar este comentário" aria-label="Apagar este comentário">apagar</button>` : ""}</div>`).join("") || '<p>Nenhum comentário nesta usina.</p>'}
+        ${cs.slice().reverse().map(c => `<div class="coment"><small>${esc((c.ts || "agora").replace(/^(\d{4})-(\d{2})-(\d{2})/, "$3/$2/$1"))}</small><b>${esc(c.nick || "—")}</b><span style="flex:1;white-space:pre-line">${esc(c.texto)}</span>${c.pode && c.tsf ? `<button class="delc" data-delc="${esc(c.tsf)}" title="Apagar este comentário" aria-label="Apagar este comentário">apagar</button>` : ""}</div>`).join("") || '<p>Nenhum comentário nesta usina.</p>'}
         <div style="display:flex;gap:8px;margin-top:10px">${EU.identificado ? "" : `<input class="campo" id="nickComent" style="width:160px;background:var(--fundo)" placeholder="Seu nome" aria-label="Seu nome" value="${esc(nickGuardado())}">`}<input class="campo" id="novoComent" style="flex:1;background:var(--fundo)" placeholder="${EU.identificado ? "Escrever como " + esc(EU.nome) + " e apertar Enter…" : "Escrever comentário e apertar Enter…"}" aria-label="Escrever comentário"></div></div>`;
   } else if (ABA === "trk") {
     const temC = !!EPT[SKEY[u.g]] && !dr.trk.fora, hoje = HOJE;
@@ -1418,7 +1567,7 @@ function detalhe(u, bx) {
       const legb = (cor, lbl, f, dash) => { const on = f === "alvo" ? !TRK.semAlvo : F === f; return `<button class="legb ${on ? "on" : ""}" data-tk="filtro" data-v="${on && f !== "alvo" ? "todos" : f}" title="${f === "alvo" ? (on ? "Ocultar a linha do alvo" : "Mostrar a linha do alvo") : (on ? "Mostrar todos" : "Mostrar só " + lbl)}"><i style="background:${dash ? "repeating-linear-gradient(90deg," + cor + " 0 4px,transparent 4px 7px)" : cor}"></i>${lbl}</button>`; };
       const opt = TRK.red ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440}; if (TRK.exp) opt.alto = 420;
       const graf = dia => { const c = D.trkc.dias[dia]; const ser = shown.map(x => { const v = c.t[x.id]; if (!v) return null; const b = RUIM(x.st); return {nome: x.id, x: v.p.map(q => q[0]), y: v.p.map(q => q[1]), cor: COR_T[x.st] || COR_T.normal, larg: b ? 1.7 : 0.9, op: b ? .95 : .5, forte: b}; }).filter(Boolean);
-        if (!TRK.semAlvo) ser.push({nome: "Alvo", x: c.alvo.map(q => q[0]), y: c.alvo.map(q => q[1]), cor: "#e2e8f0", larg: 1.8, dash: "7 5", op: .9, forte: true});
+        if (!TRK.semAlvo) ser.push({nome: "Alvo", x: c.alvo.map(q => q[0]), y: c.alvo.map(q => q[1]), cor: "var(--tinta)", larg: 1.8, dash: "7 5", op: .9, forte: true});
         return (dias.length > 1 ? `<div class="lt" style="margin:10px 0 2px">${dm(dia)}</div>` : "") + linhas(ser, "Ângulo dos trackers em " + dm(dia), "Ângulo (°)", opt); };
       h += `<div class="painel"><h3>Ângulo dos trackers · ${TRK.ini === TRK.fim ? dm(TRK.ini) : dm(TRK.ini) + " – " + dm(TRK.fim)}</h3>
         <div class="diasel" style="gap:8px"><span>De</span><input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-tk="ini" value="${TRK.ini}" min="${addDia(hoje, -45)}" max="${hoje}"><span>Até</span><input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-tk="fim" value="${TRK.fim}" min="${addDia(hoje, -45)}" max="${hoje}"><span>até 5 dias</span>
@@ -1426,7 +1575,7 @@ function detalhe(u, bx) {
         <div style="font-size:12.5px;margin:4px 0 8px"><b style="color:#ff5b6e">${qt("parado")} parado</b> · <b style="color:#ff8f3c">${qt("severo")} severo</b> · <b style="color:#ffb43d">${qt("medio")} médio</b> · <b style="color:#ffd83d">${qt("leve")} leve</b>${qt("sem_comunicacao") ? ` · <b style="color:#c9b6ff">${qt("sem_comunicacao")} sem comunicação</b>` : ""} · <span style="color:var(--mudo)">mostrando ${shown.length} de ${all.length}${shown.length ? "" : ' · <b style="color:#ffb43d">nenhum selecionado: clique nos cartões ou em Todos</b>'}</span></div>
         <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px">${legb(COR_T.parado, "Parado", "parado")}${legb(COR_T.severo, "Severo", "severo")}${legb(COR_T.medio, "Médio", "medio")}${legb(COR_T.leve, "Leve", "leve")}${legb(COR_T.sem_comunicacao, "Sem comunicação", "sem_comunicacao")}${legb(COR_T.normal, "Normal", "normal")}${legb("#e2e8f0", "Alvo", "alvo", true)}</div>
         ${dias.length ? dias.map(graf).join("") : `<p style="margin:14px 0">${Object.values(D.trkc.dias).some(v => v && v.erro) ? "Não consegui ler a curva dos trackers neste período." : "Lendo a curva dos trackers…"}</p>`}
-        <div class="tcs">${all.map(x => `<button class="tc ${TRK.hide[x.id] ? "off" : ""}" data-tc="${esc(x.id)}" data-hl="${esc(x.id)}" data-hlc="#ffffff" style="border-color:${COR_T[x.st] || COR_T.normal};color:${COR_T[x.st] || COR_T.normal}" title="${esc(x.id)} · ${x.st.replace("_", " ")} · clique para ${TRK.hide[x.id] ? "pôr no" : "tirar do"} gráfico">${esc(x.id.replace(/^Tracker\s*/, ""))}</button>`).join("")}</div></div>`;
+        <div class="tcs">${all.map(x => `<button class="tc ${TRK.hide[x.id] ? "off" : ""}" data-tc="${esc(x.id)}" data-hl="${esc(x.id)}" data-hlc="var(--tinta)" style="border-color:${COR_T[x.st] || COR_T.normal};color:${COR_T[x.st] || COR_T.normal}" title="${esc(x.id)} · ${x.st.replace("_", " ")} · clique para ${TRK.hide[x.id] ? "pôr no" : "tirar do"} gráfico">${esc(x.id.replace(/^Tracker\s*/, ""))}</button>`).join("")}</div></div>`;
     } else h += dr.trk.lendo ? '<div class="carrega" style="padding:18px 0">Lendo os trackers desta usina…</div>'
       : `<div class="aviso">${dr.trk.erro ? "Não consegui ler os trackers desta usina na fonte dela agora." : "A fonte desta usina no Tempo real não tem trackers dela."}</div>` + scadaBloco(u, "trk");
     if (!dr.trk.fora) { const cor = {parado: "c", severo: "s", medio: "a", leve: "i"}, nome = {parado: "Parado", severo: "Desvio severo", medio: "Desvio médio", leve: "Desvio leve"}, ord = "parado severo medio leve".split(" ");
@@ -1455,8 +1604,9 @@ function detalhe(u, bx) {
         <p>Só IPOA (POA) e GHI em zero com sol alarmam; o resto é aviso. Sem comunicação sai em violeta.</p>
         <div class="sens">${Object.entries(e.sens).map(([k, v]) => `<div><small>${sn[k] || k}</small><b>${v.status === "ok" ? nf(v.pico, 0) + " W/m²" : "—"}</b> <span class="tag ${v.status === "ok" ? "o" : "n"}">${v.status === "ok" ? "pico de hoje" : "sem leitura"}</span></div>`).join("")}</div>
         <div>${e.flags.map(f => `<span class="tag ${f.sensor === "COM" ? "" : (tp[f.tipo] || "n")}" style="margin:0 6px 6px 0${f.sensor === "COM" ? ";background:rgba(180,151,255,.16);color:var(--violeta)" : ""}">${esc(f.sensor)} · ${esc(f.t)}${f.info ? " (" + esc(f.info) + ")" : ""}</span>`).join("") || '<span class="tag o">Nenhum sinal</span>'}</div>
-        ${linhas([{nome: "POA", x: (e.x || []).map(mm), y: e.poa || [], cor: "#a3d900", forte: true}, {nome: "GHI", x: (e.x || []).map(mm), y: e.ghi || [], cor: "#7cb7ff", forte: true}].filter(s => s.y.length), "Irradiância do dia", "W/m²", {x0: 360, x1: 1080})}
-        <div class="lin"><span><i style="background:#a3d900"></i>POA</span><span><i style="background:#7cb7ff"></i>GHI</span></div>
+        <div class="diasel" style="margin-top:10px"><span style="flex:1"></span><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button></div>
+        ${linhas([{nome: "POA", x: (e.x || []).map(mm), y: e.poa || [], cor: "var(--c-poa)", forte: true}, {nome: "GHI", x: (e.x || []).map(mm), y: e.ghi || [], cor: "var(--c-ghi)", forte: true}].filter(s => s.y.length), "Irradiância do dia", "W/m²", SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440})}
+        <div class="lin"><span><i style="background:var(--c-poa)"></i>POA</span><span><i style="background:var(--c-ghi)"></i>GHI</span></div>
         <div class="diasel" style="margin-top:12px">${PODE ? '<button class="btnl" data-etmos="1">Abrir OS da estação</button>' : ""}<button class="btnl" data-etmhist="0">OSs da estação</button></div></div>`; }
   } else if (ABA === "gp") {
     const G = D.ger;
@@ -1488,26 +1638,82 @@ function detalhe(u, bx) {
       if (GP === "ger" && GI) { const fech = G.dias.map((x, k) => k).filter(k => G.dias[k] < HOJE); h += inspecao(u, GI, GPER === "0" ? fech : fech.slice(-Math.max(7, +GPER))); }
     }
   } else if (ABA === "pot") {
-    if (D.pot.usina !== u.u && !POTF[u.u]) lerPot(u);
-    const Pt = D.pot;
-    if (Pt.usina !== u.u) h += POTF[u.u] ? `<div class="erro"><b>Não consegui ler a potência de hoje.</b> ${esc(POTF[u.u])} <button class="btnl" data-denovo2="pot" style="margin-left:10px">Tentar de novo</button></div>` : '<div class="carrega">Lendo a potência de hoje por inversor…</div>';
-    else if (Pt.sem) h += `<div class="aviso">${esc(Pt.sem)}</div>`;
-    else if (!Object.keys(Pt.inv).length) h += `<div class="aviso">${Pt.situacao === "falhou" ? "Não consegui ler a potência de hoje nesta fonte" + (Pt.motivo ? ": " + esc(Pt.motivo) : ".") : "A fonte ainda não trouxe potência por inversor hoje."} <button class="btnl" data-denovo2="pot2" style="margin-left:10px">Ler de novo</button></div>`;
+    if (!POT.ini) POT.ini = POT.fim = HOJE;
+    const dias = []; for (let k = 0, d0 = POT.ini; k < 5 && d0 <= POT.fim; k++, d0 = addDia(d0, 1)) { dias.push(d0); lerPotDia(u, d0); }
+    const Pp = D.potd && D.potd.usina === u.u ? D.potd : {dias: {}, irr: {}, sem: ""};
+    const temTrk = !!EPT[SKEY[u.g]] && !(dr.trk && dr.trk.fora), opt = SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440};
+    if (POT.corr && temTrk) dias.forEach(d0 => lerTrk(u, d0));
+    if (Pp.sem) h += `<div class="aviso">${esc(Pp.sem)}</div>`;
     else {
-      const nomes = Object.keys(Pt.inv), e = dr.etm, temIrr = e && (e.poa || e.ghi || []).some(v => v);
-      let ser;
-      if (PV === "usina") { const tot = {}; nomes.forEach(n => Pt.inv[n].forEach(q => { tot[q[0]] = (tot[q[0]] || 0) + q[1]; })); const xs = Object.keys(tot).map(Number).sort((a, b) => a - b);
-        ser = [{nome: "Potência da usina", x: xs, y: xs.map(x => tot[x]), cor: "#a3d900", forte: true}]; }
-      else ser = nomes.map((n, k) => ({nome: n, x: Pt.inv[n].map(q => q[0]), y: Pt.inv[n].map(q => q[1]), cor: CORES[k % CORES.length], larg: 1.4, op: .9}));
-      const dir = temIrr ? [{nome: "POA", x: e.x.map(mm), y: e.poa || [], cor: "#ffd83d", dash: "6 4"}, {nome: "GHI", x: e.x.map(mm), y: e.ghi || [], cor: "#7cb7ff", dash: "6 4"}].filter(s => s.y.length) : [];
-      h += `<div class="painel"><h3>Potência ativa ${PV === "usina" ? "da usina" : "dos inversores"} + POA e GHI · ${dm(Pt.dia)}</h3>
-        <div class="diasel" style="gap:8px"><button class="btnl ${PV === "usina" ? "on" : ""}" data-pv="usina">Por usina</button><button class="btnl ${PV === "inv" ? "on" : ""}" data-pv="inv">Por inversor</button><span>· lido às ${esc(Pt.lido || "")} · kW à esquerda${dir.length ? ", W/m² à direita" : ""}</span><span style="flex:1"></span><button class="btnl" data-exp="pot">Exportar Excel</button></div>
-        ${linhas(ser, "Potência ativa", "kW", {x0: 360, x1: 1080, dir})}
-        <div class="lin">${ser.map(s => `<span><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join("")}${dir.map(s => `<span><i style="background:${s.cor}"></i>${s.nome} (W/m²)</span>`).join("")}</div>
-        ${dir.length ? "" : '<p style="margin-top:8px">A estação desta usina não entregou POA nem GHI hoje; o gráfico mostra só a potência.</p>'}</div>`;
+      const campo = (a, v) => `<input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-pot="${a}" value="${v}" min="${addDia(HOJE, -45)}" max="${HOJE}">`;
+      // As cores (Levi: "geração azul, POA laranja e GHI amarelo [...] cada um tenha seu contraste mas sem estourar cores"):
+      // a potência é sempre azul (por inversor, as linhas em azul fino e o mouse no nome destaca a dele), a irradiância
+      // tracejada, na escala da direita.
+      const umDia = dia => { const Pd = Pp.dias[dia], tit = `<div class="lt" style="margin:14px 0 4px">${dm(dia)}${dia === HOJE ? " (hoje)" : ""}${Pd && Pd.lido ? ` <small style="text-transform:none;letter-spacing:0;color:var(--fraco)">lido às ${esc(Pd.lido)}</small>` : ""}</div>`;
+        if (!Pd) return tit + '<div class="carrega" style="padding:14px 0">Lendo a potência deste dia…</div>';
+        if (Pd.erro) return tit + `<div class="aviso">Não consegui ler a potência deste dia: ${esc(Pd.erro)} <button class="btnl" data-potdenovo="${dia}" style="margin-left:10px">Tentar de novo</button></div>`;
+        const nomes = Object.keys(Pd.inv);
+        if (!nomes.length) return tit + `<div class="aviso">${Pd.situacao === "falhou" ? "Não consegui ler a potência deste dia nesta fonte" + (Pd.motivo ? ": " + esc(Pd.motivo) : ".") : esc(Pd.motivo || "A fonte não trouxe potência por inversor neste dia.")} <button class="btnl" data-potdenovo="${dia}" style="margin-left:10px">Ler de novo</button></div>`;
+        let ser;
+        if (PV === "usina") { const tot = {}; nomes.forEach(n => Pd.inv[n].forEach(q => { tot[q[0]] = (tot[q[0]] || 0) + q[1]; })); const xs = Object.keys(tot).map(Number).sort((a, b) => a - b);
+          ser = [{nome: "Potência da usina", x: xs, y: xs.map(x => tot[x]), cor: "var(--c-ger)", forte: true}]; }
+        else ser = nomes.sort(natural).map(n => ({nome: n, x: Pd.inv[n].map(q => q[0]), y: Pd.inv[n].map(q => q[1]), cor: "var(--c-ger)", larg: 1.1, op: .55}));
+        const e = dia === HOJE && dr.etm && (dr.etm.poa || dr.etm.ghi || []).some(v => v) ? dr.etm : Pp.irr[dia];
+        const dir = e && (e.x || []).length ? [{nome: "POA", x: e.x.map(mm), y: e.poa || [], cor: "var(--c-poa)", dash: "6 4"}, {nome: "GHI", x: e.x.map(mm), y: e.ghi || [], cor: "var(--c-ghi)", dash: "6 4"}].filter(s => s.y.some(v => v)) : [];
+        let trk = "";
+        if (POT.corr && temTrk) { const c = D.trkc.usina === u.u ? D.trkc.dias[dia] : undefined;
+          if (!c) trk = '<div class="carrega" style="padding:10px 0">Lendo os trackers deste dia…</div>';
+          else if (c.erro || !Object.keys(c.t).length) trk = `<div class="mais">Sem a curva dos trackers neste dia${c.erro ? ": " + esc(c.erro) : "."}</div>`;
+          else { const st = Object.entries(c.t).map(([id, v]) => { const b = RUIM(v.st); return {nome: id, x: v.p.map(q => q[0]), y: v.p.map(q => q[1]), cor: COR_T[v.st] || COR_T.normal, larg: b ? 1.7 : 0.9, op: b ? .95 : .45, forte: b}; });
+            st.push({nome: "Alvo", x: c.alvo.map(q => q[0]), y: c.alvo.map(q => q[1]), cor: "var(--tinta)", larg: 1.8, dash: "7 5", op: .9, forte: true});
+            trk = `<div class="mais" style="margin:8px 0 0">Ângulo dos trackers no mesmo dia e no mesmo eixo de horas (o alvo tracejado; em cor, quem está parado ou fora do alvo)</div>` + linhas(st, "Ângulo dos trackers em " + dm(dia), "Ângulo (°)", Object.assign({alto: 200}, opt)); } }
+        return `<div data-hlbox="1">${tit}${linhas(ser, "Potência ativa em " + dm(dia), "kW", Object.assign({dir}, opt))}
+          ${PV === "inv" ? `<div class="lin">${ser.map(s => `<span data-hl="${esc(s.nome)}" data-hlc="var(--tinta)" style="cursor:default"><i style="background:var(--c-ger)"></i>${esc(s.nome)}</span>`).join("")}</div>` : ""}${trk}</div>`; };
+      const g1 = Object.values(Pp.dias).find(x => x && x.grandeza);
+      h += `<div class="painel"><h3>${esc(g1 ? g1.grandeza : "Potência ativa")} ${PV === "usina" ? "da usina" : "dos inversores"} + POA e GHI · ${POT.ini === POT.fim ? dm(POT.ini) : dm(POT.ini) + " – " + dm(POT.fim)}</h3>
+        <div class="diasel" style="gap:8px"><span>De</span>${campo("ini", POT.ini)}<span>Até</span>${campo("fim", POT.fim)}<span>até 5 dias</span>
+          <button class="btnl ${PV === "usina" ? "on" : ""}" data-pv="usina">Por usina</button><button class="btnl ${PV === "inv" ? "on" : ""}" data-pv="inv">Por inversor</button>
+          <button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button>
+          <span style="flex:1"></span>${temTrk ? `<button class="btnl ${POT.corr ? "on" : ""}" data-potcorr="1" title="Abre, embaixo de cada dia, o ângulo dos trackers no mesmo período">Correlação com trackers</button>` : ""}<button class="btnl" data-exp="pot" title="O dia final do período">Exportar Excel</button></div>
+        <div class="lin" style="margin-top:8px"><span><i style="background:var(--c-ger)"></i>${PV === "usina" ? "Potência da usina" : "Potência de cada inversor (o mouse no nome destaca)"} (kW, à esquerda)</span><span><i style="background:var(--c-poa)"></i>POA</span><span><i style="background:var(--c-ghi)"></i>GHI (W/m², à direita)</span></div>
+        ${dias.map(umDia).join("")}</div>`;
     }
+  } else if (ABA === "oc") {
+    const lista = ocs.filter(o => !OC.soAb || o.aberta), nAb = ocs.filter(o => o.aberta).length, opt = SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440};
+    const hh = s => s.length > 10 ? s.slice(11, 16) : "", quando = o => dm(o.dia) + (o.comHora ? " " + hh(o.t) : "");
+    const equip = o => [o.invs.length ? (o.invs.length <= 2 ? o.invs.map(n => n.replace("Inversor ", "Inv. ") + " (st. " + o.ss.filter(e => e.inv === n).map(e => String(e.s).replace(/^\D+/, "")).join(", ") + ")").join(" · ") : o.invs.length + " inversores") : "", o.ts.length ? (o.ts.length <= 4 ? o.ts.map(e => /^tracker/i.test(String(e.id)) ? e.id : "Tracker " + e.id).join(", ") : o.ts.length + " trackers") : ""].filter(Boolean).join(" + ");
+    const oque = o => [o.ss.length ? plu(o.ss.length, "string sem corrente", "strings sem corrente") : "", o.ts.length ? plu(o.ts.length, "tracker parado", "trackers parados") : ""].filter(Boolean).join(" e ") + (o.ss.length && o.ts.length ? " (juntos)" : "");
+    // o gráfico da ocorrência: a curva das strings de cada inversor envolvido no dia (as da ocorrência em vermelho) e o
+    // ângulo dos trackers envolvidos, com o alvo
+    const grafOc = o => { let g = "";
+      o.invs.slice(0, 3).forEach(n => { const i = dr.inv.find(z => z.n === n), bruta = D.curvas[u.u + "|" + n + "|" + o.dia];
+        if (!i) { g += `<div class="gi"><p>${esc(n)}: este inversor não está na leitura de agora da usina.</p></div>`; return; }
+        if (bruta === undefined) lerCurva(u, n, o.dia);
+        const cv = bruta && Object.keys(bruta.s).length ? bruta : null, marc = new Set(o.ss.filter(e => e.inv === n).map(e => String(e.s).replace(/^\D+/, "").replace(/^0+(?=\d)/, "")));
+        if (!cv) { g += `<div class="gi"><p>${esc(n)}: ${!bruta ? "lendo a curva…" : bruta.erro ? "não consegui ler a curva: " + esc(bruta.erro) : "a fonte não trouxe curva por string neste dia."}</p></div>`; return; }
+        const ser = Object.keys(cv.s).map(nm => { const sn = String(nm).replace(/^\D+/, "").replace(/^0+(?=\d)/, ""), r = marc.has(sn); return {nome: nm, sn, x: cv.s[nm][0].map(mm), y: cv.s[nm][1], cor: r ? "var(--critico)" : "var(--neutro)", forte: r, larg: r ? 2.2 : 1.1, op: r ? 1 : .55}; });
+        g += `<div class="gi"><div class="mais" style="margin:0 0 4px"><b style="color:var(--tinta)">${esc(n)}</b> · curva das strings em ${dm(o.dia)} · em vermelho, as desta ocorrência</div>${linhas(ser, "Curva por string · " + n, cv.un || "A", Object.assign({alto: 200}, opt))}</div>`; });
+      if (o.invs.length > 3) g += `<div class="mais">Mais ${o.invs.length - 3} inversor${o.invs.length - 3 > 1 ? "es" : ""} nesta ocorrência: abra pela aba Strings.</div>`;
+      if (o.ts.length) { if (EPT[SKEY[u.g]]) lerTrk(u, o.dia); const c = D.trkc.usina === u.u ? D.trkc.dias[o.dia] : undefined, ids = new Set(o.ts.map(e => String(e.id)));
+        if (!c) g += '<div class="gi"><p>Lendo os trackers deste dia…</p></div>';
+        else if (c.erro || !Object.keys(c.t).length) g += `<div class="gi"><p>Sem a curva dos trackers neste dia${c.erro ? ": " + esc(c.erro) : "."}</p></div>`;
+        else { const st = Object.entries(c.t).filter(([id]) => ids.has(String(id))).map(([id, v]) => ({nome: id, x: v.p.map(q => q[0]), y: v.p.map(q => q[1]), cor: "var(--critico)", larg: 1.6, op: .9, forte: true}));
+          st.push({nome: "Alvo", x: c.alvo.map(q => q[0]), y: c.alvo.map(q => q[1]), cor: "var(--tinta)", larg: 1.8, dash: "7 5", op: .9, forte: true});
+          g += `<div class="gi"><div class="mais" style="margin:0 0 4px"><b style="color:var(--tinta)">${esc([...ids].slice(0, 12).join(", "))}${ids.size > 12 ? "…" : ""}</b> · ângulo em ${dm(o.dia)} · o alvo tracejado</div>${linhas(st, "Ângulo dos trackers em " + dm(o.dia), "Ângulo (°)", Object.assign({alto: 200}, opt))}</div>`; } }
+      return g; };
+    h += `<div class="diasel" style="margin-top:14px;gap:8px"><span>${plu(ocs.length, "ocorrência", "ocorrências")} no mês · <b style="color:var(--tinta)">${nAb}</b> em aberto</span><button class="btnl ${OC.soAb ? "on" : ""}" data-ocab="1">Só em aberto</button><span style="flex:1"></span><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1">Período solar (06–18h)</button></div>
+      <div class="mais">Strings sem corrente e trackers parados do pacote de falhas do mês${D.falhas_em ? " (de " + dm(D.falhas_em.slice(0, 10)) + " às " + esc(D.falhas_em.slice(11, 16)) + ")" : ""}. O que começou até ${OC_TOL_MIN} min depois da primeira queda fica na mesma linha. Clique na linha para ver o gráfico.</div>`;
+    if (!lista.length) h += `<div class="aviso">${ocs.length ? "Nenhuma ocorrência em aberto." : "Nenhuma string sem corrente nem tracker parado registrado nesta usina neste mês."}</div>`;
+    else h += `<div class="ocl"><div class="oc cab"><span>Quando</span><span>Equipamento</span><span>O que foi</span><span>Até quando</span><span style="text-align:right">Perda</span><span></span></div>` +
+      lista.slice(0, 80).map(o => { const on = OC.aberta === o.k;
+        return `<div class="oc ${o.aberta ? "ab" : ""} ${on ? "on" : ""}" role="button" tabindex="0" data-oc="${esc(o.k)}" aria-expanded="${on}" title="Clique para ver o gráfico desta ocorrência">
+          <span><b>${quando(o)}</b>${o.antes ? ' <small style="color:var(--fraco)">ou antes</small>' : ""}</span><span title="${esc(equip(o))}">${esc(equip(o))}</span><span>${esc(oque(o))}</span>
+          <span>${o.aberta ? '<span class="tag c">em aberto</span>' : o.fim ? "voltou " + dm(o.fim.slice(0, 10)) + (o.fim.length > 10 ? " " + o.fim.slice(11, 16) : "") : "encerrada"}</span><span style="text-align:right">${o.kwh ? nf(o.kwh) + " kWh" : Z}</span>
+          <span>${PODE ? (o.ss.length ? `<button class="btnl" data-ocos="s" data-k="${esc(o.k)}">Criar OS${o.ts.length ? " (strings)" : ""}</button>` : "") + (o.ts.length ? ` <button class="btnl" data-ocos="t" data-k="${esc(o.k)}">Criar OS${o.ss.length ? " (trackers)" : ""}</button>` : "") : ""}</span></div>` +
+          (on ? `<div class="ocx">${grafOc(o)}</div>` : ""); }).join("") + "</div>" + (lista.length > 80 ? `<div class="mais">Mostrando as 80 mais recentes de ${lista.length}.</div>` : "");
   } else if (ABA === "cf") {
-    const c = D.conf.usinas[u.u];
+    const c = D.conf.usinas[u.u], dv = divergeCos(u);
+    h += `<div class="painel" style="border-left:3px solid ${dv ? "var(--alerta)" : "var(--ok)"}"><h3>As fontes desta usina, lado a lado</h3><p>${dv ? "<b>Não batem:</b> " + esc(dv) + "." : "Nenhuma divergência agora entre a fonte desta usina e a segunda leitura."} A tela confere sozinha a cada 5 min e põe o aviso ao lado da usina.</p></div>`;
     if (!c) { lerConf(u); h += '<div class="carrega">Lendo esta usina no SCADA da Grid…</div>'; }
     else if (c.sit === "erro") h += `<div class="erro"><b>Não consegui conferir pela API do SCADA da Grid.</b> ${esc(c.erro)} <button class="btnl" data-denovo2="cf" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, dr);
     else if (c.sit === "ja") h += `<div class="aviso">Esta usina já é lida da API do SCADA da Grid: não há segunda fonte para conferir aqui. A API do COS só entra para a usina que não temos e para a que o Tempo real lê de outra API.</div>`;
@@ -1551,12 +1757,12 @@ const verT = u => marcaVisto(D.novas.t.filter(x => x.u === u));
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
   const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
   return [eu ? "visto por <b>você</b> em " + q(eu) : "", ou.length ? "visto por <b>" + esc(lst(ou)) + "</b>" : ""].filter(Boolean).join(" · "); };
-const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; };
+const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; };
 
 function desenhar() {
   CH.length = 0;
   const us = usinas(), bx = D.baixos.filter(b => (!SEL.g || b.g === SEL.g) && (!SEL.u || b.u === SEL.u));
-  $("recorte").textContent = SEL.u ? "· " + rotN(SEL.u, SEL.g) : SEL.g ? "· " + NOME[SEL.g] : "";
+  cabecalho();
   const min = Math.round((D.fresco.ttl_s || 300) / 60);
   $("fresco1").textContent = `a cada ${min} min · ${D.fresco.lido}`;
   $("frescor").innerHTML = `Tempo real <b>atualiza a cada ${min} min</b> · última leitura às <b>${esc(D.fresco.lido)}</b>` + (D.falhas_em ? ` · falhas do mês de ${dm(D.falhas_em.slice(0, 10))} às ${esc(D.falhas_em.slice(11, 16))}` : "");
@@ -1569,12 +1775,17 @@ function desenhar() {
 }
 document.addEventListener("toggle", e => { const c = e.target; if (!c.classList || !c.classList.contains("rec")) return; if (c.dataset.rec) { if (c.open) REC.add(c.dataset.rec); else REC.delete(c.dataset.rec); if (c.dataset.rec === "raiox" && c.open) desenhar(); } else visaoGeral.aberto = c.open; }, true);
 document.addEventListener("change", e => { const x = e.target;
-  if (x.id === "acomp") { const u = usinas()[0], v = Math.max(0, Math.min(u.sf, parseInt(x.value, 10) || 0)), ant = D.estado.acomp[u.u] || 0;
+  if (x.classList.contains("aci")) { const r = x.closest(".u"), u = r && todas().find(z => z.u === r.dataset.u && z.g === r.dataset.g);
+    if (!u) return;
+    const teto = u.sf || u.sd, v = Math.max(0, Math.min(teto, parseInt(x.value, 10) || 0)), ant = u.sa || 0;
+    x.blur();
     if (!PODE || v === ant) { desenhar(); return; }
     poeAcomp(u, v); desenhar();
     grava("/api/state/tracking", {key: VKEY[u.g] + ":" + u.pid, value: v || null}).then(() => toast("Em acompanhamento: " + v + " de " + u.sf + " fora"))
       .catch(e => { poeAcomp(u, ant); desenhar(); toast("Não gravou o acompanhamento: " + e.message); }); }
   if (x.dataset.sdiaCampo && x.value) { DIA = x.value === HOJE ? null : x.value; desenhar(); }
+  if (x.dataset.pot === "ini" && x.value) { POT.ini = x.value; if (POT.fim < x.value) POT.fim = x.value; if (addDia(POT.ini, 4) < POT.fim) POT.fim = addDia(POT.ini, 4); desenhar(); }
+  if (x.dataset.pot === "fim" && x.value) { POT.fim = x.value; if (x.value < POT.ini) POT.ini = x.value; if (addDia(POT.fim, -4) > POT.ini) POT.ini = addDia(POT.fim, -4); desenhar(); }
   if (x.dataset.tk === "ini" && x.value) { TRK.ini = x.value; if (TRK.fim < x.value) TRK.fim = x.value; if (addDia(TRK.ini, 4) < TRK.fim) TRK.fim = addDia(TRK.ini, 4); desenhar(); }
   if (x.dataset.tk === "fim" && x.value) { TRK.fim = x.value; if (x.value < TRK.ini) TRK.ini = x.value; if (addDia(TRK.fim, -4) > TRK.ini) TRK.ini = addDia(TRK.fim, -4); desenhar(); } });
 function trkFiltro(f) {
@@ -1633,6 +1844,13 @@ document.addEventListener("click", e => {
   if ((x = q(".selinv"))) { const n = x.dataset.sel; if (MARC.has(n)) MARC.delete(n); else MARC.add(n); desenhar(); return; }
   if ((x = q("[data-acao]"))) { const a = x.dataset.acao; if (a === "limpar") MARC.clear(); else if (a === "criar") { if (PODE) abrirCriarOS(); return; } else if (a === "confirmar") { janelaOS(); return; } desenhar(); return; }
   if ((x = q("[data-fechar]")) && (e.target === x || x.tagName === "BUTTON")) { $("modal").innerHTML = ""; return; }
+  if ((x = q("[data-dped]"))) { DPED = !DPED; delete $("corpo").dataset.dp; if (!DPED && SEL.u) delete DPR[SEL.u]; desenhar(); return; }
+  if ((x = q("[data-dpdenovo]"))) { if (SEL.u) delete DPR[SEL.u]; desenhar(); return; }
+  if ((x = q("[data-ocos]"))) { const u = usinas()[0], o = ocorrenciasDe(u).find(z => z.k === x.dataset.k); if (!o || !PODE) return;
+    if (x.dataset.ocos === "t") { osDosTrackers(u, o.ts.map(e => e.id)); return; }
+    MARC.clear(); o.invs.forEach(n => MARC.add(n)); abrirCriarOS(); return; }
+  if ((x = q("[data-ocab]"))) { OC.soAb = !OC.soAb; desenhar(); return; }
+  if ((x = q(".oc[data-oc]"))) { OC.aberta = OC.aberta === x.dataset.oc ? null : x.dataset.oc; desenhar(); return; }
   if ((x = q("[data-cfgaba]"))) { CFG_ABA = x.dataset.cfgaba; pintaConfig(); return; }
   if ((x = q("[data-cfgsalvar]"))) { salvarConfig(); return; }
   if (q(".modal")) return;
@@ -1644,6 +1862,8 @@ document.addEventListener("click", e => {
   if ((x = q("[data-grafx]"))) { GRAF.clear(); desenhar(); return; }
   if ((x = q("[data-gp]"))) { if (x.dataset.gp === "ver") GP = x.dataset.v; else GPER = x.dataset.v; desenhar(); return; }
   if ((x = q("[data-pv]"))) { PV = x.dataset.pv; desenhar(); return; }
+  if ((x = q("[data-potcorr]"))) { POT.corr = !POT.corr; desenhar(); return; }
+  if ((x = q("[data-potdenovo]"))) { if (D.potd) delete D.potd.dias[x.dataset.potdenovo]; desenhar(); return; }
   if ((x = q("[data-vg]"))) { VG = x.dataset.vg; desenhar(); return; }
   if ((x = q("[data-idf]"))) { IDF = IDF === x.dataset.idf ? null : x.dataset.idf; desenhar(); return; }
   if ((x = q("[data-pu]"))) { abrirUsina(x.dataset.pg, x.dataset.pu); CLICADAS.add("u|" + x.dataset.pu); CLICADAS.add("g|" + x.dataset.pg); ABA = x.dataset.pa || "str"; if (ABA === "trk") verT(SEL.u); if (x.dataset.pi) { INV = x.dataset.pi; verS(SEL.u, INV); } desenhar(); scrollTo(0, 0); return; }
@@ -1685,6 +1905,14 @@ document.addEventListener("click", e => {
   if ((x = q(".il[data-inv]"))) { const n = x.dataset.inv, k = SEL.u + "|" + n;        // abre ou fecha a curva DESTE inversor; os outros ficam como estão
     if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }
     desenhar(); return; }
+  // (1) o acompanhamento na lateral (Levi, 16/11/2026: "Strings em acompanhamento vão para barra lateral, depois da coluna
+  // strings"): o clique no número abre o campo ali mesmo; Enter ou sair grava (a mesma chave do Tempo real)
+  if (q(".aci")) return;
+  if ((x = q(".ac.ed[data-ac]"))) { const r = x.closest(".u"), u = todas().find(z => z.u === r.dataset.u && z.g === r.dataset.g);
+    x.innerHTML = `<input class="aci" type="text" inputmode="numeric" value="${u.sa || ""}" aria-label="Strings em acompanhamento de ${esc(u.rot)} (de ${u.sf || u.sd})">`;
+    const c = x.firstChild; c.focus(); c.select(); c.addEventListener("blur", () => setTimeout(arvore, 0)); c.addEventListener("keydown", ev => { if (ev.key === "Enter") c.dispatchEvent(new Event("change", {bubbles: true})); if (ev.key === "Escape") { c.value = u.sa || ""; c.blur(); } ev.stopPropagation(); });
+    return; }
+  if ((x = q(".dvg[data-dvg]"))) { const r = x.closest(".u"); if (r) { abrirUsina(r.dataset.g, r.dataset.u); CLICADAS.add("u|" + r.dataset.u); } ABA = "cf"; desenhar(); scrollTo(0, 0); return; }
   if ((x = q(".u, tr.cl[data-u]"))) { CLICADAS.add("u|" + x.dataset.u); CLICADAS.add("g|" + x.dataset.g); const mesma = SEL.u === x.dataset.u && SEL.g === x.dataset.g; if (mesma) { SEL = {g: x.dataset.g, u: null}; INV = null; } else { abrirUsina(x.dataset.g, x.dataset.u); ABA = "str"; } desenhar(); scrollTo(0, 0); return; }
   if ((x = q("#eng"))) { abrirConfig(); return; }
   if ((x = q(".g"))) { const id = x.dataset.g;
@@ -1712,10 +1940,12 @@ async function ligar(primeira) {
     const ant = D; D = montar(ent, fal, idr && idr.strings ? idr : null, vis && vis.eu ? vis : null, ARR_LIDO.v);
     if (ant) { D.osHist = ant.osHist; D.osHistFalhou = ant.osHistFalhou; D.osHistMotivo = ant.osHistMotivo; }
     Object.keys(ETMG_LIDO).forEach(g => { if (ETMG_LIDO[g] === 3) delete ETMG_LIDO[g]; });
-    if (ant) { D.drill = ant.drill; D.curvas = ant.curvas; D.etmG = ant.etmG; D.estado = ant.estado; D.trkc = ant.trkc; D.ger = ant.ger; D.pot = ant.pot; D.conf = ant.conf; D.scada = ant.scada; }
+    if (ant) { D.drill = ant.drill; D.curvas = ant.curvas; D.etmG = ant.etmG; D.estado = ant.estado; D.trkc = ant.trkc; D.ger = ant.ger; D.pot = ant.pot; D.potd = ant.potd; D.conf = ant.conf; D.scada = ant.scada; }
     poeAbaixo(); DISP_ERRO = "";
     $("aviso0").hidden = !!(fal && fal.strings);
+    calcDvg();
     if (primeira) desenhar(); else redesenhar();
+    atualizaCos();                                              // a lista do COS, para o aviso das fontes que não batem
     if (!ABX || Date.now() - ABX_EM > 18e5) lerAbaixo();          // a conta do mês muda com a subida dos BDs: de 30 em 30 min basta
   } catch (e) {
     if (primeira) $("corpo").innerHTML = `<div class="erro"><b>Não consegui ler o tempo real.</b> ${esc(e && e.message || e)} <button class="btnl" onclick="location.reload()" style="margin-left:10px">Tentar de novo</button></div>`;

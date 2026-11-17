@@ -108,7 +108,19 @@ da estação que a Entrada conta; a fonte só recorta a tela no clique do nome. 
 o Monitoramento do COS faz: um pedido por inversor e cópia no servidor (banco da Thopen), e o histórico gravado no COS
 nas usinas da API PV que têm logger. Detalhe e medições em `plataforma/CLAUDE.md`.
 
+## Retornos de 16/11/2026 (23h30)
+
+A visão de strings mais limpa (o acompanhamento na lateral, uma linha de botões, a corrente em cada string), a Potência
+com o dia inteiro, até 5 dias e a correlação com os trackers, as cores (geração azul, POA laranja, GHI amarelo), o aviso
+de fontes que não batem no lugar da aba Conferir fontes, o de-para real, o PR do mês ao lado do nome, a aba Ocorrências
+(o que caiu junto em 10 min, com gráfico e Criar OS), os comentários na ordem data, nome e texto, e o tema claro. A
+análise das requisições está em `docs/sala-de-controle-requisicoes.md`.
+
 ## Em aberto com o Levi
+
+- Ligar o histórico de potência da Athon (SunOp, paga: ~1 pedido da cota por usina e dia)? Está fora desde 13/10.
+- As cinco propostas da análise das requisições (aquecer depois da subida, a consulta do banco, a rota por usina no
+  scadaGridco, gravar a API PV pela coleta, o estado por chave).
 
 - (Fechado em 16/11, noite) Renomear e agrupar UFVs: só na Sala, e o grupo só junta (cada usina com os números dela).
   Está na 1ª aba da engrenagem.

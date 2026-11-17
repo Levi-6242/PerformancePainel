@@ -2704,6 +2704,43 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     IPOA e as metas, da base diária da cascata. Só o "hoje" (`lerPr`, `/api/<fonte>/pr/`) vem da fonte ao vivo.
   - Prova: os sete últimos testes de `tests/test_sala_de_controle.py`; a tela na cópia local (lista, curva, destaque,
     ETM da Gravatá II, engrenagem) com dado real lido do servidor e o COS de mentira.
+- **Retornos de 16/11 (23h30), a visão limpa e as abas novas** (`tests/test_sala_de_controle.py`, os nove últimos):
+  - **Strings:** o acompanhamento saiu da usina e virou a coluna **Ac.** da lateral (o clique no número abre o campo;
+    grava na mesma chave do Tempo real, `/api/state/tracking`; vale também para as strings com +2 h sem corrente no
+    dia). Uma linha só de botões (dia, período solar, OS de performance, fechar as curvas, abrir as strings). O gráfico
+    não tem mais a legenda das strings (elas estão embaixo, **com a corrente** quando o inversor está aberto); a legenda
+    das cores fica dentro do gráfico.
+  - **Potência** (`lerPotDia`, `POT`): um pedido por dia, até **5 dias** (De/Até), o dia inteiro por padrão, o POA/GHI
+    do dia (hoje, o da estação; no banco, qualquer dia pelo `/api/pg/etm/chart`) e o botão **Correlação com trackers**,
+    que abre embaixo de cada dia o ângulo dos trackers no mesmo eixo (`lerTrk`). Athon e Axis continuam FORA do
+    histórico de potência (decisão do Levi de 13/10: a SunOp é paga); a tela agora diz isso, e não "a fonte não guarda".
+    Ligar é decisão dele (~1 pedido da cota por usina e dia).
+  - **Cores** (tokens `--c-ger`, `--c-poa`, `--c-ghi`, com par no tema claro): geração azul, POA laranja, GHI amarelo,
+    na Potência e na ETM; por inversor as linhas são todas azuis e o mouse no nome destaca. A ETM ganhou o dia inteiro
+    e o botão do período solar.
+  - **Conferir fontes deixou de ser aba** ("Não faz sentido esse botão [...] O mínimo seria ter algum símbolo de aviso
+    ao lado da UFV"). A tela confere sozinha (`calcDvg`, com a lista do COS relida a cada 5 min, um pedido) e põe o
+    **!** ao lado da usina quando a fonte e o logger do COS discordam na QUANTIDADE de inversores ou na COMUNICAÇÃO
+    (igual ou não é: sem limiar). O clique abre o lado a lado (o conteúdo da aba antiga). Só para a usina lida de outra
+    API (a regra do COS). Não compara potência nem inversores ligados: as duas fontes não dizem isso do mesmo jeito.
+  - **De-para real** (`/api/sala/depara?usina=`, da mesma carga do `/api/admin/de-para/cadastro`, só leitura): a tabela
+    do cadastro (na fonte, na plataforma, no Fracttal, cabine, strings esperadas, kWp) ao lado de quem lê agora; o que a
+    fonte manda e o cadastro não conhece vai marcado. O editor ficou atrás do botão "Editar o de-para" (administrador).
+  - **PR do mês e geração contra a meta ao lado do nome** (`prDoMes`): os números da aba Geração e PR; a usina é a soma
+    dos inversores pela mesma conta, feita no servidor (`_inv_historico` → `da_usina`). A geração do mês é lida quando
+    a usina abre. **Geração e PR leem dos BDs do banco** (BD_Thopen, com o BD_Performance de reserva), em memória: 0,4 s;
+    a lentidão de 16/11 foi a largada depois de dez subidas.
+  - **Ocorrências** (aba nova, só nas usinas do SCADA da Grid e do banco): cada string sem corrente e cada tracker
+    parado do pacote de falhas do mês, em lista (quando, equipamento, o que foi, até quando, perda); o que começou até
+    **10 min** depois do PRIMEIRO do grupo fica na mesma linha (`OC_TOL_MIN`, não em cadeia). O clique abre o gráfico (a
+    curva das strings do inversor no dia, as da ocorrência em vermelho; o ângulo dos trackers com o alvo). **Criar OS**
+    direto: strings pelo fluxo de sempre (marca os inversores e consulta o Fracttal); trackers abrem o OS Creator com a
+    frase "verificacao de tracker parado" e um ativo por tracker (não provado com o Fracttal de verdade).
+  - **Comentários:** data, nome em negrito, texto. O comentário automático da OS é o OS Creator quem grava (o link leva
+    a chave da conversa, `comentario`); a Sala relê a conversa quando a OS sai (e de novo em 5 s).
+  - **Tema claro:** a grade e as linhas neutras do gráfico, a janela, os botões, as marcas de string e as caixas
+    flutuantes ganharam o par claro (antes só os tokens trocavam, e o que era cor fixa do navy ficava ilegível).
+  - A análise das requisições (o que o COS faz, o que medimos, o que falta): `docs/sala-de-controle-requisicoes.md`.
 - **"Em tratamento" da estação:** não existe no Tempo real (o `/api/etm/ticket` de antes não é usado pela tela nova);
   o botão do mockup não foi feito.
 

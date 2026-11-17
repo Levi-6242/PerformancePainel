@@ -141,7 +141,7 @@ def test_quem_trancou_fica_no_log(tmp_path, monkeypatch):
 def test_acompanhamento_e_comentario_gravam_nas_rotas_do_tempo_real():
     html = _html()
     assert 'grava("/api/state/tracking", {key: VKEY[u.g] + ":" + u.pid, value: v || null})' in html
-    assert 'id="acomp" type="text" inputmode="numeric"' in html
+    assert '<input class="aci" type="text" inputmode="numeric"' in html      # desde 16/11 (23h30) o campo mora na lateral
     assert "x.sn = Math.max(0, x.sf - v)" in html              # sem acompanhamento = fora - acompanhadas, como a Entrada
     assert 'grava("/api/state/comment/add", {key: VKEY[u.g] + ":" + u.pid, nick, texto, usina: u.u})' in html
     assert 'grava("/api/state/comment/del", {key: VKEY[u.g] + ":" + u.pid, ts: x.dataset.delc})' in html
@@ -184,7 +184,7 @@ def test_nada_mais_fica_escondido_nem_de_mentira():
     assert ".prio .pc:first-child{display:none}" not in html and '<div class="nota">' not in html
     assert "data-mock" not in html and "Neste mockup" not in html and "no mockup" not in html
     for aba in ('aba("bx", "Abaixo dos demais"', 'aba("gp", "Geração e PR")', 'aba("pot", "Potência")',
-                'aba("cf", "Conferir fontes")', 'aba("dp", "De-para")'):
+                'aba("dp", "De-para")'):
         assert aba in html, aba
 
 
@@ -564,12 +564,11 @@ def test_a_curva_das_strings_em_cinza_com_o_destaque_no_mouse_e_o_dia_inteiro():
     e se a pessoa quiser ver ela clica em período solar"; "Nos trackers também tem que destacar em branco"."""
     html = _html()
     assert "let SOLAR = false;" in html
-    assert 'cor: e === "sem_corrente" ? "#ff5b6e" : e === "baixa_perf" ? "#ff8f3c" : "#7b879d"' in html
-    lin = html[html.index('<div class="lin">${ser.map(s => `<span data-hl='):]
-    assert "%" not in lin[:lin.index("</div>")]                                                # sem o percentual na legenda
+    assert 'cor: e === "sem_corrente" ? "var(--critico)" : e === "baixa_perf" ? "var(--severo)" : "var(--neutro)"' in html
+    assert '<div class="lin">${ser.map(s => `<span data-hl="${esc(s.sn)}"' not in html         # nem percentual, nem a legenda das strings
     assert '<path data-sn="${esc(s.sn ?? s.nome)}"' in html                                     # a linha sabe de quem é
-    assert 'const cor = x.dataset.hlc || "#4da3ff";' in html and 'document.addEventListener("mouseover"' in html
-    assert 'data-hl="${esc(x.id)}" data-hlc="#ffffff"' in html                                  # o tracker, em branco
+    assert 'const cor = x.dataset.hlc || "var(--c-ger)";' in html and 'document.addEventListener("mouseover"' in html
+    assert 'data-hl="${esc(x.id)}" data-hlc="var(--tinta)"' in html                            # o tracker: branco no escuro, tinta no claro
 
 
 def test_as_strings_com_mais_de_duas_horas_sem_corrente_hoje_aparecem_de_noite():
@@ -702,7 +701,7 @@ def test_a_tela_mostra_o_nome_da_sala_e_junta_os_grupos_sem_somar():
     assert 'pega("/api/sala/arranjo", 20000).catch(() => null)' in html and "if (arrL && arrL.nomes) ARR_LIDO.v = arrL;" in html
     assert '<div class="ug">${u.gr ? esc(u.gr) : "Sem grupo"}' in html and "(a.gr ? 0 : 1) - (b.gr ? 0 : 1) || natural(a.gr, b.gr)" in html
     assert 'data-u="${esc(u.u)}" title="${esc(u.rot)}${u.rot !== u.u ? " (na fonte: " + esc(u.u) + ")" : ""}' in html
-    assert '$("recorte").textContent = SEL.u ? "· " + rotN(SEL.u, SEL.g)' in html
+    assert 'r.innerHTML = (SEL.u ? "· " + esc(rotN(SEL.u, SEL.g))' in html
     cfg = html[html.index("function pintaConfig() {"):html.index("function filtraConfig() {")]
     assert "só na Sala de controle" in cfg and 'data-cfgn="${esc(k)}"' in cfg and 'data-cfgg="${esc(k)}" list="cfggr"' in cfg
     assert '${gravaC ? "" : "disabled"}' in cfg and "gravaC ? '<button class=\"btn\" data-cfgsalvar=\"1\">Salvar</button>' : \"\"" in cfg
@@ -733,3 +732,135 @@ def test_o_servidor_aquecendo_nao_abre_a_sala_vazia():
     html = _html()
     assert "if (ent && ent.aquecendo && !(ent.grupos || []).length) {" in html
     assert "ligar.t = setTimeout(() => ligar(!D), 15000); return; }" in html and "if (!D) $(\"corpo\").innerHTML = " in html
+
+
+# --- os retornos de 16/11/2026 (23h30) ---------------------------------------------------------------------------------
+def test_a_visao_de_strings_limpa_e_o_acompanhamento_na_lateral():
+    """Levi: "Strings em acompanhamento vão para barra lateral, depois da coluna strings"; "pode remover esse número de
+    strings do gráfico"; "Mostrar a corrente da string quando clicar no inversor"; a legenda das cores "deve ficar no
+    gráfico"; "o botão de data e período solar fica na mesma linha de abrir todas as strings"."""
+    html = _html()
+    assert '<div class="faixa"><label>Strings em acompanhamento' not in html
+    assert "<span>Usina</span><span title=\"Strings fora sem acompanhamento\">Str.</span><span title=\"Strings em acompanhamento" in html
+    assert 'if ((x = q(".ac.ed[data-ac]")))' in html and 'if (x.classList.contains("aci")) {' in html
+    grava = html[html.index('if (x.classList.contains("aci")) {'):]
+    assert 'grava("/api/state/tracking", {key: VKEY[u.g] + ":" + u.pid, value: v || null})' in grava[:900]     # a mesma chave do Tempo real
+    assert 'document.activeElement.classList.contains("aci")) return;' in html                                    # a releitura não tira o campo de quem digita
+    graf = html[html.index("const graf = i => { const bruta"):html.index("// os inversores por cabine")]
+    assert '<div class="lin">' not in graf and "Cinza = gerando" in graf                                          # a legenda das cores no gráfico
+    assert '${GRAF.has(u.u + "|" + i.n) ? `<small>${e === "trancada" ? "tranc." : s[1] == null ? "—" : nf(s[1], 2) + " A"}</small>` : ""}' in html
+    barra = html[html.index('<span>Dia</span><input type="date"'):]
+    barra = barra[:barra.index('data-expi="*"')]
+    assert 'data-solar="1"' in barra and "OS de performance" in barra and 'data-grafx="1"' in barra            # uma linha só
+
+
+def test_comentario_na_ordem_data_nome_texto_e_a_os_criada_rele_a_conversa():
+    html = _html()
+    assert '`<div class="coment"><small>${esc((c.ts || "agora")' in html and '</small><b>${esc(c.nick || "—")}</b><span style="flex:1;white-space:pre-line">${esc(c.texto)}</span>' in html
+    os = html[html.index('d.gc !== "os-criada"'):]
+    os = os[:os.index("// O que aconteceu com o inversor")]
+    assert "ESTADO = null;" in os and "setTimeout(() => { ESTADO = null; if (SEL.u === u.u) lerUsina(u, true); }, 5000)" in os
+    assert html.count('p.set("comentario", VKEY[u.g] + ":" + u.pid)') >= 3                                         # a chave da conversa vai no link da OS
+
+
+def test_a_potencia_por_dia_com_ate_cinco_dias_as_cores_e_a_correlacao():
+    """Levi: "Dados do dia todo"; "selecionar para ver mais que um dia"; "o filtro só vai caber 5 dias"; "um botão de
+    correlação que abre abaixo os gráficos de trackers"; "geração azul, POA laranja e GHI amarelo"; a Athon não é "a fonte
+    não guarda"."""
+    html = _html()
+    assert "for (let k = 0, d0 = POT.ini; k < 5 && d0 <= POT.fim; k++, d0 = addDia(d0, 1)) { dias.push(d0); lerPotDia(u, d0); }" in html
+    assert 'if (addDia(POT.ini, 4) < POT.fim) POT.fim = addDia(POT.ini, 4);' in html and 'if (addDia(POT.fim, -4) > POT.ini) POT.ini = addDia(POT.fim, -4);' in html
+    assert '"&ini=" + dia + "&fim=" + dia, 150000)' in html                                                       # um pedido por dia (o servidor guarda cada um)
+    pot = html[html.index('} else if (ABA === "pot") {'):html.index('} else if (ABA === "oc") {')]
+    assert "opt = SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440}" in pot                                           # o dia inteiro; o período solar é o botão
+    assert 'cor: "var(--c-ger)", forte: true}' in pot and 'cor: "var(--c-poa)", dash: "6 4"' in pot and 'cor: "var(--c-ghi)", dash: "6 4"' in pot
+    assert "CORES[" not in pot                                                                                     # sem a paleta de doze cores por inversor
+    assert 'data-potcorr="1"' in pot and "if (POT.corr && temTrk) dias.forEach(d0 => lerTrk(u, d0));" in pot
+    assert "--c-ger:#5aa9f5;--c-poa:#f59a4a;--c-ghi:#e6c84f" in html and "--c-ger:#1f6fd0;--c-poa:#c8640f;--c-ghi:#a8860a" in html
+    etm = html[html.index('} else if (ABA === "etm") {'):html.index('} else if (ABA === "gp") {')]
+    assert 'cor: "var(--c-poa)", forte: true}' in etm and 'cor: "var(--c-ghi)", forte: true}' in etm and 'data-solar="1"' in etm
+    assert "POT_FORA[u.g] ||" in html and "é uma decisão de custo" in html and "pega(\"/api/pg/etm/chart?plant_id=\"" in html
+
+
+def test_as_fontes_que_nao_batem_viram_aviso_ao_lado_da_usina():
+    """Levi: "Não faz sentido esse botão conferir fonte [...] O mínimo seria ter algum símbolo de aviso ao lado da UFV"."""
+    html = _html()
+    assert 'aba("cf", "Conferir fontes")' not in html
+    dv = html[html.index("function calcDvg() {"):html.index("const divergeCos = u =>")]
+    assert 'if (x.fonte !== "SCADA Grid") return;' in dv and "if (doScadaGrid(u)) return;" in dv                    # a regra do COS
+    assert "if (tot && u.inv && tot !== u.inv)" in dv and 'const semC = ms.every(m => m.grupo === "sem_comunicacao"), euSem = u.st === "sem_comm";' in dv
+    assert '<span class="dvg" data-dvg="1"' in html and 'ABA = "cf"; desenhar(); scrollTo(0, 0); return; }' in html   # o clique abre o lado a lado
+    assert "atualizaCos();" in html and "calcDvg();" in html
+
+
+def test_as_ocorrencias_juntam_o_que_caiu_em_dez_minutos_do_primeiro():
+    """Levi: "Caso seja trackers ou strings caindo ao mesmo tempo aparecerão juntos, tolerância de 10 minutos". A regra
+    roda de verdade (no node): o grupo conta do PRIMEIRO, não em cadeia."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert 'const temOc = doScadaGrid(u) || SKEY[u.g] === "pg"' in html                                             # só SCADA da Grid e banco
+    assert 'p.set("frase", "verificacao de tracker parado")' in html and "MARC.clear(); o.invs.forEach(n => MARC.add(n)); abrirCriarOS(); return; }" in html
+    assert 'data-ocos="s"' in html and 'data-ocos="t"' in html and "grafOc(o)" in html
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const OC_TOL_MIN = 10"):html.index("// a OS dos trackers de uma ocorrência")]
+    D = {"eps": {"U|Inversor 1.1": [{"s": "ST 04", "ini": "2026-11-16 08:00", "fim": "2026-11-16 12:10", "aberta": False, "kwh": 10},
+                                    {"s": "ST 05", "ini": "2026-11-16 08:11", "fim": "", "aberta": True, "kwh": 5}],
+                 "U|Inversor 1.2": [{"s": "ST 01", "ini": "2026-11-16 08:20", "fim": "", "aberta": True, "kwh": 7}],
+                 "OUTRA|Inversor 9": [{"s": "ST 01", "ini": "2026-11-16 08:01", "fim": "", "aberta": True, "kwh": 1}]},
+         "trkRows": [{"usina": "U", "tracker": "TR-03", "inicio": "2026-11-16 08:09", "fim": "", "perda_kwh": 20},
+                     {"usina": "OUTRA", "tracker": "TR-99", "inicio": "2026-11-16 08:00", "fim": ""}]}
+    script = ('const natural = (a, b) => String(a).localeCompare(String(b), "pt-BR", {numeric: true}); const D = ' + json.dumps(D) + ";\n" + js +
+              '\nconsole.log(JSON.stringify(ocorrenciasDe({u: "U"}).map(o => [o.t, o.ss.length, o.ts.length, o.aberta, o.kwh, o.invs])));')
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == [
+        ["2026-11-16 08:11", 2, 0, True, 12, ["Inversor 1.1", "Inversor 1.2"]],      # 08:11 e 08:20 (9 min do primeiro DESTE grupo)
+        ["2026-11-16 08:00", 1, 1, True, 30, ["Inversor 1.1"]]]                      # a string das 08:00 e o tracker das 08:09, juntos
+
+
+def test_o_de_para_real_sai_do_cadastro(cli):
+    """Levi: "O de-para não faz sentido! Tem que vir o de-para real!". A rota devolve o que o cadastro diz de cada
+    inversor da usina (como a fonte chama, como a plataforma chama, as esperadas, o kWp), só leitura."""
+    assert cli.get("/api/sala/depara").status_code == 400
+    chave = next((c for c, m in app.EQUIP_NAMES.items() if m and c not in set(app._dp_aliases())), None)
+    if not chave:
+        pytest.skip("cadastro vazio nesta máquina")
+    usina = app.USINA_DISPLAY.get(chave) or chave
+    d = cli.get("/api/sala/depara", query_string={"usina": usina}).get_json()
+    assert d["ok"] and chave in [c["chave"] for c in d["chaves"]]
+    inv = next(c for c in d["chaves"] if c["chave"] == chave)["inversores"]
+    assert inv and set(inv[0]) == {"esup", "nome", "esp", "kwp", "ug", "cod_fracttal", "nome_fracttal", "cabine"}
+    assert {i["esup"] for i in inv} >= set(app.EQUIP_NAMES[chave])
+    assert cli.get("/api/sala/depara", query_string={"usina": "Usina Que Não Existe 999"}).get_json()["chaves"] == []
+    html = _html()
+    assert 'pega("/api/sala/depara?usina=" + encodeURIComponent(u.u), 30000)' in html and "que a fonte manda e o cadastro não conhece" in html
+    assert 'data-dped="1"' in html                                                                                 # o editor fica atrás do botão
+
+
+def test_o_pr_do_mes_da_usina_e_a_soma_dos_inversores_pela_mesma_conta(monkeypatch):
+    """Levi: "Ao lado do nome da UFV seria interessante mostrar PR do mês e acompanhamento da meta do mês". O cabeçalho
+    usa o que a aba Geração e PR já calcula; a usina é a soma dos inversores (o PR pondera pela energia)."""
+    class _Base:
+        @staticmethod
+        def get_json():
+            return {"pontos": [], "pot": 0.2, "meta": 0.8, "meta_ger": 0.9, "meta_poa": 5.0}
+    monkeypatch.setattr(app, "api_g_diario", lambda: _Base())
+    monkeypatch.setattr(app, "_inv_hist_pr_detail", lambda fonte, pid: [{"nome": "Inversor 1", "pot_kwp": 100.0}, {"nome": "Inversor 2", "pot_kwp": 100.0}])
+    monkeypatch.setattr(app, "_inv_dias_por_base", lambda fonte, usina, ano, mes: [
+        ("bd_performance", {"2026-11-10": {"ipoa": 5.0, "inv": {"Inversor 1": 500.0, "Inversor 2": 300.0}}})])
+    d = app._inv_historico("pg", 1, "Usina De Teste", 2026, 11, agora=app.datetime(2026, 11, 20, 12, 0))
+    assert d["da_usina"] == {"ger": 800.0, "dias": 1, "pr": 0.8, "meta": 900.0, "pct_meta": 88.9}
+    assert d["inversores"]["Inversor 1"]["pr"] == 1.0 and d["inversores"]["Inversor 2"]["pr"] == 0.6           # 0,8 é a média ponderada dos dois
+    html = _html()
+    assert "tot: g.da_usina || null, prMeta: g.pr_meta ?? null" in html and "function prDoMes() {" in html
+    assert "if (!calada && D.ger.usina !== u.u) lerGer(u);" in html                                                # a geração lida quando a usina abre
+
+
+def test_o_tema_claro_tem_as_cores_do_grafico_e_da_janela():
+    html = _html()
+    assert 'stroke="var(--grade)"' in html and "--grade:rgba(15,23,42,.10);--janela:#ffffff" in html
+    assert ".modal>div{background:var(--janela);" in html and 'html[data-tema="claro"] .st.sem_corrente{background:#be123c;color:#fff}' in html
+    assert 'cor: "var(--tinta)", larg: 1.8, dash: "7 5"' in html                                                   # o alvo aparece nos dois temas
