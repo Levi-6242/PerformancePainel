@@ -31191,6 +31191,21 @@ def api_sala_depara():
                          "cod_fracttal": next((cods[_nrm(n)] for n in (esup, nome) if n and _nrm(n) in cods), None),
                          "nome_fracttal": rot.get("nome_fracttal"), "cabine": rot.get("cabine")})
         out.append({"chave": chave, "exibicao": USINA_GRUPO.get(chave) or USINA_DISPLAY.get(chave) or None, "inversores": invs})
+    # A usina que o cadastro guarda só pelo nome de EXIBIÇÃO (a GreenYellow e a Sal Energia não têm "Equipamento
+    # Supervisório": ver `_sg_cadastro`): em 17/11/2026 a Castelo do Piauí vinha "sem chave", com as esperadas no Tempo
+    # real. O que há é o nome da plataforma, as esperadas, o kWp e o código do Fracttal; o nome na fonte não está no cadastro.
+    if not out and ESPERADO_INV_DISP.get(alvo):
+        pot, cods = POWER_INV_DISP.get(alvo) or {}, FRAC_COD_INV_DISP.get(alvo) or {}
+        invs = []
+        for nome, e in ESPERADO_INV_DISP[alvo].items():
+            cod = cods.get(_nrm(nome))
+            try:
+                nf_ = _dpf.nome_inversor(cod) if cod else None
+            except Exception:                                             # noqa: BLE001
+                nf_ = None
+            invs.append({"esup": None, "nome": nome, "esp": num(e), "kwp": num(pot.get(_nrm(nome))), "ug": None,
+                         "cod_fracttal": cod, "nome_fracttal": nf_, "cabine": None})
+        out.append({"chave": usina, "exibicao": usina, "por_exibicao": True, "inversores": invs})
     return jsonify({"ok": True, "usina": usina, "chaves": out, "carregado_em": _EN_ESTADO.get("carregado_em")})
 
 

@@ -864,3 +864,17 @@ def test_o_tema_claro_tem_as_cores_do_grafico_e_da_janela():
     assert 'stroke="var(--grade)"' in html and "--grade:rgba(15,23,42,.10);--janela:#ffffff" in html
     assert ".modal>div{background:var(--janela);" in html and 'html[data-tema="claro"] .st.sem_corrente{background:#be123c;color:#fff}' in html
     assert 'cor: "var(--tinta)", larg: 1.8, dash: "7 5"' in html                                                   # o alvo aparece nos dois temas
+
+
+def test_o_de_para_da_usina_que_o_cadastro_guarda_pelo_nome_de_exibicao(cli, monkeypatch):
+    """17/11/2026, em produção: a Castelo do Piauí (GreenYellow) veio "sem chave", com esperadas no Tempo real. A
+    GreenYellow e a Sal não têm "Equipamento Supervisório": o cadastro delas é pelo nome de exibição."""
+    monkeypatch.setattr(app, "ESPERADO_INV_DISP", {app._nrm("Usina Só De Exibição"): {"Inversor 1.1": 12, "Inversor 1.2": 13}})
+    monkeypatch.setattr(app, "POWER_INV_DISP", {app._nrm("Usina Só De Exibição"): {app._nrm("Inversor 1.1"): 137.5}})
+    monkeypatch.setattr(app, "FRAC_COD_INV_DISP", {})
+    d = cli.get("/api/sala/depara", query_string={"usina": "Usina Só De Exibição"}).get_json()
+    assert [c["chave"] for c in d["chaves"]] == ["Usina Só De Exibição"] and d["chaves"][0]["por_exibicao"] is True
+    assert d["chaves"][0]["inversores"] == [
+        {"esup": None, "nome": "Inversor 1.1", "esp": 12, "kwp": 137.5, "ug": None, "cod_fracttal": None, "nome_fracttal": None, "cabine": None},
+        {"esup": None, "nome": "Inversor 1.2", "esp": 13, "kwp": None, "ug": None, "cod_fracttal": None, "nome_fracttal": None, "cabine": None}]
+    assert "i.esup == null ? (v && v.id != null ? esc(v.id)" in _html()
