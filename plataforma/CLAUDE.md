@@ -2720,6 +2720,11 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     min), mostra "leitura das HH:MM" e tem o "Ler agora" (`force=1`). Sem `?tabela=1` a rota segue ao vivo (o Tempo
     real e o Diagnóstico não mudaram). Nos 10 min depois de uma subida o ciclo não calcula o detalhe, para a 1ª tabela
     sair no tempo de sempre. O grupo passou a se chamar **2C · API PV** (a Owen acabou).
+  - **⚠ A curva pelo logger do COS está DESLIGADA (17/11, 15:50; `COS_CURVA_LIGADA = false`).** O Roger Lélis mostrou
+    na Rodrigues 1, Inversor 1.3: a entrada 14 com 0 A e a curva dela com corrente; a entrada 20 com 8,72 A e a curva em
+    zero. A ligação era "pela ordem" (o 1.3 com o SKID 1 · INV02) e a numeração das strings do logger não é a da API PV.
+    Só religa com o de-para de inversor E de string entre as duas fontes conferido. As strings passaram a sair em ordem
+    numérica (vinham 1, 10, 11, ..., 2, 20).
   - **17/11, tarde:** a observação da OS sai com o texto do Tempo real (`_osObs` do Monitoramento: "Strings 4, 7 e 9
     com corrente nula, verificar e normalizar", só as SEM CORRENTE de agora, sem as trancadas); a **Ocorrências não
     mostra string trancada** (a da leitura e a que acabou de ser trancada na tela, na hora); a Potência ganhou

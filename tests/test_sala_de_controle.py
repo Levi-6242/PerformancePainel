@@ -613,7 +613,9 @@ def test_a_curva_vem_do_logger_do_cos_so_onde_a_fonte_e_lenta():
     ele (a regra do dono), e o banco da Thopen fica com a curva dele. A usina do Tempo real que são vários loggers no COS
     (a Guatambu = Guatambú 1 a 4) casa pelo nome sem o número, só quando não há o nome inteiro."""
     html = _html()
-    assert "if (ehApiPv(sk, pid) && !doScadaGrid(u) && !SEM_COS[k]) { const c = await curvaCos(u, dr, invNome, dia);" in html
+    assert "if (COS_CURVA_LIGADA && ehApiPv(sk, pid) && !doScadaGrid(u) && !SEM_COS[k]) { const c = await curvaCos(u, dr, invNome, dia);" in html
+    # DESLIGADA desde 17/11 (15:50): na Rodrigues 1 a ligação pela ordem punha a curva de uma entrada no nome de outra
+    assert "const COS_CURVA_LIGADA = false;" in html
     cc = html[html.index("async function curvaCos(u, dr, invNome, dia) {"):]
     cc = cc[:cc.index("\n}\n")]
     assert 'nexusPega("/t/performance/sala-de-controle/cos/entradas?inv=" + encodeURIComponent(p.s.id) + "&dia=" + dia)' in cc
@@ -1109,3 +1111,9 @@ def test_o_cartao_criar_os_tem_o_dobro_da_largura():
     html = _html()
     assert ".modal>div{background:var(--janela);border-radius:14px;padding:20px 22px;width:min(760px,100%)}" in html
     assert '.modal>div[aria-label="Criar OS"]{width:min(1520px,100%)}' in html and html.count('aria-label="Criar OS"') >= 3
+
+
+def test_as_strings_saem_em_ordem_numerica():
+    """17/11/2026, o print do Roger (Rodrigues 1): as entradas vinham 1, 10, 11, 12, ..., 2, 20, na ordem de texto da fonte."""
+    html = _html()
+    assert 'i.s.slice().sort((a, b) => natural(String(a[0]).replace(/^\\D+/, ""), String(b[0]).replace(/^\\D+/, ""))).map(s => { const e = est(i, s);' in html
