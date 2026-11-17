@@ -2728,6 +2728,16 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     zero. A ligação era "pela ordem" (o 1.3 com o SKID 1 · INV02) e a numeração das strings do logger não é a da API PV.
     Só religa com o de-para de inversor E de string entre as duas fontes conferido. As strings passaram a sair em ordem
     numérica (vinham 1, 10, 11, ..., 2, 20).
+  - **A curva pelo logger do COS RELIGADA do jeito certo (17/11, 17h; `COS_CURVA_LIGADA = true`; "ponto 7, pode
+    sim"):** o inversor liga pelo NOME (`chaveInv`/`chaveCos`: "SKID 1 - INV03" = "Inversor 1.3"; "INVERSOR03" do logger
+    "Guatambú 2" = "Inversor 2.3"), nunca pela ordem, e a curva só vem do logger depois de `confereCos` (as strings com
+    e sem corrente iguais nas duas leituras; menos de 4 comparáveis ou de noite = não confere, fica a fonte). A rota do
+    Nexus `/cos/inversores` passou a mandar `ss` (índice e corrente de agora de cada string). A lateral marca **COS** na
+    usina da API PV com logger, e a linha de botões diz "COS: N de M inversores conferidos" (o mouse diz por que os
+    outros não). Os cartões das strings seguem com a leitura da fonte: do COS vem a curva. **A conferência tem
+    duas forças** (`zer`): com string parada igual nas duas leituras a numeração das strings está provada; com todas
+    ligadas dos dois lados o inversor está certo pelo nome, mas a numeração não tem como ser conferida naquele momento
+    (a nota da curva diz qual das duas). "Sem corrente" no logger é até 0,1 A.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no
     eixo e na dica; o "lado a lado" da tarde virou uma coluna Y por dia e foi desfeito); a curva das fontes do SCADA
     da Grid e da SunOp vai **em fila** (`EM_FILA`, `FILA_CURVA`: a Corrente das strings pedia todos os inversores juntos

@@ -615,11 +615,11 @@ def test_a_curva_vem_do_logger_do_cos_so_onde_a_fonte_e_lenta():
     html = _html()
     assert "if (COS_CURVA_LIGADA && ehApiPv(sk, pid) && !doScadaGrid(u) && !SEM_COS[k]) { const c = await curvaCos(u, dr, invNome, dia);" in html
     # DESLIGADA desde 17/11 (15:50): na Rodrigues 1 a ligação pela ordem punha a curva de uma entrada no nome de outra
-    assert "const COS_CURVA_LIGADA = false;" in html
+    assert "const COS_CURVA_LIGADA = true;" in html and "const cf = confereCos(p); if (!cf.ok) return null;" in html
     cc = html[html.index("async function curvaCos(u, dr, invNome, dia) {"):]
     cc = cc[:cc.index("\n}\n")]
     assert 'nexusPega("/t/performance/sala-de-controle/cos/entradas?inv=" + encodeURIComponent(p.s.id) + "&dia=" + dia)' in cc
-    assert "if (!pr.porNome && !(p.s.strings && p.s.strings === p.iv.s.length)) return null;" in cc     # par pela ordem só com as mesmas strings
+    assert "if (!cf.ok) return null;" in cc                                                           # sem a conferência das strings, a curva é a da fonte
     assert "pt.s[k] / 100" in cc and "buraco" in cc                                               # centésimos de A; o buraco não se liga
     assert "} catch (e) { return null; }" in cc                                                   # qualquer falha: vale a fonte
     assert 'const n = normN(x.nome), b = n.replace(/\\s+(\\d+|i{1,3}|iv|v)$/, ""); return b !== n ? tr.filter(u => normN(u.u) === b) : [];' in html
@@ -1141,3 +1141,28 @@ def test_a_api_do_campo_manda_a_cabine_do_tracker():
     assert '"cabine": (lambda m: f"Cabine {int(m.group(1))}" if m else "")(re.search(r"(\\d+)\\.\\d+\\s*$", str(r.get("inversor") or ""))),' in fonte
     m = app.re.search(r"(\d+)\.\d+\s*$", "Inversor 02.13")
     assert m and int(m.group(1)) == 2 and app.re.search(r"(\d+)\.\d+\s*$", "INVERSOR08") is None      # sem o padrão N.M, sem cabine
+
+
+def test_o_cos_liga_o_inversor_pelo_nome_e_so_vale_com_as_strings_conferidas():
+    """Levi, 17/11/2026: "As usinas da API PV tem que dar prioridade a API do COS na parte das strings e eu quero saber
+    quais estão puxando os dados de lá". E o caso do Roger (Rodrigues 1): o 1.3 ligado pela ordem ao SKID 1 · INV02. A
+    regra roda de verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert "meus.length === doCos.length ? meus.map((iv, k) => ({iv, s: doCos[k]}))" not in html       # nunca mais pela ordem
+    assert '<span class="cosm"' in html and "COS: ${ok} de ${dr.inv.length} inversores conferidos" in html   # a tela diz quem vem de lá
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const chaveInv = n =>"):html.index("function paresCos(u, dr) {")]
+    iv = {"n": "Inversor 1.3", "s": [["Ipv1", 8.8, "ativa"], ["Ipv2", 9.1, "ativa"], ["Ipv3", 0, "sem_corrente"], ["Ipv4", 0, "trancada"], ["Ipv5", 4.0, "baixa_perf"], ["Ipv6", 8.7, "ativa"]]}
+    certo = {"ss": [[1, 8.9], [2, 9.0], [3, 0], [4, 0], [5, 4.1], [6, 8.6]]}
+    errado = {"ss": [[1, 8.9], [2, 0], [3, 9.0], [4, 0], [5, 4.1], [6, 8.6]]}        # a 2 e a 3 trocadas: é outro inversor
+    noite = {"ss": [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0]]}
+    script = (js + "\nconst iv = " + json.dumps(iv) + ";\nconsole.log(JSON.stringify([chaveInv('Inversor 1.3'), chaveInv('INVERSOR08'), chaveCos('SKID 1 - INV02', 1, 1), chaveCos('SKID 1 - INV03', 1, 1), "
+              "chaveCos('Inversor 2.10', 1, 1), chaveCos('INVERSOR03', 4, 2), chaveCos('INVERSOR03', 1, 1), chaveCos('Estacao', 1, 1), "
+              "confereCos({iv, s: " + json.dumps(certo) + "}).ok, confereCos({iv, s: " + json.dumps(certo) + "}).zer, confereCos({iv, s: " + json.dumps(errado) + "}).ok, confereCos({iv, s: " + json.dumps(noite) + "}).ok, confereCos({iv, s: {}}).ok]));")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == ["1.3", None, "1.2", "1.3", "2.10", "2.3", "1.3", None, True, 1, False, False, False]      # zer = 1: a Ipv3 parada nas duas (a trancada não entra)
