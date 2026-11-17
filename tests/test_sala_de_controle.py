@@ -200,7 +200,7 @@ def test_o_abaixo_dos_demais_vem_do_nexus_e_diz_quando_nao_leu():
 def test_a_idade_real_e_o_novo_por_pessoa_entram_na_montagem():
     html = _html()
     assert 'pega("/api/sala/idade", 60000).catch(() => null), pega("/api/sala/visto", 20000).catch(() => null)' in html
-    montar = html[html.index("function montar(ent, fal, idr, vis) {"):html.index("let ABX = null")]
+    montar = html[html.index("function montar(ent, fal, idr, vis, arr) {"):html.index("let ABX = null")]
     assert "real[e.usina + \"|\" + e.inversor + \"|\" + e.string]" in montar     # quem vinha parado no dia 1 ganha a data real
     assert 'k: "s|" + e.usina + "|" + e.inversor + "|" + e.string + "|" + r.d0' in montar   # a chave do visto é a parada real
     assert "if (e.aberta && String(e.ini) >= desde && !meu(e.k))" in montar     # novo = parou depois da 1ª vez, segue parado, não vi
@@ -597,9 +597,9 @@ def test_a_aba_etm_mostra_os_sinais_que_a_entrada_conta():
 def test_a_engrenagem_abre_as_fontes_do_tempo_real_so_para_quem_administra():
     html = _html()
     assert '<button class="eng" id="eng"' in html and 'if ((x = q("#eng"))) { abrirConfig(); return; }' in html
-    cfg = html[html.index("async function abrirConfig() {"):]
-    cfg = cfg[:cfg.index("\n}") + 2]
-    assert "if (!ADM || !ADM.abre_admin) {" in cfg and 'src="/admin/tempo-real?janela=1"' in cfg
+    cfg = html[html.index("function pintaConfig() {"):html.index("function filtraConfig() {")]
+    assert "const fontes = ADM && ADM.abre_admin" in cfg and 'src="/admin/tempo-real?janela=1"' in cfg
+    assert '${fontes ? `<button class="btnl ${CFG_ABA === "fontes" ? "on" : ""}" data-cfgaba="fontes">' in cfg   # só quem administra vê a aba
     assert "if (cfg) ligar(false);" in html                                                    # fechar relê a lateral
     with app.app.test_client() as c:
         pagina = c.get("/admin/tempo-real?janela=1").get_data(as_text=True)
@@ -657,3 +657,53 @@ def test_a_curva_do_banco_tem_copia_e_um_pedido_so_no_ar(cli, monkeypatch):
     r = cli.get("/api/pg/curva/34?data=2026-11-01")
     assert r.status_code == 500 and app._pg_curva_no_ar == {}            # a falha não fica guardada nem trava o próximo
     assert 'url = "/api/pg/curva/" + encodeURIComponent(pid) + "?data=" + dia;' in _html()      # a usina inteira, uma vez
+
+
+# --- nomes e grupos das UFVs só na Sala (16/11/2026, noite) -----------------------------------------------------------
+def test_o_arranjo_guarda_so_o_que_esta_no_formato(tmp_path):
+    """Levi: "eu deverei também conseguir editar o nome e agrupar UFVs"; "Só sala!"; "cada usina diferente!"."""
+    a = S.Arranjo(str(tmp_path / "sala_arranjo.json"))
+    assert a.ler() == {"nomes": {}, "grupos": {}, "por": "", "em": ""}                     # sem arquivo, nada mudou
+    d = a.gravar({"thopen-pv|18747508": "  Guatambu   Sul ", "thopen-db|20": ""}, {"thopen-pv|18747508": "Complexo G", "apolo|gravata_ii": "Complexo G"},
+                 "Pessoa de Teste", S.datetime(2026, 11, 16, 22, 30))
+    assert d["nomes"] == {"thopen-pv|18747508": "Guatambu Sul"}                             # espaço sobrando sai; vazio some
+    assert d["grupos"] == {"thopen-pv|18747508": "Complexo G", "apolo|gravata_ii": "Complexo G"}
+    assert a.ler() == {**d, "por": "Pessoa de Teste", "em": "2026-11-16 22:30"}
+    a.gravar({}, {}, "Outra", S.datetime(2026, 11, 17, 8, 0))                               # gravar troca o quadro inteiro
+    assert a.ler()["nomes"] == {} and a.ler()["grupos"] == {}
+    for ruim in ({"sem barra": "x"}, {"thopen-pv|1": 5}, {"thopen-pv|1": "x" * 61}, {"A|1": "x"}, ["lista"], {"thopen-pv|1": "a\x07b"}):
+        with pytest.raises(ValueError):
+            S.arranjo_limpo(ruim)
+    assert S.arranjo_limpo(None) == {}
+
+
+def test_a_rota_do_arranjo_le_para_todos_e_grava_so_para_quem_administra(cli, monkeypatch, tmp_path):
+    monkeypatch.setattr(app, "_SALA_ARRANJO", S.Arranjo(str(tmp_path / "sala_arranjo.json")))
+    assert cli.get("/api/sala/arranjo").get_json() == {"ok": True, "nomes": {}, "grupos": {}, "por": "", "em": ""}
+    monkeypatch.setattr(app, "_eu_abre_grava", lambda: (True, False))                        # o gestor admin abre, mas não grava
+    r = cli.post("/api/sala/arranjo", json={"nomes": {"thopen-pv|1": "X"}, "grupos": {}})
+    assert r.status_code == 403 and cli.get("/api/sala/arranjo").get_json()["nomes"] == {}
+    monkeypatch.setattr(app, "_eu_abre_grava", lambda: (True, True))
+    r = cli.post("/api/sala/arranjo", json={"nomes": {"thopen-pv|1": "Usina Um"}, "grupos": {"thopen-pv|1": "Grupo A"}})
+    assert r.status_code == 200 and r.get_json()["nomes"] == {"thopen-pv|1": "Usina Um"}
+    d = cli.get("/api/sala/arranjo").get_json()
+    assert d["grupos"] == {"thopen-pv|1": "Grupo A"} and d["em"]
+    assert cli.post("/api/sala/arranjo", json={"nomes": {"sem barra": "x"}}).status_code == 400
+    assert cli.get("/api/sala/arranjo").get_json()["nomes"] == {"thopen-pv|1": "Usina Um"}   # o pedido torto não apagou nada
+    # o gestor (passe do Nexus) lê e não grava; a ponte de leitura não ganhou a rota
+    import leitura_nexus as LN
+    assert "/api/sala/arranjo" not in LN.POSTS_DE_CONSULTA_GESTOR and "/api/sala/arranjo" not in LN._GET
+
+
+def test_a_tela_mostra_o_nome_da_sala_e_junta_os_grupos_sem_somar():
+    html = _html()
+    assert 'rot: (arr && arr.nomes[g.fonte_id + "|" + u.plant_id]) || u.usina, gr: (arr && arr.grupos[g.fonte_id + "|" + u.plant_id]) || "",' in html
+    assert "return {u: u.usina, pid: u.plant_id," in html                                    # a chave da usina segue a da fonte
+    assert 'pega("/api/sala/arranjo", 20000).catch(() => null)' in html and "if (arrL && arrL.nomes) ARR_LIDO.v = arrL;" in html
+    assert '<div class="ug">${u.gr ? esc(u.gr) : "Sem grupo"}' in html and "(a.gr ? 0 : 1) - (b.gr ? 0 : 1) || natural(a.gr, b.gr)" in html
+    assert 'data-u="${esc(u.u)}" title="${esc(u.rot)}${u.rot !== u.u ? " (na fonte: " + esc(u.u) + ")" : ""}' in html
+    assert '$("recorte").textContent = SEL.u ? "· " + rotN(SEL.u, SEL.g)' in html
+    cfg = html[html.index("function pintaConfig() {"):html.index("function filtraConfig() {")]
+    assert "só na Sala de controle" in cfg and 'data-cfgn="${esc(k)}"' in cfg and 'data-cfgg="${esc(k)}" list="cfggr"' in cfg
+    assert '${gravaC ? "" : "disabled"}' in cfg and "gravaC ? '<button class=\"btn\" data-cfgsalvar=\"1\">Salvar</button>' : \"\"" in cfg
+    assert 'await grava("/api/sala/arranjo", {nomes: limpa(ARRED.nomes), grupos: limpa(ARRED.grupos)});' in html

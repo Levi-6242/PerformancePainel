@@ -196,6 +196,8 @@ falhas_strings.json
 # Sala de controle: quem viu o quê (estado da máquina, como as notas do relatório semanal)
 sala_visto.json
 sala_visto.json.tmp
+sala_arranjo.json
+sala_arranjo.json.tmp
 falhas_pv_dev.json
 falhas_os_abertas.json
 falhas_importar_perdas.json*

@@ -2643,8 +2643,15 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   - **Lateral:** os valores no centro; o cartão da fonte numa altura menor (~58 px, o rótulo, o número e o "de N" numa
     linha: "para ficar em um formato que caiba mais coisas"); a **engrenagem** ao lado do título abre por cima a tela
     Fontes do tempo real da administração (`/admin/tempo-real?janela=1`: o que cada fonte tem, o que entra, o que fica de
-    fora), só para quem o `/api/eu` diz que administra; fechar relê a lateral. **Renomear e agrupar UFVs não existe**
-    (pergunta em aberto com o Levi: vale para todo o Tempo real ou só na Sala; agrupar soma ou só junta na lista).
+    fora), só para quem o `/api/eu` diz que administra; fechar relê a lateral.
+  - **Nomes e grupos das UFVs, SÓ na Sala** (a 1ª aba da engrenagem; Levi, perguntado: "Só sala!", "cada usina
+    diferente!"): `/api/sala/arranjo` (`sala_controle.Arranjo`, arquivo `sala_arranjo.json` da máquina, fora do git como o
+    `sala_visto.json`: num servidor refeito do zero, some). A chave é `<fonte da tela>|<id da usina na fonte>`. O nome é
+    RÓTULO (`u.rot`, `rotN`): lateral, cabeçalho e tabelas mostram o nome novo, e a usina continua sendo a da fonte em
+    tudo o que liga dado (`u.u` nos `data-*`, falhas, OS, comentários, de-para); a dica do mouse diz o nome da fonte. O
+    grupo (`u.gr`) só JUNTA as usinas na lateral, dentro da fonte delas, com um cabeçalho; nada se soma. Lê todo mundo
+    que abre a Sala; grava quem administra e grava (`_eu_abre_grava`, a conta do `/api/eu`): o gestor vê e não grava, e a
+    ponte de leitura do Nexus não tem a rota. Não muda o Tempo real, o Monitoramento, o Painel NOC, a ronda nem o sino.
   - **Strings com mais de 2 h sem corrente hoje** (`u.sd`, `D.sdI` por inversor): "para quando não tiver sol mesmo assim
     conseguirmos ver". Sai do pacote de falhas (o `gerado_em` dele é o frescor: o que parou depois da última geração do
     pacote só entra na seguinte): o episódio que começou hoje conta pelas horas de sol dele (`h_sol >= 2`); o que já

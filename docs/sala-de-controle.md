@@ -110,8 +110,8 @@ nas usinas da API PV que têm logger. Detalhe e medições em `plataforma/CLAUDE
 
 ## Em aberto com o Levi
 
-- Renomear e agrupar UFVs pela engrenagem: não existe hoje; falta dizer se vale para todo o Tempo real ou só para a Sala,
-  e se agrupar soma numa linha ou só junta na lista.
+- (Fechado em 16/11, noite) Renomear e agrupar UFVs: só na Sala, e o grupo só junta (cada usina com os números dela).
+  Está na 1ª aba da engrenagem.
 
 - O corte do "Ver agora" (no mockup, 8 dias ou mais sem OS; agora com a idade real).
 - (Fechado em 16/11) A Geração do mês "lenta" era a largada depois de um deploy: com o servidor assentado, 0,4 s.

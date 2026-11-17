@@ -394,3 +394,60 @@ def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
             de(r.get("usina"))["trackers"] += 1
     out = [{"usina": o["usina"], "strings": o["strings"], "inversores": len(o["inv"]), "trackers": o["trackers"]} for o in por.values()]
     return sorted(out, key=lambda x: (-(x["strings"] + x["trackers"]), str(x["usina"])))
+
+
+# ── Os nomes e os grupos das UFVs SÓ na Sala (16/11/2026, noite) ────────────────────────────────────────────────────
+# Levi, sobre a engrenagem: "eu deverei também conseguir editar o nome e agrupar UFVs"; e, perguntado: "Só sala!" (não
+# muda o Tempo real, o Monitoramento, o Painel NOC nem a ronda) e "cada usina diferente!" (o grupo só junta as usinas na
+# lista; cada uma segue com os números dela, nada se soma). O nome novo é RÓTULO: a usina continua sendo a da fonte em
+# tudo o que liga dado (falhas, OS, comentários, de-para). A chave é "<fonte da tela>|<id da usina na fonte>".
+ARRANJO_MAX, ARRANJO_TEXTO_MAX = 3000, 60
+_ARRANJO_CHAVE = re.compile(r"[a-z0-9_-]{1,40}\|[^|\x00-\x1f]{1,80}")
+
+
+def arranjo_limpo(d) -> dict:
+    """{chave: texto} sem vazio, sem espaço sobrando e sem caractere de controle. Fora do formato: ValueError."""
+    if d is None:
+        return {}
+    if not isinstance(d, dict) or len(d) > ARRANJO_MAX:
+        raise ValueError("nomes e grupos: um objeto {chave: texto}")
+    limpo = {}
+    for k, v in d.items():
+        if not isinstance(k, str) or not _ARRANJO_CHAVE.fullmatch(k) or not isinstance(v, str):
+            raise ValueError("chave ou texto fora do formato")
+        v = " ".join(v.split())
+        if any(ord(c) < 32 for c in v) or len(v) > ARRANJO_TEXTO_MAX:
+            raise ValueError("texto com mais de %d letras ou com caractere de controle" % ARRANJO_TEXTO_MAX)
+        if v:
+            limpo[k] = v
+    return limpo
+
+
+class Arranjo:
+    """O arquivo dos nomes e dos grupos: {"nomes": {chave: nome}, "grupos": {chave: grupo}, "por", "em"}. Gravar troca
+    tudo de uma vez (a tela manda o quadro inteiro), com trava e troca atômica, como o visto."""
+
+    def __init__(self, caminho, gravar_atomico=None):
+        self.caminho = caminho
+        self._trava = threading.Lock()
+        self._troca = gravar_atomico or os.replace
+
+    def ler(self) -> dict:
+        try:
+            with open(self.caminho, encoding="utf-8") as f:
+                d = json.load(f)
+        except FileNotFoundError:
+            d = {}
+        if not isinstance(d, dict):
+            raise ValueError("arquivo dos nomes e grupos fora do formato")
+        return {"nomes": d.get("nomes") or {}, "grupos": d.get("grupos") or {}, "por": d.get("por") or "", "em": d.get("em") or ""}
+
+    def gravar(self, nomes, grupos, quem: str, agora: datetime) -> dict:
+        d = {"nomes": arranjo_limpo(nomes), "grupos": arranjo_limpo(grupos), "por": quem or "", "em": agora.strftime("%Y-%m-%d %H:%M")}
+        with self._trava:
+            os.makedirs(os.path.dirname(self.caminho) or ".", exist_ok=True)
+            tmp = self.caminho + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
+            self._troca(tmp, self.caminho)
+        return d

@@ -1503,12 +1503,18 @@ def api_eu():
     portão o deixa só ler (`permitido_gestor` recusa o POST do `/api/admin/de-para/decidir`): no Modo de-para ele gravava a
     estrutura no Nexus (que só confere o admin dele) e a ponte da fonte levava 403, gravação pela metade. O Salvar do modo
     e o botão do Tempo real pedem este campo; o gestor vê a tabela só de leitura."""
+    abre, grava = _eu_abre_grava()
+    return jsonify({"abre_admin": abre, "grava_admin": grava})
+
+
+def _eu_abre_grava() -> tuple:
+    """(abre a administração, grava nela) da sessão de agora: a conta do `/api/eu`, para a rota que precisa dela."""
     if getattr(flask_g, "nexus_leitura_ok", False) or not session.get("auth"):
-        return jsonify({"abre_admin": False, "grava_admin": False})
+        return False, False
     passe = session.get("auth_kind") == "nexus"
     abre = not passe or bool(session.get("admin_nexus"))
     gestor = passe and _pn.perfil_de(session.get("user"), PLATAFORMA_ANALISTAS, PLATAFORMA_GESTORES) == _pn.GESTOR
-    return jsonify({"abre_admin": abre, "grava_admin": abre and not gestor})
+    return abre, abre and not gestor
 
 
 @app.route("/admin/de-para")
@@ -31129,6 +31135,29 @@ def api_sala_visto():
         return jsonify({"ok": True, **_SALA_VISTOS.da_pessoa(pid, nome, agora)})
     except (OSError, ValueError) as e:
         return jsonify({"ok": False, "motivo": f"o registro do visto não abriu ({type(e).__name__})"}), 500
+
+
+_SALA_ARRANJO = _sala.Arranjo(_p_dado("sala_arranjo.json"), _replace_atomico)
+
+
+@app.route("/api/sala/arranjo", methods=["GET", "POST"])
+def api_sala_arranjo():
+    """Os nomes e os grupos das UFVs SÓ na Sala de controle (Levi, 16/11/2026: "Só sala!", "cada usina diferente!").
+    GET: {"nomes", "grupos", "por", "em"}, para todo mundo que abre a tela. POST {"nomes", "grupos"}: troca o quadro
+    inteiro; grava quem administra e grava (`grava_admin` do `/api/eu`), como a engrenagem das fontes."""
+    try:
+        if flask_request.method == "POST":
+            if not _eu_abre_grava()[1]:
+                return jsonify({"ok": False, "motivo": "só quem administra a plataforma muda os nomes e os grupos"}), 403
+            body = flask_request.get_json(force=True, silent=True) or {}
+            try:
+                d = _SALA_ARRANJO.gravar(body.get("nomes"), body.get("grupos"), _sala_pessoa()[1] or _sala_pessoa()[0], datetime.now())
+            except ValueError as e:
+                return jsonify({"ok": False, "motivo": str(e)}), 400
+            return jsonify({"ok": True, **d})
+        return jsonify({"ok": True, **_SALA_ARRANJO.ler()})
+    except (OSError, ValueError) as e:
+        return jsonify({"ok": False, "motivo": f"o arquivo dos nomes e grupos não abriu ({type(e).__name__})"}), 500
 
 
 _sala_pacote_mem = {"marca": None, "dado": None}

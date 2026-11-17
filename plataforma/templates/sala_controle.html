@@ -368,6 +368,15 @@
   .grade2 .sec h2{margin-bottom:8px}.grade2 .sec>p{display:none}
   @media (max-width:1250px){.grade2{grid-template-columns:1fr}}
 
+  /* nomes e grupos só na Sala (16/11, noite): o cabeçalho do grupo na lateral e a janela da engrenagem */
+  .lado .f .ug{display:flex;align-items:baseline;gap:6px;padding:8px 8px 3px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--verde)}
+  .lado .f .ug small{color:var(--fraco);text-transform:none;letter-spacing:0;font-size:10.5px}
+  .lado .f .u.dg{padding-left:16px}
+  .modal>div.cfgj{width:min(1180px,100%);max-height:calc(100vh - 80px);display:flex;flex-direction:column;gap:12px}
+  .cfgj p{margin:0;color:var(--mudo);font-size:12.5px;line-height:1.5}
+  .cfgj .cfgl{flex:1;min-height:0;overflow:auto;max-height:calc(100vh - 330px)}
+  .cfgj .cfgl td{padding:4px 8px}.cfgj .cfgl input.campo{width:100%;padding:5px 8px;background:var(--fundo)}
+  .cfgj iframe{width:100%;height:calc(100vh - 190px);border:0;border-radius:10px;background:var(--fundo)}
   /* retornos de 16/11 (noite): os valores no centro, a lista de inversores, a engrenagem */
   .lado .tri div{text-align:center}
   /* 1.16 (Levi, 16/11/2026: "reduza um pouco a altura desses cards, para ficar em um formato que caiba mais coisas"): o
@@ -419,7 +428,7 @@
 <body>
 <div class="tela">
   <aside class="lado">
-    <div class="lt"><span>Fontes do tempo real<button class="eng" id="eng" title="Configurar o que aparece no tempo real: o que entra, o que fica de fora e o que a fonte tem disponível" aria-label="Configurar as fontes do tempo real"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></span> <span id="fresco1"></span></div>
+    <div class="lt"><span>Fontes do tempo real<button class="eng" id="eng" title="Configurar a Sala: o nome e o grupo de cada usina (só aqui) e o que entra no tempo real" aria-label="Configurar a Sala de controle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></span> <span id="fresco1"></span></div>
     <label class="buscaN" title="Filtra as usinas e as fontes pelo nome"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar usina ou fonte…" aria-label="Buscar usina ou fonte"></label>
     <div class="cab"><span>Fonte · usina</span><span>Strings<small>sem acomp. / fora</small></span><span>Trackers<small>sem OS / parados</small></span><span>ETM<small>alarme</small></span></div>
     <div id="arvore"></div>
@@ -467,9 +476,12 @@ async function pega(url, ms) {
 }
 const CLI = {"2C": "2c", "SEMP": "semp", "Alves Lima": "alveslima", "Sal Energia": "salenergia", "Axis": "axis", "Athon": "athon", "Renogrid": "renogrid", "RenoGrid": "renogrid", "Apolo": "apolo", "Greenyellow": "greenyellow", "GreenYellow": "greenyellow"};
 // o pacote de falhas do mês (Strings e trackers) vira o que a visão geral precisa: por dia, a idade de cada parada, a perda
-function montar(ent, fal, idr, vis) {
+// O nome que a Sala mostra: o que foi dado na engrenagem (só aqui), ou o da fonte. A CHAVE da usina segue a da fonte.
+const rotN = (n, g) => (D && D.rot && (D.rot[g + "|" + n] || D.rot[n])) || n;
+function montar(ent, fal, idr, vis, arr) {
   const grupos = (ent.grupos || []).map(g => ({id: g.fonte_id, usinas: (g.usinas || []).map(u => { const al = u.etm_alarmes == null ? (u.etm_alarme ? 1 : 0) : Array.isArray(u.etm_alarmes) ? u.etm_alarmes.length : +u.etm_alarmes || 0;
     return {u: u.usina, pid: u.plant_id, st: u.status, causa: u.causa || "", sf: +u.strings_faltando || 0, sa: +u.strings_acomp || 0, sn: +u.strings_nao_rec || 0, tp: +u.trk_parados || 0, to: +u.trk_com_os || 0, ea: al, eo: !!u.etm_os, inv: +u.qtd_inversores || 0, off: +u.inv_off || 0, sd: 0,
+      rot: (arr && arr.nomes[g.fonte_id + "|" + u.plant_id]) || u.usina, gr: (arr && arr.grupos[g.fonte_id + "|" + u.plant_id]) || "",
       etmL: Array.isArray(u.etm) ? u.etm.map(String) : [], etmA: Array.isArray(u.etm_alarmes) ? u.etm_alarmes.map(String) : []}; })})).filter(g => NOME[g.id]);
   const d = {fresco: {ttl_s: ent.ttl_s, lido: ent.cache_ts || ""}, grupos, falhas_em: "", dias: [], serie: [], perda: [], idade: [], baixos: [], eps: {}, sdI: {}, drill: {}, curvas: {}, etmG: {}, scada: {}, estado: {acomp: {}, coment: {}, os: {}, osErro: {}},
     trkc: {usina: null, dias: {}}, trkp: [], trkRows: [], novas: {desde: "", s: [], t: []}, osHist: {}, osHistFalhou: [], osHistMotivo: {}, curva: {usina: null, dia: "", inv: {}}, curvaDias: {}, conf: {usinas: {}, scada_total: 0, scada_nomes: []}, depara: {usina: null}, ger: {usina: null}, pot: {usina: null}, insp: {usina: null, eps: {}, paradas: {}, abertas: []}};
@@ -496,6 +508,8 @@ function montar(ent, fal, idr, vis) {
   d.idade = Object.entries(ab).map(([k, a]) => { const [g, u, i] = k.split("|"), abertas = (oss[u + "|" + i] || []).filter(o => !/^(conclu|cancel)/i.test(o.status || "")).sort((x, y) => String(x.data_evento).localeCompare(String(y.data_evento))), o = abertas[0];
     return {g, u, i, n: a.n, d0: a.d0, dias: dd(hoje, a.d0), antes: a.antes, kwh: Math.round(a.kwh), os: o ? {n: o.os, st: o.status, d: o.data_evento, dias: dd(hoje, o.data_evento)} : null}; }).sort((x, y) => y.dias - x.dias || y.n - x.n);
   d.mesIni = d1mes || "";
+  d.arr = {nomes: (arr && arr.nomes) || {}, grupos: (arr && arr.grupos) || {}, por: (arr && arr.por) || "", em: (arr && arr.em) || ""};
+  d.rot = {}; grupos.forEach(g => g.usinas.forEach(u => { if (u.rot !== u.u) { d.rot[g.id + "|" + u.u] = u.rot; if (!d.rot[u.u]) d.rot[u.u] = u.rot; } }));
   // (1.2) As strings que ficaram MAIS DE 2 HORAS sem corrente no período solar de HOJE (Levi, 16/11/2026: "é importante
   // contar quantas ficaram mais que 2 horas nulas em período solar para quando não tiver sol mesmo assim conseguirmos
   // ver"). De noite o "fora agora" é zero, e a parada do dia sumia da tela. Sai das falhas do dia: a parada que começou
@@ -918,13 +932,16 @@ function arvore() {
   const v = n => n ? `<b>${n}</b>` : '<span class="zero">—</span>';
   let h = `<div class="f"><div class="g ${!SEL.g ? "on" : ""}" data-g=""><div class="l1"><b>Todas as fontes</b><small>${D.grupos.length} fontes · ${todas().length} usinas</small></div>${tri(todas())}</div></div>`;
   D.grupos.forEach(g => {
-    const us = g.usinas.filter(u => !q || u.u.toLowerCase().includes(q) || NOME[g.id].toLowerCase().includes(q));
+    const us = g.usinas.filter(u => !q || u.u.toLowerCase().includes(q) || u.rot.toLowerCase().includes(q) || u.gr.toLowerCase().includes(q) || NOME[g.id].toLowerCase().includes(q));
     if (!us.length) return;
     const aberto = ABERTOS.has(g.id) || (q && us.length < g.usinas.length);
     h += `<div class="f ${aberto ? "aberto" : ""} ${nNovas(g.usinas) && !CLICADAS.has("g|" + g.id) ? "pulsa" : ""}"><div class="g ${SEL.g === g.id && !SEL.u ? "on" : ""}" data-g="${g.id}"><div class="l1"><span class="seta" title="Abrir ou recolher as usinas desta fonte, sem sair da tela">›</span><b><span class="gn" title="Ver só esta fonte na tela">${esc(NOME[g.id])}</span>${pill(nNovas(g.usinas))}</b><small>${g.usinas.length} usinas</small></div>${tri(g.usinas)}</div>` +
       `<div class="us"><div class="uc"><span>Usina</span><span>Str.</span><span>Trk.</span><span>ETM</span></div>` +
-      us.slice().sort((a, b) => (CRIT[a.st] ?? 5) - (CRIT[b.st] ?? 5) || (b.sn + b.tp - b.to) - (a.sn + a.tp - a.to) || a.u.localeCompare(b.u)).map(u =>
-        `<div class="u ${SEL.g === g.id && SEL.u === u.u ? "on" : ""} ${nNovas([u]) && !CLICADAS.has("u|" + u.u) ? "pulsa" : ""}" data-g="${g.id}" data-u="${esc(u.u)}" title="${esc(u.u)} · ${esc(SIT[u.st] || "")}${u.causa ? " · " + esc(u.causa) : ""} · strings sem acompanhamento ${u.sn} de ${u.sf}${u.sd ? " · " + u.sd + " com mais de 2 h sem corrente hoje" : ""} · trackers sem OS ${u.tp - u.to} de ${u.tp}"><span class="n"><span class="pt ${u.st}"></span>${esc(u.u)}${pill(nNovas([u]))}</span><span>${v(u.sf ? u.sn : u.sd)}</span><span>${v(u.tp - u.to)}</span><span>${v(u.ea ? 1 : 0)}</span></div>`).join("") + "</div></div>";
+      // os grupos da engrenagem primeiro (em ordem de nome), cada um com o cabeçalho dele; dentro, a ordem de sempre.
+      // O grupo só JUNTA: cada usina segue com os números dela (Levi: "cada usina diferente!")
+      us.slice().sort((a, b) => (a.gr ? 0 : 1) - (b.gr ? 0 : 1) || natural(a.gr, b.gr) || (CRIT[a.st] ?? 5) - (CRIT[b.st] ?? 5) || (b.sn + b.tp - b.to) - (a.sn + a.tp - a.to) || a.rot.localeCompare(b.rot)).map((u, k, l) =>
+        (us.some(z => z.gr) && (!k || l[k - 1].gr !== u.gr) ? `<div class="ug">${u.gr ? esc(u.gr) : "Sem grupo"} <small>${l.filter(z => z.gr === u.gr).length}</small></div>` : "") +
+        `<div class="u ${u.gr ? "dg" : ""} ${SEL.g === g.id && SEL.u === u.u ? "on" : ""} ${nNovas([u]) && !CLICADAS.has("u|" + u.u) ? "pulsa" : ""}" data-g="${g.id}" data-u="${esc(u.u)}" title="${esc(u.rot)}${u.rot !== u.u ? " (na fonte: " + esc(u.u) + ")" : ""}${u.gr ? " · grupo " + esc(u.gr) : ""} · ${esc(SIT[u.st] || "")}${u.causa ? " · " + esc(u.causa) : ""} · strings sem acompanhamento ${u.sn} de ${u.sf}${u.sd ? " · " + u.sd + " com mais de 2 h sem corrente hoje" : ""} · trackers sem OS ${u.tp - u.to} de ${u.tp}"><span class="n"><span class="pt ${u.st}"></span>${esc(u.rot)}${pill(nNovas([u]))}</span><span>${v(u.sf ? u.sn : u.sd)}</span><span>${v(u.tp - u.to)}</span><span>${v(u.ea ? 1 : 0)}</span></div>`).join("") + "</div></div>";
   });
   $("arvore").innerHTML = h;
 }
@@ -1091,16 +1108,51 @@ async function osDaEstacaoHist(offset) {
   } catch (e) { if ($("modal").innerHTML) casca("<p>Não consegui ler as OS da estação: " + esc(e && e.message || e) + "</p>"); }
 }
 let CFGJ = false;
-function fecharJanela() { if (OSJ || $("modal").innerHTML) { const cfg = CFGJ; OSJ = null; CFGJ = false; $("modal").innerHTML = ""; if (cfg) ligar(false); } }
+function fecharJanela() { if (OSJ || $("modal").innerHTML) { const cfg = CFGJ; OSJ = null; CFGJ = false; ARRED = null; $("modal").innerHTML = ""; if (cfg) ligar(false); } }
 // A engrenagem (Levi, 16/11/2026: "para eu configurar o que aparece e não aparece no tempo real, e o que está disponível
 // para aparecer e eu posso alocar"): a tela Fontes do tempo real da administração (o que cada fonte devolve, o que entra e
 // o que fica de fora), aberta por cima. É administração: abre para quem o /api/eu diz que abre. Fechar relê a lateral.
+// E os NOMES E GRUPOS (Levi, 16/11/2026: "eu deverei também conseguir editar o nome e agrupar UFVs"; "Só sala!"; "cada
+// usina diferente!"): o nome que a Sala mostra e o grupo que junta as usinas na lateral. Vale só aqui e para todo mundo
+// que abre a Sala; a usina continua sendo a da fonte em tudo o que liga dado. Grava quem administra (`grava_admin`).
+let CFG_ABA = "nomes", ARRED = null, CFG_Q = "";
 async function abrirConfig() {
   if (!ADM) await lerEu();
-  if (!ADM || !ADM.abre_admin) { toast("Configurar as fontes é administração: abre para quem é administrador do Nexus"); return; }
-  CFGJ = true;
-  $("modal").innerHTML = `<div class="modal" data-fechar-os="1"><div class="jan" role="dialog" aria-label="Fontes do tempo real"><iframe title="Fontes do tempo real" src="/admin/tempo-real?janela=1"></iframe><button class="x" data-fechar-os="1" aria-label="Fechar a janela">×</button></div></div>`;
+  CFGJ = true; CFG_ABA = "nomes"; CFG_Q = "";
+  ARRED = {nomes: Object.assign({}, D.arr.nomes), grupos: Object.assign({}, D.arr.grupos)};
+  pintaConfig();
 }
+function pintaConfig() {
+  const fontes = ADM && ADM.abre_admin, gravaC = !!(ADM && ADM.grava_admin);
+  const abas = `<div class="diasel"><button class="btnl ${CFG_ABA === "nomes" ? "on" : ""}" data-cfgaba="nomes">Nomes e grupos (só na Sala)</button>${fontes ? `<button class="btnl ${CFG_ABA === "fontes" ? "on" : ""}" data-cfgaba="fontes">O que entra no tempo real</button>` : ""}<span style="flex:1"></span><button class="btnl" data-fechar-os="1">Fechar</button></div>`;
+  let corpo;
+  if (CFG_ABA === "fontes") corpo = `<iframe title="Fontes do tempo real" src="/admin/tempo-real?janela=1"></iframe>`;
+  else {
+    const grs = [...new Set(Object.values(ARRED.grupos).map(v => String(v).trim()).filter(Boolean))].sort(natural);
+    corpo = `<p>O nome e o grupo valem <b>só na Sala de controle</b>, para todos que a abrem: o Tempo real, o Monitoramento, o Painel NOC e a ronda seguem com o nome da fonte. O grupo só junta as usinas na lateral; cada uma continua com os números dela. Campo vazio = o nome da fonte, sem grupo.${D.arr.em ? ` Última gravação: ${esc(D.arr.em.slice(8, 10) + "/" + D.arr.em.slice(5, 7) + " às " + D.arr.em.slice(11))}${D.arr.por ? " por " + esc(D.arr.por) : ""}.` : ""}</p>
+      <input class="campo" id="cfgq" placeholder="Buscar usina ou fonte…" value="${esc(CFG_Q)}" style="background:var(--fundo)">
+      <datalist id="cfggr">${grs.map(g => `<option value="${esc(g)}"></option>`).join("")}</datalist>
+      <div class="rol cfgl"><table><thead><tr><th>Usina (nome da fonte)</th><th>Fonte</th><th>Nome na Sala</th><th>Grupo</th></tr></thead><tbody>` +
+      D.grupos.flatMap(g => g.usinas.slice().sort((a, b) => natural(a.u, b.u)).map(u => { const k = g.id + "|" + u.pid;
+        return `<tr data-cfgl="${esc((u.u + " " + NOME[g.id]).toLowerCase())}"><td style="text-align:left"><b>${esc(u.u)}</b></td><td style="text-align:left">${esc(NOME[g.id])}</td><td><input class="campo" data-cfgn="${esc(k)}" value="${esc(ARRED.nomes[k] || "")}" placeholder="${esc(u.u)}" maxlength="60" aria-label="Nome na Sala de ${esc(u.u)}" ${gravaC ? "" : "disabled"}></td><td><input class="campo" data-cfgg="${esc(k)}" list="cfggr" value="${esc(ARRED.grupos[k] || "")}" placeholder="sem grupo" maxlength="60" aria-label="Grupo de ${esc(u.u)}" ${gravaC ? "" : "disabled"}></td></tr>`; })).join("") + `</tbody></table></div>
+      <div class="diasel"><span id="cfgst" style="color:var(--mudo);font-size:12.5px">${gravaC ? "Fechar sem salvar descarta o que foi digitado." : "Só quem administra a plataforma grava: você vê o que está valendo."}</span><span style="flex:1"></span>${gravaC ? '<button class="btn" data-cfgsalvar="1">Salvar</button>' : ""}</div>`;
+  }
+  $("modal").innerHTML = `<div class="modal" data-fechar-os="1"><div class="cfgj" role="dialog" aria-label="Configurar a Sala de controle">${abas}${corpo}</div></div>`;
+  if (CFG_ABA === "nomes" && CFG_Q) filtraConfig();
+}
+function filtraConfig() { const q = CFG_Q.trim().toLowerCase(); document.querySelectorAll("tr[data-cfgl]").forEach(r => { r.hidden = !!q && !r.dataset.cfgl.includes(q); }); }
+async function salvarConfig() {
+  const limpa = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v || "").replace(/\s+/g, " ").trim()]).filter(([, v]) => v));
+  const st = $("cfgst");
+  try { if (st) st.textContent = "Salvando…";
+    const r = await grava("/api/sala/arranjo", {nomes: limpa(ARRED.nomes), grupos: limpa(ARRED.grupos)});
+    ARR_LIDO.v = r; toast("Nomes e grupos salvos"); await ligar(false); arvore(); if (CFGJ && ARRED) pintaConfig(); }
+  catch (e) { if (st) st.innerHTML = `<b style="color:var(--critico)">Não gravou:</b> ${esc(e && e.message || e)}`; }
+}
+document.addEventListener("input", e => { const x = e.target; if (!ARRED || !x || !x.dataset) return;
+  if (x.dataset.cfgn != null) ARRED.nomes[x.dataset.cfgn] = x.value;
+  else if (x.dataset.cfgg != null) ARRED.grupos[x.dataset.cfgg] = x.value;
+  else if (x.id === "cfgq") { CFG_Q = x.value; filtraConfig(); } });
 window.addEventListener("message", ev => { const d = ev.data;
   if (ev.origin !== location.origin || !d || d.gc !== "os-criada" || !OSJ) return;
   const j = OSJ, u = todas().find(x => x.u === j.u && x.g === j.g);
@@ -1174,7 +1226,7 @@ function kpis(us, bx) {
 // o que foi explicado: o inversor, os dias e O QUE explica cada um, para o analista conferir se faz sentido
 const tabExpl = bx => `<div class="rol"><table><thead><tr><th>Usina</th><th>Inversor</th><th>Dias explicados</th><th>Pior dia</th><th>O que explica</th></tr></thead><tbody>` +
   (bx.map(b => { const ds = b.dias.filter(x => x[2] !== "sem"), txt = [...new Set(ds.flatMap(x => String(x[4] || "").split("; ")))].filter(Boolean);
-    return `<tr class="cl" data-bx="${esc(b.i)}" data-bu="${esc(b.u)}" data-bg="${b.g}" title="Clique para abrir a usina nos dias dele"><td><b>${esc(b.u)}</b></td><td>${esc(b.i.replace(/^Inversor\s*/, ""))}</td><td>${ds.length}${ds.some(x => x[2] === "parcial") ? ` <span class="tag a">${ds.filter(x => x[2] === "parcial").length} em parte</span>` : ""}<br><small style="color:var(--fraco)">${ds.map(x => dm(x[0]).slice(0, 2)).join(", ")}</small></td><td>${Math.round(Math.min(...ds.map(x => x[1])) * 100)}%</td><td style="text-align:left">${txt.map(esc).join("<br>") || "—"}</td></tr>`; }).join("") ||
+    return `<tr class="cl" data-bx="${esc(b.i)}" data-bu="${esc(b.u)}" data-bg="${b.g}" title="Clique para abrir a usina nos dias dele"><td><b>${esc(rotN(b.u, b.g))}</b></td><td>${esc(b.i.replace(/^Inversor\s*/, ""))}</td><td>${ds.length}${ds.some(x => x[2] === "parcial") ? ` <span class="tag a">${ds.filter(x => x[2] === "parcial").length} em parte</span>` : ""}<br><small style="color:var(--fraco)">${ds.map(x => dm(x[0]).slice(0, 2)).join(", ")}</small></td><td>${Math.round(Math.min(...ds.map(x => x[1])) * 100)}%</td><td style="text-align:left">${txt.map(esc).join("<br>") || "—"}</td></tr>`; }).join("") ||
    `<tr><td colspan="5" class="zero">Nenhum dia explicado neste recorte.</td></tr>`) + "</tbody></table></div>";
 const tabBaixo = (bx, comUsina) => `<div class="rol"><table><thead><tr>${comUsina ? "<th>Usina</th>" : ""}<th>Inversor</th><th>Dias sem explicação</th><th>Explicados (COS/OS)</th><th>Pior dia</th><th>Último dia baixo</th><th>String parada no mesmo inversor</th></tr></thead><tbody>` +
   (bx.map(b => { const ab = !comUsina && BXA === b.i;
@@ -1207,7 +1259,7 @@ function prioridades(us) {
     </div>
     <div class="painel"><h3>Há quanto tempo as strings estão paradas</h3><p>${nf(soma(id, "n"))} strings paradas em ${id.length} inversores. Laranja = sem OS vinculada; cinza = com OS. Clique numa faixa para ver quais são.</p>
       ${tot.map((x, k) => `<button class="idd ${IDF === x.k ? "on" : ""}" data-idf="${x.k}"><span>${FAIXAS[k][1]}</span><span class="tr"><i style="width:${x.sem / mx * 100}%;background:var(--severo)"></i><i style="width:${x.com / mx * 100}%;background:var(--fraco)"></i></span><span><b style="color:var(--tinta)">${nf(x.sem + x.com)}</b> strings · ${x.inv} inversores${x.com ? ` · ${x.com} com OS` : ""}</span></button>`).join("")}
-      ${IDF ? `<div class="rol" style="margin-top:10px"><table><thead><tr><th>Usina</th><th>Inversor</th><th>Strings paradas</th><th>Parada desde</th><th>Há quanto tempo</th><th>Perda no mês</th><th>OS</th></tr></thead><tbody>` + lista.slice(0, 25).map(x => `<tr class="cl" data-pu="${esc(x.u)}" data-pg="${x.g}" data-pi="${esc(x.i)}"><td><b>${esc(x.u)}</b></td><td>${esc(x.i.replace("Inversor ", ""))}</td><td>${x.n}</td><td>${x.antes ? "antes de " + dm(D.idadeAte || D.mesIni) : dm(x.d0)}</td><td><span class="tag ${x.dias >= 8 ? "c" : x.dias >= 3 ? "s" : "n"}">${x.antes ? x.dias + " dias ou mais" : x.dias + " dia" + (x.dias > 1 ? "s" : "")}</span></td><td>${nf(x.kwh)} kWh</td><td>${x.os ? `<span class="tag a">OS ${esc(x.os.n)} há ${x.os.dias} dias</span>` : '<span class="tag s">sem OS</span>'}</td></tr>`).join("") + `</tbody></table></div><div class="mais">${lista.length > 25 ? `Os 25 mais antigos, de ${lista.length}.` : ""}</div>` : ""}
+      ${IDF ? `<div class="rol" style="margin-top:10px"><table><thead><tr><th>Usina</th><th>Inversor</th><th>Strings paradas</th><th>Parada desde</th><th>Há quanto tempo</th><th>Perda no mês</th><th>OS</th></tr></thead><tbody>` + lista.slice(0, 25).map(x => `<tr class="cl" data-pu="${esc(x.u)}" data-pg="${x.g}" data-pi="${esc(x.i)}"><td><b>${esc(rotN(x.u, x.g))}</b></td><td>${esc(x.i.replace("Inversor ", ""))}</td><td>${x.n}</td><td>${x.antes ? "antes de " + dm(D.idadeAte || D.mesIni) : dm(x.d0)}</td><td><span class="tag ${x.dias >= 8 ? "c" : x.dias >= 3 ? "s" : "n"}">${x.antes ? x.dias + " dias ou mais" : x.dias + " dia" + (x.dias > 1 ? "s" : "")}</span></td><td>${nf(x.kwh)} kWh</td><td>${x.os ? `<span class="tag a">OS ${esc(x.os.n)} há ${x.os.dias} dias</span>` : '<span class="tag s">sem OS</span>'}</td></tr>`).join("") + `</tbody></table></div><div class="mais">${lista.length > 25 ? `Os 25 mais antigos, de ${lista.length}.` : ""}</div>` : ""}
     </div></div>`;
 }
 const ETMG_LIDO = {};
@@ -1237,7 +1289,7 @@ function visaoGeral(us, bx) {
     <div class="sec"><h2>Por usina</h2><p>Clique na usina para abrir os inversores, as strings, os trackers e a estação dela.</p>
       <div class="rol"><table><thead><tr><th>Usina</th><th>Situação</th><th>Strings fora</th><th>Sem acompanhamento</th><th>Trackers parados</th><th>Sem OS</th><th>ETM</th><th>Inversores abaixo</th><th>Perda no mês</th></tr></thead><tbody>` +
       lu.map(u => { const nb = D.baixos.filter(b => b.u === u.u && b.sem > 0).length;
-        return `<tr class="cl" data-g="${u.g}" data-u="${esc(u.u)}"><td><span class="pt ${u.st}"></span><b>${esc(u.u)}</b></td><td>${esc(SIT[u.st] || "—")}</td><td>${u.sf || Z}${u.sd ? ` <small style="color:var(--severo)" title="Strings com mais de 2 h sem corrente no período solar de hoje">${u.sd} com +2 h hoje</small>` : ""}</td><td>${u.sn ? `<span class="tag s">${u.sn}</span>` : Z}</td><td>${u.tp || Z}</td><td>${u.tp - u.to ? `<span class="tag s">${u.tp - u.to}</span>` : Z}</td><td>${u.ea ? `<span class="tag ${u.eo ? "n" : "s"}">${u.eo ? "com OS" : "alarme"}</span>` : T}</td><td>${nb || Z}</td><td>${perda[u.u] ? nf(perda[u.u] / 1000, 1) + " MWh" : T}</td></tr>`; }).join("") +
+        return `<tr class="cl" data-g="${u.g}" data-u="${esc(u.u)}"><td><span class="pt ${u.st}"></span><b>${esc(u.rot)}</b></td><td>${esc(SIT[u.st] || "—")}</td><td>${u.sf || Z}${u.sd ? ` <small style="color:var(--severo)" title="Strings com mais de 2 h sem corrente no período solar de hoje">${u.sd} com +2 h hoje</small>` : ""}</td><td>${u.sn ? `<span class="tag s">${u.sn}</span>` : Z}</td><td>${u.tp || Z}</td><td>${u.tp - u.to ? `<span class="tag s">${u.tp - u.to}</span>` : Z}</td><td>${u.ea ? `<span class="tag ${u.eo ? "n" : "s"}">${u.eo ? "com OS" : "alarme"}</span>` : T}</td><td>${nb || Z}</td><td>${perda[u.u] ? nf(perda[u.u] / 1000, 1) + " MWh" : T}</td></tr>`; }).join("") +
       `</tbody></table></div><div class="mais">${lu.length} de ${us.length} usinas têm ${VG === "trk" ? "tracker parado" : "string fora"}; as com mais ${VG === "trk" ? "trackers sem OS" : "strings sem acompanhamento"} primeiro.</div></div>
     ${(() => { const es = us.filter(u => D.etmG[u.g + "|" + u.u]).map(u => ({u, e: D.etmG[u.g + "|" + u.u]})); if (!es.length) return "";
       const ord = x => x.e.flags.some(f => f.tipo === "crit") ? 0 : x.e.flags.length ? 1 : 2;
@@ -1481,7 +1533,7 @@ function sino() {
   $("sinoN").textContent = n; $("sinoN").hidden = !n;
   $("sinoL").innerHTML = !n ? `<div class="nt"><small>${D.novas.desde ? "Nada novo que você ainda não tenha aberto." : "O registro do que você já viu não abriu agora."}</small></div>`
     : `<h4>Pararam desde ${dm(D.novas.desde.slice(0, 10))} às ${esc(D.novas.desde.slice(11, 16))}, por usina</h4>` +
-      l.slice(0, 12).map(o => `<button class="nt" data-nu="${esc(o.u)}" data-ng="${o.g}" data-na="${o.s ? "str" : "trk"}"><b>${esc(o.u)}</b><small>${[o.s ? pl(o.s, "string", "strings") + " em " + pl(o.inv.size, "inversor", "inversores") : "", o.t ? pl(o.t, "tracker", "trackers") : ""].filter(Boolean).join(" · ")}</small></button>`).join("") +
+      l.slice(0, 12).map(o => `<button class="nt" data-nu="${esc(o.u)}" data-ng="${o.g}" data-na="${o.s ? "str" : "trk"}"><b>${esc(rotN(o.u, o.g))}</b><small>${[o.s ? pl(o.s, "string", "strings") + " em " + pl(o.inv.size, "inversor", "inversores") : "", o.t ? pl(o.t, "tracker", "trackers") : ""].filter(Boolean).join(" · ")}</small></button>`).join("") +
       (l.length > 12 ? `<div class="nt"><small>e mais ${l.length - 12} usinas</small></div>` : "");
 }
 // ver = marcar como visto por mim: some para mim e os outros passam a ver quem viu. Grava em fundo (a falha não desfaz a tela).
@@ -1499,7 +1551,7 @@ const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; DIA = n
 function desenhar() {
   CH.length = 0;
   const us = usinas(), bx = D.baixos.filter(b => (!SEL.g || b.g === SEL.g) && (!SEL.u || b.u === SEL.u));
-  $("recorte").textContent = SEL.u ? "· " + SEL.u : SEL.g ? "· " + NOME[SEL.g] : "";
+  $("recorte").textContent = SEL.u ? "· " + rotN(SEL.u, SEL.g) : SEL.g ? "· " + NOME[SEL.g] : "";
   const min = Math.round((D.fresco.ttl_s || 300) / 60);
   $("fresco1").textContent = `a cada ${min} min · ${D.fresco.lido}`;
   $("frescor").innerHTML = `Tempo real <b>atualiza a cada ${min} min</b> · última leitura às <b>${esc(D.fresco.lido)}</b>` + (D.falhas_em ? ` · falhas do mês de ${dm(D.falhas_em.slice(0, 10))} às ${esc(D.falhas_em.slice(11, 16))}` : "");
@@ -1576,6 +1628,8 @@ document.addEventListener("click", e => {
   if ((x = q(".selinv"))) { const n = x.dataset.sel; if (MARC.has(n)) MARC.delete(n); else MARC.add(n); desenhar(); return; }
   if ((x = q("[data-acao]"))) { const a = x.dataset.acao; if (a === "limpar") MARC.clear(); else if (a === "criar") { if (PODE) abrirCriarOS(); return; } else if (a === "confirmar") { janelaOS(); return; } desenhar(); return; }
   if ((x = q("[data-fechar]")) && (e.target === x || x.tagName === "BUTTON")) { $("modal").innerHTML = ""; return; }
+  if ((x = q("[data-cfgaba]"))) { CFG_ABA = x.dataset.cfgaba; pintaConfig(); return; }
+  if ((x = q("[data-cfgsalvar]"))) { salvarConfig(); return; }
   if (q(".modal")) return;
   if ((x = q("[data-gi]"))) { GI = GI === x.dataset.gi ? null : x.dataset.gi; desenhar(); const pn = $("insp"); if (pn) pn.scrollIntoView({block: "nearest"}); return; }
   if ((x = q("[data-ir]"))) { ABA = "str"; INV = x.dataset.ir; DIA = null; desenhar(); scrollTo(0, 0); return; }
@@ -1635,11 +1689,13 @@ document.addEventListener("click", e => {
 });
 $("q").addEventListener("input", () => { if (D) arvore(); });
 // a partida: o tempo real e as falhas do mês; relê a cada 5 min (com a aba à vista) sem perder a usina aberta
+const ARR_LIDO = {v: null};
 async function ligar(primeira) {
   try {
-    const [ent, fal, idr, vis] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas?mes=" + HOJE.slice(0, 7), 150000).catch(() => null),
-      pega("/api/sala/idade", 60000).catch(() => null), pega("/api/sala/visto", 20000).catch(() => null)]);
-    const ant = D; D = montar(ent, fal, idr && idr.strings ? idr : null, vis && vis.eu ? vis : null);
+    const [ent, fal, idr, vis, arrL] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas?mes=" + HOJE.slice(0, 7), 150000).catch(() => null),
+      pega("/api/sala/idade", 60000).catch(() => null), pega("/api/sala/visto", 20000).catch(() => null), pega("/api/sala/arranjo", 20000).catch(() => null)]);
+    if (arrL && arrL.nomes) ARR_LIDO.v = arrL;                  // o arquivo não abriu agora: vale o último lido, não "sem nome"
+    const ant = D; D = montar(ent, fal, idr && idr.strings ? idr : null, vis && vis.eu ? vis : null, ARR_LIDO.v);
     if (ant) { D.osHist = ant.osHist; D.osHistFalhou = ant.osHistFalhou; D.osHistMotivo = ant.osHistMotivo; }
     Object.keys(ETMG_LIDO).forEach(g => { if (ETMG_LIDO[g] === 3) delete ETMG_LIDO[g]; });
     if (ant) { D.drill = ant.drill; D.curvas = ant.curvas; D.etmG = ant.etmG; D.estado = ant.estado; D.trkc = ant.trkc; D.ger = ant.ger; D.pot = ant.pot; D.conf = ant.conf; D.scada = ant.scada; }
