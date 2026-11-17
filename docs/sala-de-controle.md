@@ -118,7 +118,7 @@ análise das requisições está em `docs/sala-de-controle-requisicoes.md`.
 
 ## Em aberto com o Levi
 
-- Ligar o histórico de potência da Athon (SunOp, paga: ~1 pedido da cota por usina e dia)? Está fora desde 13/10.
+- (Fechado em 17/11) A Athon voltou ao histórico de potência ("pode ligar a Athon na potência"). A Axis segue fora.
 - As cinco propostas da análise das requisições (aquecer depois da subida, a consulta do banco, a rota por usina no
   scadaGridco, gravar a API PV pela coleta, o estado por chave).
 

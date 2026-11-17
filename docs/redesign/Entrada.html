@@ -636,7 +636,7 @@
     // Potencia + POA e GHI (Levi, 27/10/2026): so nas fontes com historico de potencia por inversor, as do relatorio
     // Potencia Ativa dos Inversores (Athon, Axis e Sal Energia nao tem). RenoGrid, GreenYellow e Apolo nao expoem a estacao por
     // usina, entao o rotulo nao promete o POA/GHI; o RenoGrid e potencia CC. O 3o item e o rotulo curto do card "...".
-    var POT_FONTES = ["thopen-pv", "thopen-db", "renogrid", "2c", "semp", "alveslima", "greenyellow", "apolo"];
+    var POT_FONTES = ["thopen-pv", "thopen-db", "athon", "renogrid", "2c", "semp", "alveslima", "greenyellow", "apolo"];
     var POT_ROT = (fonteSel === "renogrid" ? "Potência CC" : "Potência ativa"), POT_IRR = (fonteSel === "renogrid" || fonteSel === "greenyellow" || fonteSel === "apolo") ? "" : " + POA e GHI";
     var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"]]
       .concat(POT_FONTES.indexOf(fonteSel) >= 0 ? [["potinv", POT_ROT + " dos inversores" + POT_IRR, "Potência · inversores"],

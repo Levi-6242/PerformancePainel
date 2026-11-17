@@ -92,7 +92,9 @@ def test_as_strings_nao_esperam_os_trackers_nem_a_estacao():
     chega, e cada aba diz "lendo" até a parte dela chegar."""
     html = _html()
     ler = html[html.index("async function lerUsina(u, calada) {"):html.index("const SCL = {};")]
-    assert ler.index("D.drill[u.u] = dr;") < ler.index("const extras = [];") < ler.index("await Promise.all(extras);")
+    # desde 17/11 os trackers e a estação saem JUNTO com as strings; o que não muda: a usina desenha (pinta) assim que
+    # as strings chegam, antes de esperar o resto
+    assert ler.index("D.drill[u.u] = dr;") < ler.index("    pinta();") < ler.index("await Promise.all(extras);")
     assert "pinta();" in ler and '.finally(() => pinta("trk"))' in ler and 'dr.etmLendo = false; pinta("etm");' in ler
     assert "Lendo os trackers desta usina…" in html and "Lendo a estação desta usina…" in html
 
@@ -580,7 +582,7 @@ def test_as_strings_com_mais_de_duas_horas_sem_corrente_hoje_aparecem_de_noite()
     assert "u.sd = sdU[u.u] || 0;" in html and 'D.sdI[u.u + "|" + i.n] || 0' in html
     assert 'c("Strings", sd, "+2 h",' in html                                                  # a lateral, sem string fora agora
     assert '"com mais de 2 h sem corrente hoje"' in html                                        # o número do alto
-    assert "<span>${v(u.sf ? u.sn : u.sd)}</span>" in html                                      # a linha da usina
+    assert "(u.sf || u.sd)}</span>" in html                                                     # a linha da usina (todas, desde 17/11)
 
 
 def test_a_aba_etm_mostra_os_sinais_que_a_entrada_conta():
@@ -717,7 +719,7 @@ def test_a_curva_abre_embaixo_do_inversor_e_varios_ficam_abertos():
     assert 'const graf = i => { const bruta = D.curvas[u.u + "|" + i.n + "|" + dia];' in html and "if (bruta === undefined) lerCurva(u, i.n, dia);" in html
     assert "<h3>Curva por string · ${esc(INV)}" not in html                                    # o painel fixo do alto saiu
     assert 'data-grafx="1">Fechar as ${nG} curvas' in html and 'if ((x = q("[data-grafx]"))) { GRAF.clear();' in html
-    assert "if (INV) GRAF.add(u.u + \"|\" + INV); }" in html                                   # o 1º inversor já abre com a curva
+    assert "if (INV) GRAF.add(u.u + \"|\" + INV); }" not in html                               # nada abre sozinho: a curva só no clique (17/11)
     assert "INV = null; GRAF.clear();" in html                                                 # outra usina começa do zero
     # abrir vários inversores da mesma usina não repete a leitura da usina inteira: um pedido no ar por endereço
     assert "await (CURVAP[url] || (CURVAP[url] = pega(url, 90000).finally(() => { delete CURVAP[url]; })))" in html
@@ -741,14 +743,14 @@ def test_a_visao_de_strings_limpa_e_o_acompanhamento_na_lateral():
     gráfico"; "o botão de data e período solar fica na mesma linha de abrir todas as strings"."""
     html = _html()
     assert '<div class="faixa"><label>Strings em acompanhamento' not in html
-    assert "<span>Usina</span><span title=\"Strings fora sem acompanhamento\">Str.</span><span title=\"Strings em acompanhamento" in html
+    assert "<span>Usina</span><span title=\"Todas as strings sem corrente" in html and ">Str.</span><span title=\"Strings em acompanhamento" in html
     assert 'if ((x = q(".ac.ed[data-ac]")))' in html and 'if (x.classList.contains("aci")) {' in html
     grava = html[html.index('if (x.classList.contains("aci")) {'):]
     assert 'grava("/api/state/tracking", {key: VKEY[u.g] + ":" + u.pid, value: v || null})' in grava[:900]     # a mesma chave do Tempo real
     assert 'document.activeElement.classList.contains("aci")) return;' in html                                    # a releitura não tira o campo de quem digita
     graf = html[html.index("const graf = i => { const bruta"):html.index("// os inversores por cabine")]
     assert '<div class="lin">' not in graf and "Cinza = gerando" in graf                                          # a legenda das cores no gráfico
-    assert '${GRAF.has(u.u + "|" + i.n) ? `<small>${e === "trancada" ? "tranc." : s[1] == null ? "—" : nf(s[1], 2) + " A"}</small>` : ""}' in html
+    assert '<small>${s[1] == null ? "—" : nf(s[1], 2) + " A"}</small></button>' in html                          # a corrente sempre, até na trancada
     barra = html[html.index('<span>Dia</span><input type="date"'):]
     barra = barra[:barra.index('data-expi="*"')]
     assert 'data-solar="1"' in barra and "OS de performance" in barra and 'data-grafx="1"' in barra            # uma linha só
@@ -779,7 +781,8 @@ def test_a_potencia_por_dia_com_ate_cinco_dias_as_cores_e_a_correlacao():
     assert "--c-ger:#5aa9f5;--c-poa:#f59a4a;--c-ghi:#e6c84f" in html and "--c-ger:#1f6fd0;--c-poa:#c8640f;--c-ghi:#a8860a" in html
     etm = html[html.index('} else if (ABA === "etm") {'):html.index('} else if (ABA === "gp") {')]
     assert 'cor: "var(--c-poa)", forte: true}' in etm and 'cor: "var(--c-ghi)", forte: true}' in etm and 'data-solar="1"' in etm
-    assert "POT_FORA[u.g] ||" in html and "é uma decisão de custo" in html and "pega(\"/api/pg/etm/chart?plant_id=\"" in html
+    assert "POT_FORA[u.g] ||" in html and "pega(\"/api/pg/etm/chart?plant_id=\"" in html
+    assert 'athon: "sunop"' in html and "const POT_FORA = {axis:" in html                                          # a Athon ligada (17/11); a Axis, fora
 
 
 def test_as_fontes_que_nao_batem_viram_aviso_ao_lado_da_usina():
@@ -878,3 +881,70 @@ def test_o_de_para_da_usina_que_o_cadastro_guarda_pelo_nome_de_exibicao(cli, mon
         {"esup": None, "nome": "Inversor 1.1", "esp": 12, "kwp": 137.5, "ug": None, "cod_fracttal": None, "nome_fracttal": None, "cabine": None},
         {"esup": None, "nome": "Inversor 1.2", "esp": 13, "kwp": None, "ug": None, "cod_fracttal": None, "nome_fracttal": None, "cabine": None}]
     assert "i.esup == null ? (v && v.id != null ? esc(v.id)" in _html()
+
+
+def test_a_athon_le_a_potencia_pela_medida_p_da_sunop_e_nao_esconde_a_pausa(cli, monkeypatch):
+    """Levi, 17/11/2026: "pode ligar a Athon na potência". Um pedido por usina e dia (a medida P de cada inversor); a
+    SunOp pausada ou sem resposta é "não respondeu", com o motivo, e não "sem dado" (a leitura que falhou não vira zero)."""
+    from datetime import date
+    pedidos = []
+    monkeypatch.setitem(app._sunop_meta, "USINA_T", {"inv_other": {"INV_1": {"P": "USINA_T.INV_1.P", "EPD": "USINA_T.INV_1.EPD"},
+                                                                   "INV_2": {"P": "USINA_T.INV_2.P"}, "INV_3": {"EPD": "x"}}})
+    monkeypatch.setattr(app, "_sunop_analog_history", lambda paths, ini, fim, inst="gridco", period=None: pedidos.append((sorted(paths), ini, fim, inst)) or {
+        "USINA_T.INV_1.P": [("2026-11-15T08:00:00", 50.0), ("2026-11-15T08:05:00", 60.0)]})
+    d = app._pa_ler_sunop("USINA_T", date(2026, 11, 15))
+    assert pedidos == [(["USINA_T.INV_1.P", "USINA_T.INV_2.P"], "2026-11-15T00:00:00", "2026-11-15T23:59:59", "gridco")]   # um pedido, só as medidas P
+    assert [(i["id"], i["pontos"]) for i in d["inversores"]] == [("INV_1", [("2026-11-15T08:00:00", 50.0), ("2026-11-15T08:05:00", 60.0)]), ("INV_2", [])]
+    dia = app._pa.monta_dia(date(2026, 11, 15), d, date(2026, 11, 17))
+    assert dia["situacao"] == "ok" and dia["inversores"][0]["pontos"] == [[480, 50.0], [485, 60.0]] and len(dia["sem_leitura"]) == 1
+    # vazio com a SunOp pausada: não respondeu, com o motivo
+    monkeypatch.setattr(app, "_sunop_analog_history", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_sunop_edge_aberto", lambda: False)
+    monkeypatch.setattr(app, "_sunop_sem_rede", lambda inst="gridco": "teto")
+    with pytest.raises(app._pa.FonteNaoRespondeu, match="pausada"):
+        app._pa_ler_sunop("USINA_T", date(2026, 11, 15))
+    # vazio sem trava: hoje é "ainda não tem"; dia passado é "não devolveu" (pode tentar de novo)
+    monkeypatch.setattr(app, "_sunop_sem_rede", lambda inst="gridco": None)
+    assert "ainda não tem" in app._pa_ler_sunop("USINA_T", app.datetime.now().date())["motivo"]
+    with pytest.raises(app._pa.FonteNaoRespondeu, match="não devolveu"):
+        app._pa_ler_sunop("USINA_T", date(2026, 11, 15))
+    with pytest.raises(app._pa.FonteNaoRespondeu, match="catálogo"):
+        app._pa_ler_sunop("USINA_QUE_NAO_EXISTE", date(2026, 11, 15))                    # sem catálogo: nem pergunta
+    assert app._pa.fonte("sunop")["familia"] == "sunop"
+    with pytest.raises(app._pa.Recusado):
+        app._pa.fonte("axis")                                                            # a Axis segue fora
+
+
+def test_as_strings_em_cartao_com_a_corrente_ate_das_trancadas():
+    """Levi, 17/11/2026: "trancadas azul, mostrando a corrente [...] não precisa ter esse cadeado mas o tracejado gostei! é
+    importante mostrar a corrente até das trancadas pq caso o técnico ligue a string numa trancada saberemos"."""
+    html = _html()
+    assert "button.st.trancada{border:1px dashed var(--c-ger);" in html and "color:var(--c-ger)}" in html           # azul, tracejada
+    chips = html[html.index("const chips = i =>"):html.index("const osBox = i =>")]
+    assert 'e === "trancada" ? "tranc."' not in chips and "cadeado" not in chips                                    # a corrente no lugar do "tranc."
+    assert '(e === "trancada" ? "trancada · " : "") + (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A")' in chips
+
+
+def test_a_lateral_mostra_todas_as_strings_sem_corrente_na_cor_do_tempo_real():
+    """Levi, 17/11/2026: "mostrasse todas as linhas que estão sem corrente. Eu acho que está fazendo a diferença. [...] Se
+    acompanhamento está igual com o que tem de string zerada, fica em azul [...] Se está diferente [...] O laranja"."""
+    html = _html()
+    assert '(tot => tot ? `<b class="${u.sa >= tot ? "az" : ""}">${tot}</b>`' in html and "(u.sf || u.sd)}</span><span class=\"ac" in html
+    assert "<span>${v(u.sf ? u.sn : u.sd)}</span>" not in html                                  # não é mais a diferença
+    assert ".tela .lado .f .u b.az,.tela .lado .tri b.az{color:var(--info)}" in html and 'c("Strings", sf, sf ? (sa ? "ac. " + nf(sa) : "sem ac.") : ""' in html
+    assert ".tela .lado{font-size:14.3px}" in html and ".tela .lado .f .u{font-size:13.2px}" in html   # a lateral 10% maior
+
+
+def test_a_usina_le_strings_trackers_e_estacao_ao_mesmo_tempo():
+    """Levi, 17/11/2026: "as vezes só quero ver a string primeiro, poderia dar prioridade a aba que cliquei e carrega o
+    resto em segundo plano". Os trackers e a estação eram pedidos só DEPOIS de as strings voltarem; agora os três saem
+    juntos e as abas Trackers e ETM desenham com o que já chegou."""
+    html = _html()
+    ler = html[html.index("async function lerUsina(u, calada) {"):html.index("// (g) O que o SCADA da Grid tem desta usina AGORA")]
+    assert ler.index("if (EPT[sk]) extras.push(pega(EPT[sk]") < ler.index("const pl = await pega(PLANT[sk]")           # os trackers saem antes de esperar as strings
+    assert ler.index("if (EPE[sk]) extras.push((ETMS[sk]") < ler.index("const pl = await pega(PLANT[sk]")              # e a estação também
+    assert "if (!manter) PRE[u.u] = dr;" in ler and "dr.inv = inv; D.drill[u.u] = dr; delete PRE[u.u];" in ler
+    assert "} catch (e) { delete PRE[u.u];" in ler                                                                    # a usina que falhou não deixa resto
+    assert 'const dr = D.drill[u.u] || ((ABA === "trk" || ABA === "etm") && !FALHOU[u.u] ? PRE[u.u] : undefined), cp = $("corpo");' in html
+    # os cartões de string: valores no centro e 20% mais estreitos (62 → 50 px)
+    assert "button.st{width:auto;min-width:50px;" in html and "align-items:center;justify-content:flex-start;gap:2px;text-align:center;" in html

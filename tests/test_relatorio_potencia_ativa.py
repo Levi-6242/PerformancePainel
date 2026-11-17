@@ -95,8 +95,9 @@ def test_monta_dia_sem_ponto_nenhum_e_sem_dado_com_o_motivo_da_fonte():
 
 
 def test_cada_fonte_do_tempo_real_tem_familia_ou_o_motivo_de_nao_ter():
-    # Athon e Axis saíram (Levi, 13/10/2026: "Não, por hora pode tirar Axis e Athon")
-    assert {f["fonte"] for f in pa.FONTES} == {"pv", "pg", "solaredge", "2capi", "semp", "alveslima", "greenyellow",
+    # Athon e Axis saíram em 13/10/2026 ("por hora pode tirar Axis e Athon"); a Athon voltou em 17/11/2026 ("pode ligar a
+    # Athon na potência"), a Axis segue fora
+    assert {f["fonte"] for f in pa.FONTES} == {"pv", "pg", "sunop", "solaredge", "2capi", "semp", "alveslima", "greenyellow",
                                                 "salenergia", "apolo"}
     # a Apolo (Rio do Peixe, 29/10/2026) vem pelo gateway MQTT da GreenYellow: a telemetria traz a potência
     assert pa.fonte("apolo")["familia"] == pa.fonte("greenyellow")["familia"] == "scadagridco"
@@ -173,7 +174,7 @@ def test_fonte_sem_historico_diz_o_porque_e_nao_le_nada(cli, monkeypatch, freeze
     monkeypatch.setattr(app, "_pa_ler", lambda *a: pytest.fail("fonte sem histórico não pode ser lida"))
     j = cli.get(f"{ROTA}?fonte=salenergia&usina=QUALQUER&ini=2026-10-12&fim=2026-10-12").get_json()
     assert j["ok"] and j["sem_historico"] is True and j["dias"] == [] and len(j["motivo"]) > 40
-    for fora in ("sunop", "axis"):                                   # saíram do relatório: fonte desconhecida
+    for fora in ("axis",):                                           # fora do relatório: fonte desconhecida
         r = cli.get(f"{ROTA}?fonte={fora}&usina=QUALQUER&ini=2026-10-12&fim=2026-10-12")
         assert r.status_code == 400 and "fonte desconhecida" in r.get_json()["motivo"], fora
 
@@ -376,10 +377,11 @@ def test_lista_de_usinas_vem_das_tabelas_do_tempo_real(cli, monkeypatch):
                                                       "Ipixuna do Pará · Santa Cecilia 2"]
     assert f["pv"]["historico"] is True and "Pac" in f["pv"]["origem"]
     assert f["pg"]["usinas"] == [] and "ainda não foi montada" in f["pg"]["aviso"]   # tabela fria: diz, não inventa
-    assert "sunop" not in f and "axis" not in f                                    # fora a pedido do Levi (13/10)
+    assert "axis" not in f                                                         # fora a pedido do Levi (13/10)
+    assert f["sunop"]["historico"] is True and "medida P" in f["sunop"]["origem"]  # a Athon voltou em 17/11/2026
     assert f["solaredge"]["historico"] is True and f["solaredge"]["grandeza"] == "Potência CC"
     assert f["pv"]["grandeza"] == "Potência ativa"
-    assert [x["fonte"] for x in j["fontes"]][:3] == ["pv", "pg", "solaredge"]       # a ordem dos cards do Tempo real
+    assert [x["fonte"] for x in j["fontes"]][:4] == ["pv", "pg", "sunop", "solaredge"]   # a ordem dos cards do Tempo real (a Athon voltou em 17/11)
 
 
 def test_a_pagina_abre_e_esta_no_mapa_na_central_de_emissao_do_nexus(cli):

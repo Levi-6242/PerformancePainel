@@ -41,7 +41,8 @@ def test_o_tres_pontos_so_oferece_a_potencia_onde_o_relatorio_tem_historico():
     com_historico = {f["fonte"] for f in _pa.FONTES if f["familia"]}
     esperado = sorted(c for c, f in card_para_fonte.items() if f in com_historico)
     assert sorted(_lista_js(_ENT, "var POT_FONTES")) == esperado
-    assert {"athon", "axis", "salenergia"}.isdisjoint(_lista_js(_ENT, "var POT_FONTES"))
+    assert {"axis", "salenergia"}.isdisjoint(_lista_js(_ENT, "var POT_FONTES"))
+    assert "athon" in _lista_js(_ENT, "var POT_FONTES") and "'sunop'" in _MON[_MON.index("const _POT_FONTES="):][:200]   # voltou em 17/11
     assert {"potinv", "potusina"} <= set(_lista_js(_ENT, "var VIEWS"))
     # a aba Perdas do Monitoramento acabou no 03fa176 e o item ficou no ··· sem abrir nada (tirado em 27/10/2026)
     assert "perdas" not in _lista_js(_ENT, "var VIEWS") and '["perdas"' not in _ENT
@@ -178,7 +179,7 @@ def test_a_tela_diz_por_que_falta_cada_parte():
 
 
 def test_fonte_sem_historico_nem_desenha_a_aba():
-    r = _node("state.source='athon'; process.stdout.write(JSON.stringify(renderPotencia({})));")
+    r = _node("state.source='axis'; process.stdout.write(JSON.stringify(renderPotencia({})));")
     assert r.startswith("[NA ")
 
 

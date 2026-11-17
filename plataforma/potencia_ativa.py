@@ -21,9 +21,11 @@ De onde vem a potência de cada fonte (a tabela `FONTES`):
   do drill (`_se_strings_curva`). A SolarEdge não entrega a potência ativa (CA) do inversor; a grandeza vai escrita na
   tela (`grandeza`), e não como potência ativa (Levi, 13/10/2026: "Quero sim", para a soma rotulada "potência CC").
 Sem histórico de potência por inversor, e a tela diz isso em vez de inventar: Sal Energia (Modbus: o histórico do
-scadaGridco é por string, sem a potência do inversor). Athon e Axis SAÍRAM do relatório (Levi, 13/10/2026: "Não, por hora
-pode tirar Axis e Athon"): a SunOp só é lida na última leitura de potência, e o histórico seria um pedido novo a uma fonte
-paga de cota estourada. Voltam se o Levi pedir, lendo o histórico da medida P da SunOp (~1 pedido por usina e dia).
+scadaGridco é por string, sem a potência do inversor). Athon e Axis SAÍRAM do relatório em 13/10/2026 (Levi: "Não, por
+hora pode tirar Axis e Athon": a SunOp só era lida na última leitura de potência, e o histórico seria um pedido novo a
+uma fonte paga de cota estourada). **A Athon VOLTOU em 17/11/2026** (Levi: "pode ligar a Athon na potência"): a medida P
+de cada inversor no histórico da SunOp, 1 pedido da cota por usina e dia (lote de até 300 medidas; o dia que o acervo do
+gêmeo já tem não gasta nada), com a pausa e o teto de sempre da SunOp. A Axis segue fora até ele pedir.
 """
 from __future__ import annotations
 
@@ -57,7 +59,7 @@ class ForaDoPerfil(FonteNaoRespondeu):
 
 
 # As fontes do Tempo real, na ordem dos cards da Entrada (`_ENTRADA_GRUPOS`), mais a aba 2C · API PV do Monitoramento,
-# menos Athon e Axis (fora a pedido do Levi, 13/10/2026; ver a docstring). `familia` = quem lê (None = sem
+# menos a Axis (fora a pedido do Levi, 13/10/2026; a Athon voltou em 17/11/2026: ver a docstring). `familia` = quem lê (None = sem
 # histórico de potência por inversor, com o motivo); `grandeza` = o que a curva mostra, quando não é a potência ativa.
 FONTES = (
     {"fonte": "pv", "rotulo": "Thopen · API PV", "familia": "apipv",
@@ -66,6 +68,9 @@ FONTES = (
     {"fonte": "pg", "rotulo": "Thopen · Banco de dados", "familia": "pg",
      "origem": "Banco de dados da Thopen: a potência ativa (active_power) de cada leitura do inversor (a cada ~5 min), "
                "a mesma da correlação tracker × inversor do drill"},
+    {"fonte": "sunop", "rotulo": "Athon · SunOp", "familia": "sunop",
+     "origem": "SunOp: a potência ativa (a medida P) de cada inversor no histórico da SunOp, em média de 5 min, a mesma "
+               "medida da última leitura do Tempo real. Custa 1 pedido da cota da SunOp por usina e dia"},
     {"fonte": "solaredge", "rotulo": "RenoGrid · SolarEdge (potência CC)", "familia": "solaredge",
      "grandeza": "Potência CC",
      "origem": "SolarEdge: a potência CC de cada inversor, a soma das strings dele de 15 em 15 min (a mesma curva das "

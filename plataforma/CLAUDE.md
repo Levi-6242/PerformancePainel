@@ -2705,6 +2705,15 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   - Prova: os sete últimos testes de `tests/test_sala_de_controle.py`; a tela na cópia local (lista, curva, destaque,
     ETM da Gravatá II, engrenagem) com dado real lido do servidor e o COS de mentira.
 - **Retornos de 16/11 (23h30), a visão limpa e as abas novas** (`tests/test_sala_de_controle.py`, os nove últimos):
+  - **A coluna Str. da lateral (17/11):** TODAS as strings sem corrente (era a diferença, as sem acompanhamento), na
+    cor do Tempo real: azul quando o acompanhamento cobre todas, laranja quando falta alguma; o cartão da fonte segue a
+    mesma regra. A lateral ficou 10% maior.
+  - **A usina lê tudo ao mesmo tempo (17/11):** as strings, os trackers e a estação saem juntos (`PRE` guarda o `dr`
+    antes de as strings voltarem), e as abas Trackers e ETM desenham com o que já chegou. Antes os trackers só eram
+    pedidos depois das strings: medido na Santa Bárbara I, 2,1 s + 5,1 s em fila viraram 5,1 s no total.
+  - **Strings em cartão (17/11):** o número em cima e a corrente embaixo, SEMPRE, até na trancada (azul, borda
+    tracejada, sem cadeado: "caso o técnico ligue a string numa trancada saberemos"). **A curva só abre no clique**:
+    nenhum inversor abre o gráfico sozinho ao entrar na usina (a regra de 16/11 de abrir o 1º foi desfeita a pedido).
   - **Strings:** o acompanhamento saiu da usina e virou a coluna **Ac.** da lateral (o clique no número abre o campo;
     grava na mesma chave do Tempo real, `/api/state/tracking`; vale também para as strings com +2 h sem corrente no
     dia). Uma linha só de botões (dia, período solar, OS de performance, fechar as curvas, abrir as strings). O gráfico
@@ -2712,9 +2721,11 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     das cores fica dentro do gráfico.
   - **Potência** (`lerPotDia`, `POT`): um pedido por dia, até **5 dias** (De/Até), o dia inteiro por padrão, o POA/GHI
     do dia (hoje, o da estação; no banco, qualquer dia pelo `/api/pg/etm/chart`) e o botão **Correlação com trackers**,
-    que abre embaixo de cada dia o ângulo dos trackers no mesmo eixo (`lerTrk`). Athon e Axis continuam FORA do
-    histórico de potência (decisão do Levi de 13/10: a SunOp é paga); a tela agora diz isso, e não "a fonte não guarda".
-    Ligar é decisão dele (~1 pedido da cota por usina e dia).
+    que abre embaixo de cada dia o ângulo dos trackers no mesmo eixo (`lerTrk`). **A Athon foi LIGADA em 17/11/2026**
+    (Levi: "pode ligar a Athon na potência"; estava fora desde 13/10): `_pa_ler_sunop` lê a medida P de cada inversor
+    no histórico da SunOp, 1 pedido da cota por usina e dia, com a pausa e o teto de sempre (a SunOp pausada vira "não
+    respondeu" com o motivo, não "sem dado"); vale na Sala, no ··· do Tempo real e no relatório (um teste amarra os
+    três). O gestor pelo Nexus não abre a SunOp, como a API PV. A Axis continua FORA, e a tela diz isso.
   - **Cores** (tokens `--c-ger`, `--c-poa`, `--c-ghi`, com par no tema claro): geração azul, POA laranja, GHI amarelo,
     na Potência e na ETM; por inversor as linhas são todas azuis e o mouse no nome destaca. A ETM ganhou o dia inteiro
     e o botão do período solar.

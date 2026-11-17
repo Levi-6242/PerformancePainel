@@ -35096,6 +35096,43 @@ def _pa_ler_pg(pid: int, dia) -> dict:
     return out
 
 
+def _pa_ler_sunop(pid, dia) -> dict:
+    """Athon (SunOp), ligada em 17/11/2026 (Levi: "pode ligar a Athon na potência"): a medida P de cada inversor no
+    histórico analógico da SunOp (a média de 5 min dela, na hora da usina), a MESMA medida que o Tempo real mostra como
+    potência na última leitura. Um pedido da cota por usina e dia (o lote leva até 300 medidas), e nenhum quando o acervo
+    do gêmeo já tem a curva (`_sunop_analog_history`). A SunOp pausada (domingo, teto do dia), com o disjuntor aberto ou
+    sem credencial devolve vazio em silêncio: aqui isso é "a fonte não respondeu", com o motivo, e não "sem dado"."""
+    if _ln.pedido_do_nexus():
+        # gestor pelo Nexus: fonte paga fica de fora, como a API PV (spec 5.3 da porta única); o dia já lido sai do cache
+        raise _pa.ForaDoPerfil("pelo Nexus, no perfil gestor, a SunOp fica de fora: vale só o que a plataforma já tem "
+                               "guardado, e este dia ainda não foi lido por um analista")
+    usina = str(pid)
+    meta = _si("gridco")["meta"].get(usina)
+    if not meta:
+        raise _pa.FonteNaoRespondeu("o catálogo desta usina na SunOp ainda não foi lido nesta máquina")
+    paths = {inv: o.get("P") for inv, o in (meta.get("inv_other") or {}).items() if o.get("P")}
+    if not paths:
+        return {"inversores": [], "motivo": "a SunOp não traz a medida de potência (P) dos inversores desta usina"}
+    iso = dia.isoformat()
+    try:
+        hist = _sunop_analog_history(list(paths.values()), f"{iso}T00:00:00", f"{iso}T23:59:59", "gridco")
+    except Exception as e:                                   # noqa: BLE001 — rede ou resposta torta: não é usina parada
+        raise _pa.FonteNaoRespondeu(f"a SunOp não respondeu ({type(e).__name__}: {str(e)[:140]})") from None
+    if not any(hist.get(p) for p in paths.values()):
+        travada = "disjuntor" if _sunop_edge_aberto() else _sunop_sem_rede("gridco")
+        if travada:
+            raise _pa.FonteNaoRespondeu({
+                "disjuntor": "a SunOp recusou pedidos há pouco e a plataforma está esperando para tentar de novo",
+                "sem credencial": "a plataforma está sem credencial válida da SunOp"}.get(travada)
+                or "a SunOp está pausada: " + str(_SUNOP_PAUSA_TXT.get(travada, travada)))
+        if dia >= datetime.now().date():
+            return {"inversores": [], "motivo": "a SunOp ainda não tem potência dos inversores desta usina hoje"}
+        raise _pa.FonteNaoRespondeu("a SunOp não devolveu a potência dos inversores neste dia (sem resposta, ou sem "
+                                    "leitura no histórico dela)")
+    return {"inversores": [{"id": inv, "nome": _sunop_inv_display(usina, inv) or inv, "pontos": list(hist.get(p) or [])}
+                           for inv, p in paths.items()]}
+
+
 def _pa_ler_sg(fonte, pid, dia) -> dict:
     """A potência de cada inversor no dia, pela MESMA curva da aba Curva (`_sg_curvas`, que guarda hoje aos pedaços e o
     dia passado por 6 h): a telemetria MQTT traz a potência ativa junto com as strings. Um inversor por pedido, em série
@@ -35203,6 +35240,8 @@ def _pa_ler(familia, fonte, pid, dia) -> dict:
         return _pa_ler_sg(fonte, pid, dia)
     if familia == "solaredge":
         return _pa_ler_se(pid, dia)
+    if familia == "sunop":
+        return _pa_ler_sunop(pid, dia)
     raise _pa.Recusado("esta fonte não tem histórico de potência por inversor")
 
 
@@ -35257,7 +35296,8 @@ def _pa_linhas_tempo_real(fonte) -> list:
     if fonte == "pg":
         return list(_pg_cache.get("summary") or [])
     cache = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "2capi": _2capi_cache,
-             "greenyellow": _gy_cache, "salenergia": _sal_cache, "apolo": _apo_cache, "solaredge": _se_cache}.get(fonte)
+             "greenyellow": _gy_cache, "salenergia": _sal_cache, "apolo": _apo_cache, "solaredge": _se_cache,
+             "sunop": _sunop_cache}.get(fonte)
     return list(((cache or {}).get("payload") or {}).get("rows") or [])
 
 
@@ -35364,6 +35404,11 @@ def api_relatorio_potencia_ativa():
                 raise _pa.Recusado("usina desconhecida na SolarEdge: escolha uma usina da lista do Tempo real")
         elif f["familia"] == "scadagridco" and not _sg.usina_cfg(f["fonte"], pid):
             raise _pa.Recusado("usina desconhecida nesta fonte")
+        elif f["familia"] == "sunop":
+            # a usina que o Tempo real da Athon não conhece não gasta pedido da cota (com a tabela fria, passa)
+            so_ids = {str(r.get("plant_id")) for r in _pa_linhas_tempo_real("sunop")} - {"None"}
+            if so_ids and str(pid) not in so_ids:
+                raise _pa.Recusado("usina desconhecida na SunOp: escolha uma usina da lista do Tempo real")
     except _pa.Recusado as e:
         return jsonify({"ok": False, "motivo": str(e)}), 400
     base = {"ok": True, "fonte": f["fonte"], "fonte_rotulo": f["rotulo"], "usina": str(pid),

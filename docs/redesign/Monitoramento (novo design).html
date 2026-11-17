@@ -3316,7 +3316,7 @@ window.setCurvaData=v=>{ state.curvaData=v; render(); if(state.curvaPid)loadCurv
 // fique junto do gráfico da geração/potência ativa"): kW no eixo da esquerda, W/m² no da direita. As duas escalas têm o
 // MESMO número de intervalos e o zero no mesmo lugar, então cada linha de grade é uma marca dos dois eixos; a escala da
 // direita é a régua 1-2-2,5-5 que cobre o maior POA/GHI. Sem potência, o POA/GHI ocupa o gráfico sozinho (eixo da esquerda).
-const _POT_FONTES=['pv','pg','solaredge','2capi','semp','alveslima','greenyellow','salenergia','apolo'];   // as do relatório: Athon e Axis saíram dele em 13/10
+const _POT_FONTES=['pv','pg','sunop','solaredge','2capi','semp','alveslima','greenyellow','salenergia','apolo'];   // as do relatório: a Athon (sunop) voltou em 17/11/2026; a Axis segue fora
 // A paleta do relatório: 8 cores em ordem fixa (validadas contra o fundo #161d30) × traço; o 9º inversor é a cor 1 tracejada
 const _POT_COR=['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
 const _POT_TRACO=['','7 5','0.1 4.5','12 4 0.1 4','18 5','9 4 0.1 4 0.1 4'];
