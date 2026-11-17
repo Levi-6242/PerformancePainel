@@ -2720,6 +2720,11 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     min), mostra "leitura das HH:MM" e tem o "Ler agora" (`force=1`). Sem `?tabela=1` a rota segue ao vivo (o Tempo
     real e o Diagnóstico não mudaram). Nos 10 min depois de uma subida o ciclo não calcula o detalhe, para a 1ª tabela
     sair no tempo de sempre. O grupo passou a se chamar **2C · API PV** (a Owen acabou).
+  - **17/11, tarde:** a observação da OS sai com o texto do Tempo real (`_osObs` do Monitoramento: "Strings 4, 7 e 9
+    com corrente nula, verificar e normalizar", só as SEM CORRENTE de agora, sem as trancadas); a **Ocorrências não
+    mostra string trancada** (a da leitura e a que acabou de ser trancada na tela, na hora); a Potência ganhou
+    **Corrente das strings** (`correnteStrings`: um gráfico por inversor, um embaixo do outro, com a curva da aba
+    Strings); e os **trackers de vários dias ficam lado a lado**, cada gráfico com o dia.
   - **Nova tentativa sozinha (17/11):** a leitura da usina que falha tenta mais uma vez, 1,5 s depois, antes de
     mostrar o erro (a Athon "recusa e depois carrega"; não reproduzido em quatro usinas medidas: 1,7 s e 0,3 s). Na
     API PV não há nova tentativa (a falha lá é o teto de espera da fonte).

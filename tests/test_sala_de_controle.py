@@ -1066,3 +1066,40 @@ def test_a_leitura_tenta_de_novo_os_trackers_novos_ficam_marcados_e_a_dica_tem_q
     assert "desde a sua última visita</b>" in html and "nvSet.has(String(x[0])) ? '<span class=\"nv\">novo</span>'" in html
     assert 'nvSet.has(String(x.id)) ? " nvt" : ""' in html and ".tc.nvt{box-shadow:0 0 0 2px var(--critico)}" in html
     assert 'its.length > 60 ? "c4" :' in html and "#dica .cols.c4{columns:4;" in html
+
+
+def test_a_os_preenchida_como_no_tempo_real_e_as_ocorrencias_sem_trancadas():
+    """Levi, 17/11/2026: "se eu selecionei o inversor 1 e nele tem tantas strings sem corrente, já vai vir preenchido, que
+    nem era no tempo real"; "Em ocorrências não aparecer strings trancadas, e quando eu trancar já atualiza"."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    mon = open(app.os.path.join(app._RAIZ, "docs", "redesign", "Monitoramento (novo design).html"), encoding="utf-8-sig").read()
+    assert "com corrente nula, verificar e normalizar" in mon                                    # o texto de lá
+    modal = html[html.index("function modalOS() {"):html.index("const avisos = lista.map(i => {")]
+    assert '(nulas.length === 1 ? "String " : "Strings ") + lista1(nulas) + " com corrente nula, verificar e normalizar"' in modal
+    assert 'st(s) === "sem_corrente"' in modal and "TRANCA[k] ? \"trancada\"" in modal            # a trancada não entra no texto
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const OC_TOL_MIN = 10"):html.index("// a OS dos trackers de uma ocorrência")]
+    D = {"eps": {"U|Inversor 1.1": [{"s": "ST 04", "ini": "2026-11-16 08:00", "fim": "", "aberta": True, "kwh": 1},
+                                    {"s": "ST 05", "ini": "2026-11-16 09:00", "fim": "", "aberta": True, "kwh": 1},
+                                    {"s": "ST 06", "ini": "2026-11-16 10:00", "fim": "", "aberta": True, "kwh": 1}]},
+         "trkRows": [], "drill": {"U": {"inv": [{"n": "Inversor 1.1", "s": [["ST 04", 0, "trancada"], ["ST 05", 0, "sem_corrente"], ["ST 06", 0, "sem_corrente"]]}]}}}
+    script = ('const natural = (a, b) => String(a).localeCompare(String(b)); const D = ' + json.dumps(D) + '; const TRANCA = {"U|Inversor 1.1|ST 06": true};\n' + js +
+              '\nconsole.log(JSON.stringify(ocorrenciasDe({u: "U"}).map(o => o.ss.map(e => e.s))));')
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == [["ST 05"]]                     # a 04 já vinha trancada; a 06 acabou de ser trancada na tela
+
+
+def test_corrente_das_strings_ao_lado_da_potencia_e_os_trackers_lado_a_lado():
+    """Levi, 17/11/2026: "um campo chamado corrente das strings, que pegava todos os inversores por string e empilhava
+    [...] ao lado de potência"; "os trackers, quando eu seleciono mais que um dia [...] um ao lado do outro"."""
+    html = _html()
+    assert 'if (PV === "str") h += correnteStrings(u, dr); else {' in html and "function correnteStrings(u, dr) {" in html
+    assert html.count('data-pv="str"') >= 2                                                       # o botão nas duas visões
+    cs = html[html.index("function correnteStrings(u, dr) {"):html.index("// AS OCORRÊNCIAS DA USINA")]
+    assert "if (b === undefined) lerCurva(u, i.n, dia);" in cs and "dr.inv.slice().sort((a, b) => natural(a.n, b.n)).map(um).join(\"\")" in cs
+    assert "grid-template-columns:repeat(auto-fit,minmax(${dias.length > 1 ? 330 : 600}px,1fr))" in html and "Trackers · ${dm(dia)}" in html
