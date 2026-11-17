@@ -2968,6 +2968,48 @@ Nada é gravado: nem BD, nem cache.
 - Testes: `tests/test_recoleta_apipv.py` (chave, fuso, limites, nulo não vira zero, ETM em kWh/m², cota, teto, dia que
   falha, a rota sem chave, com chave e com o disjuntor aberto). A API PV é dublada.
 
+## Recoleta por fonte para a Coletas do Nexus (17/11/2026)
+
+Levi: "quero formas de coletar os dados novamente pelas nossas fontes de dados e gerar uma planilha para colar nos BDs";
+"Sim, todas"; acesso "só quem é do setor Performance" (a trava é do Nexus: tela "Recoleta pelas fontes" em Base >
+Acessos; a chave daqui é uma só). Uma rota por fonte, o MESMO contrato, nada gravado em BD nenhum.
+
+- **Rotas** (`_recoleta_por_fonte` no app.py): `GET /api/recoleta/<fonte>/plantas` -> `{plantas: [{id, usina (aba do
+  BD), destino}], max_dias, max_plantas, paga, teto, cota_restante}` e `POST /api/recoleta/<fonte>` `{ids, ini, fim,
+  geracao, etm, chuva, simular}` -> `{geracao: [{usina, inversor, data, kwh}], escalares: [{usina, data, coluna,
+  valor}], avisos, dias_fora, consultas, cota_restante, teto}`. `simular` não busca: só o custo, antes de a pessoa
+  confirmar. Fontes: `pg`, `scada`, `apipv`, `solaredge`, `oem`, `sunop`, `chuva` (`recoleta_fontes/<fonte>.py`; a
+  interface em `recoleta_fontes/__init__.py`). A `/api/recoleta/apipv` do Conversor 1.0.14 (formato cru) fica; o formato
+  do contrato sai nela com `?formato=bd`.
+- **Chave** (`X-Recoleta-Chave`): a do Conversor (RECOLETA_CHAVE ou HMAC da PV_PASSWORD) OU a da Coletas
+  (`recoleta_apipv.chave_do_nexus`: HMAC da NEXUS_SSO_CHAVE com `nexus/coletas/recoleta/v1`; sem a NEXUS_SSO_CHAVE ela
+  não existe). A conta do outro lado: `nexus/performance/coletas/servico.py`.
+- **Regras comuns** (`recoleta_fontes/comum.py`): de-para pela aba Equipamentos (`Mapa`, a chave de nome do coletor,
+  duas grafias para destinos diferentes não casam) e a aba do BD_Thopen pelo `rotear`/RENOMES do coletor (cópia: mudou
+  lá, muda aqui); só dia fechado em Brasília, no máximo 7 dias; **nulo não vai na resposta** (conta no aviso); **dia em
+  que menos da metade dos inversores DEVOLVIDOS veio > 0 = fonte fora** (`dias_fora`, a régua da trava do coletor,
+  pelas linhas e não pelo cadastro: pedir uma UG da Ipixuna não pode virar "fora"; a Crateus, com 40 de 50 parados de
+  verdade, cai aqui todo dia, e a Coletas mostra o aviso). Cada fonte devolve o inversor sem leitura como nulo para essa
+  régua enxergar. Coluna dos escalares: o cabeçalho do BD quando a fonte sabe ("IPOA (kWh/m²) ETM" da Athon) ou o
+  apelido "IPOA"/"GHI"/"Chuva" (o `AbaBD.col` do Conversor casa os dois).
+- **Custo**: teto do dia por conta (`comum.gastar`, em memória: o restart zera; `CONTA_DE` junta a chuva com a apipv e o
+  Conversor divide o mesmo contador). apipv/chuva 150 (`RECOLETA_TETO_DIA`) + a reserva da coleta da noite
+  (`_pv_cota_permite`); oem 100 (`RECOLETA_OEM_TETO_DIA`) com a cota lida dos cabeçalhos da própria oem@ (o `_pv_cota` é
+  um só e mistura as contas; a oem não escreve nele); sunop 150 (`RECOLETA_SUNOP_TETO_DIA`) + `_sunop_pausa` e o
+  `SUNOP_TETO_DIA` da máquina, tudo pela `_sunop_req` (conta no extrato como `analog_values:outro`). pg, scada e
+  solaredge não gastam cota (solaredge: uma recoleta por vez e em série, contra o throttling).
+- **Por fonte, o que difere do coletor de propósito**: nulo em vez do `or 0` (solaredge, oem, sunop: "0 nunca cobre
+  dado"); pg recusa dois dispositivos no mesmo destino (o coletor gravava o último); scada pega o MAIOR contador desde a
+  1ª leitura com potência (é o que o código do coletor faz desde 12/10, a Cedro zera à noite) e usa a configuração
+  `USINAS` dele (essas usinas não têm "Usina Supervisório"); solaredge corta o dia no fuso da usina (Cuiabá) e espelha a
+  irradiância da 1 na 2 (Colíder, Xavantina).
+- **Riscos conhecidos (17/11)**: o IPOA da SolarEdge pela régua do coletor veio 0,26-0,71 kWh/m² no 05/11 (dia de sol) e
+  o coletor não gravou de 06 a 16/11: conferir com chamada real antes de confiar; a Tupi Paulista por inversor no
+  `energy` só entra no 400 "grande demais" e nunca foi testada na API de verdade; a comparação valor a valor do porte do
+  pg com o SQL do coletor ficou para o servidor.
+- Testes: `tests/test_recoleta_fontes.py` (comum, apipv, chuva, rota, chave do Nexus) e um por fonte
+  (`test_recoleta_pg/scada/solaredge/oem/sunop.py`), todos com a fonte dublada.
+
 ## OS Creator na web — proxy `/os/*` (12/09/2026)
 
 O card "Criar OS" da Entrada abre o OS Creator dentro da plataforma. O serviço NÃO mora aqui: é `os_creator/os_web`

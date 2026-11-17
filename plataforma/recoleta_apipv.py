@@ -36,19 +36,9 @@ MAX_DIAS = 7
 MAX_PLANTAS = 8
 TETO_DIA = int(os.environ.get("RECOLETA_TETO_DIA") or 150)
 TRABALHADORES = 6
-_CONTA = {"dia": None, "n": 0}
-_LOCK = threading.Lock()
 
 _POA = ["IrPOA", "Ir", "Ir1", "piraPOA1"]               # os mesmos do coletor, na mesma ordem
 _GHI = ["piraGHI1", "IrGHI", "piraGHI2", "IrGHITotal"]  # piraGHI1 primeiro: o IrGHI vem zerado/fiado no POA em várias
-
-
-class Recusa(Exception):
-    """Pedido que não passa (status HTTP, texto)."""
-
-    def __init__(self, status, texto):
-        super().__init__(texto)
-        self.status = status
 
 
 def chave_esperada(env_chave, pv_password):
@@ -57,6 +47,23 @@ def chave_esperada(env_chave, pv_password):
     if not pv_password:
         return ""
     return hmac.new(pv_password.encode("utf-8"), ROTULO, hashlib.sha256).hexdigest()
+
+
+ROTULO_NEXUS = b"nexus/coletas/recoleta/v1"
+
+
+def chave_do_nexus(nexus_sso_chave):
+    """A chave da Coletas do Nexus (17/11/2026): HMAC-SHA256 da NEXUS_SSO_CHAVE (a da porta única, a MESMA no .env dos dois
+    servidores) com um rótulo fixo — o .env do Nexus é da T.I. e o deploy não mexe nele, então nenhuma configuração nova.
+    Sem a NEXUS_SSO_CHAVE (ou curta demais: a porta única a desliga), esta chave não existe. A conta do outro lado mora em
+    nexus/performance/coletas/servico.py (chave_recoleta, ROTULO_RECOLETA): mudou lá, muda aqui."""
+    if not nexus_sso_chave or len(nexus_sso_chave) < 32:
+        return ""
+    return hmac.new(nexus_sso_chave.encode("utf-8"), ROTULO_NEXUS, hashlib.sha256).hexdigest()
+
+
+def confere_alguma(recebida, esperadas):
+    return any(confere(recebida, e) for e in esperadas if e)
 
 
 def confere(recebida, esperada):
@@ -69,16 +76,56 @@ def hoje_br(agora_utc=None):
     return (agora_utc - dt.timedelta(hours=3)).date()
 
 
+# O teto do dia é UM só para o Conversor (formato cru, acima) e para a Coletas do Nexus (recoleta_fontes, fonte "apipv"):
+# o contador mora no recoleta_fontes.comum (17/11/2026), senão os dois caminhos somariam o dobro do teto na mesma conta.
+from recoleta_fontes import comum as _comum  # noqa: E402
+Recusa = _comum.Recusa
+
+
 def gastar(n, hoje):
     """Reserva `n` chamadas do teto do dia; Recusa(429) se não couber."""
-    with _LOCK:
-        if _CONTA["dia"] != hoje:
-            _CONTA.update(dia=hoje, n=0)
-        if _CONTA["n"] + n > TETO_DIA:
-            raise Recusa(429, "teto de %d chamadas à API PV por dia atingido (%d usadas hoje); tente amanhã"
-                         % (TETO_DIA, _CONTA["n"]))
-        _CONTA["n"] += n
-        return TETO_DIA - _CONTA["n"]
+    return _comum.gastar("apipv", n, TETO_DIA, hoje)
+
+
+def restam(hoje):
+    return _comum.restante("apipv", TETO_DIA, hoje)
+
+
+def analisa_chuva(leituras):
+    """(mm, confiável) do dia pela regra do coletor (`_chuva_hoje.analisa`): chuva = max - min do acumulado `chuTotal`;
+    não confiável quando o `Chu` fica cravado num valor > 0 em mais de 80% das leituras (sensor com viés) ou o delta sai
+    de 0-150 mm (glitch do acumulador) — no BD isso vai em LARANJA. Diferença: sem 2 leituras de chuTotal é None (o
+    coletor punha 0,0; aqui sem dado não se inventa), e o delta fora de 0-150 também é None, não 0."""
+    chutot, chu = [], []
+    for r in leituras or []:
+        c = r.get("conteudojson")
+        if isinstance(c, str):
+            try:
+                c = json.loads(c)
+            except ValueError:
+                continue
+        if not isinstance(c, dict):
+            continue
+        try:
+            chutot.append(float(c["chuTotal"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+        try:
+            chu.append(float(c["Chu"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+    if len(chutot) < 2:
+        return None, True
+    delta = round(max(chutot) - min(chutot), 2)
+    conf = True
+    if len(chu) >= 10:
+        from collections import Counter
+        mc, qtd = Counter(chu).most_common(1)[0]
+        if mc > 0 and qtd / len(chu) > 0.8:
+            conf = False
+    if not (0 <= delta <= 150):
+        return None, False
+    return delta, conf
 
 
 def _irr(c, campos):
@@ -173,7 +220,14 @@ def recoletar(post, corpo, plantas_conta, hoje, cota_permite=lambda: True):
     if not cota_permite():
         raise Recusa(429, "a cota histórica da API PV está na reserva da coleta da noite; tente mais tarde")
     n = chamadas(len(ids), len(dias), geracao, etm)
-    restam = gastar(n, hoje)
+    resto = gastar(n, hoje)
+    return {"plantas": buscar_cru(post, ids, dias, geracao, etm, plantas_conta, cota_permite), "chamadas": n,
+            "restam": resto}
+
+
+def buscar_cru(post, ids, dias, geracao, etm, plantas_conta, cota_permite=lambda: True, chuva=False):
+    """A busca na API PV, sem validar nem gastar (quem chama já fez): {id: {"nome", "inversores", "dias": {iso: {"ger",
+    "ipoa", "ghi", "chuva", "chuva_conf", "erro"}}}}. ETM e chuva saem da MESMA consulta meteo do dia."""
     out = {str(i): {"nome": plantas_conta[i], "inversores": {}, "dias": {d.isoformat(): {} for d in dias}} for i in ids}
 
     def nomes(pid):
@@ -198,9 +252,12 @@ def recoletar(post, corpo, plantas_conta, hoje, cota_permite=lambda: True):
                         continue
                     ger[str(r.get("idinversor"))] = round(v, 2)
                 res["ger"] = ger
-            if etm:
-                poa, ghi = integrar(post("/custom_query", {"id": pid, "data_type": "meteo", "period": per, "day": d.day}))
-                res["ipoa"], res["ghi"] = poa, ghi
+            if etm or chuva:
+                met = post("/custom_query", {"id": pid, "data_type": "meteo", "period": per, "day": d.day})
+                if etm:
+                    res["ipoa"], res["ghi"] = integrar(met)
+                if chuva:
+                    res["chuva"], res["chuva_conf"] = analisa_chuva(met)
         except Exception as e:                            # um dia que falha não derruba o pedido
             res["erro"] = "%s: %s" % (type(e).__name__, e)
         return pid, d, res
@@ -214,7 +271,7 @@ def recoletar(post, corpo, plantas_conta, hoje, cota_permite=lambda: True):
             if "ger" in res:                              # id do inversor -> nome do supervisório
                 res["ger"] = {inv.get(k, k): v for k, v in res["ger"].items()}
             out[str(pid)]["dias"][d.isoformat()] = res
-    return {"plantas": out, "chamadas": n, "restam": restam}
+    return out
 
 
 def _seguro(f, *a):

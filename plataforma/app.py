@@ -15355,11 +15355,20 @@ def api_2capi_trackers_chart_csv(idusina):
 # Levi: "deve ter algum campo para fazer uma recoleta pela API... seleciona a usina, o período... geração, ETM". O
 # Conversor roda no PC de cada um e não leva a senha da API PV; pede aqui, que já entra na API sozinho. Regras, custo e
 # chave em recoleta_apipv.py.
-def _recoleta_recusa():
+def _recoleta_chave_recusa():
     import recoleta_apipv as _rc
-    esperada = _rc.chave_esperada(os.environ.get("RECOLETA_CHAVE", ""), PASSWORD)
-    if not _rc.confere(flask_request.headers.get("X-Recoleta-Chave"), esperada):
+    # duas chaves: a do Conversor (RECOLETA_CHAVE ou o HMAC da senha da API PV) e a da Coletas do Nexus (HMAC da
+    # NEXUS_SSO_CHAVE, que não existe sem ela)
+    esperadas = (_rc.chave_esperada(os.environ.get("RECOLETA_CHAVE", ""), PASSWORD), _rc.chave_do_nexus(NEXUS_SSO_CHAVE))
+    if not _rc.confere_alguma(flask_request.headers.get("X-Recoleta-Chave"), esperadas):
         return jsonify({"erro": "chave da recoleta recusada"}), 401
+    return None
+
+
+def _recoleta_recusa():
+    recusa = _recoleta_chave_recusa()
+    if recusa is not None:
+        return recusa
     if _pv_disj_aberto():
         return jsonify({"erro": "a API PV está fora do ar agora (disjuntor aberto); tente em alguns minutos"}), 503
     return None
@@ -15392,10 +15401,74 @@ def _recoleta_plantas():
     return out
 
 
+# ── Recoleta por fonte para a Coletas do Nexus (17/11/2026): um contrato só para todas (recoleta_fontes/comum.py) ────
+# Levi: "quero formas de coletar os dados novamente pelas nossas fontes de dados e gerar uma planilha para colar nos
+# BDs"; "Sim, todas". Cada fonte é um módulo de recoleta_fontes/ que usa os clientes que a plataforma já tem. A rota da
+# apipv acima (formato cru, a do Conversor 1.0.14) fica; o formato do contrato sai nela com ?formato=bd.
+_RECOLETA_MAPA = {"t": 0.0, "m": None}
+
+
+def _recoleta_mapa():
+    """O de-para da aba Equipamentos (com o Nexus por cima), refeito a cada 10 min."""
+    from recoleta_fontes import comum as _rcc
+    if _RECOLETA_MAPA["m"] is None or time.time() - _RECOLETA_MAPA["t"] > 600:
+        _RECOLETA_MAPA.update(m=_rcc.mapa_do_df(_equipamentos_df()), t=time.time())
+    return _RECOLETA_MAPA["m"]
+
+
+def _recoleta_por_fonte(fonte, so_plantas=False):
+    import recoleta_fontes as _rf
+    from recoleta_fontes import comum as _rcc
+    recusa = _recoleta_chave_recusa()
+    if recusa is not None:
+        return recusa
+    mod = _rf.modulo(fonte)
+    if mod is None:
+        return jsonify({"erro": "fonte desconhecida: %s (há: %s)" % (fonte, ", ".join(_rf.FONTES))}), 404
+    teto = getattr(mod, "TETO", None)
+    try:
+        ctx = mod.contexto(_sys.modules[__name__])
+        pl = mod.plantas(ctx)
+    except _rcc.Recusa as e:
+        return jsonify({"erro": str(e)}), e.status
+    except Exception as e:
+        return jsonify({"erro": "não consegui ler a lista de usinas de %s (%s: %s)" % (fonte, type(e).__name__, e)}), 502
+    if so_plantas:
+        return jsonify({"plantas": pl, "max_dias": _rcc.MAX_DIAS, "max_plantas": mod.MAX_PLANTAS, "paga": mod.PAGA,
+                        "teto": teto, "cota_restante": _rcc.restante(fonte, teto)})
+    try:
+        ids, dias, ger, etm, chuva, simular = _rcc.validar(flask_request.get_json(silent=True) or {},
+                                                           [p["id"] for p in pl], mod.MAX_PLANTAS)
+        n = mod.custo(ids, dias, ger, etm, chuva)
+        if simular:
+            return jsonify({"consultas": n, "cota_restante": _rcc.restante(fonte, teto), "teto": teto})
+        motivo = mod.permite(ctx, n) if hasattr(mod, "permite") else None
+        if motivo:
+            raise _rcc.Recusa(429, motivo)
+        resto = _rcc.gastar(fonte, n, teto)
+        res = mod.buscar(ctx, ids, dias, ger, etm, chuva)
+    except _rcc.Recusa as e:
+        return jsonify({"erro": str(e)}), e.status
+    print(f"[recoleta/{fonte}] {len(ids)} planta(s) x {len(dias)} dia(s), {n} consulta(s) paga(s)")
+    return jsonify(_rcc.montar_resposta(res, ctx.mapa, n, resto, teto))
+
+
+@app.route("/api/recoleta/<fonte>/plantas")
+def api_recoleta_fonte_plantas(fonte):
+    return _recoleta_por_fonte(fonte, so_plantas=True)
+
+
+@app.route("/api/recoleta/<fonte>", methods=["POST"])
+def api_recoleta_fonte(fonte):
+    return _recoleta_por_fonte(fonte)
+
+
 @app.route("/api/recoleta/apipv/plantas")
 def api_recoleta_plantas():
     """As plantas da conta principal da API PV, com o nome cru (o da aba Equipamentos) e o do cadastro."""
     import recoleta_apipv as _rc
+    if flask_request.args.get("formato") == "bd":
+        return _recoleta_por_fonte("apipv", so_plantas=True)
     recusa = _recoleta_recusa()
     if recusa is not None:
         return recusa
@@ -15404,10 +15477,9 @@ def api_recoleta_plantas():
     except Exception as e:
         return jsonify({"erro": f"não consegui ler a lista de usinas da API PV ({type(e).__name__})"}), 502
     hoje = _rc.hoje_br()
-    usadas = _rc._CONTA["n"] if _rc._CONTA["dia"] == hoje else 0
     return jsonify({"plantas": [{"id": k, "nome": v[0], "cadastro": v[1]} for k, v in sorted(pl.items())],
                     "max_dias": _rc.MAX_DIAS, "max_plantas": _rc.MAX_PLANTAS, "teto_dia": _rc.TETO_DIA,
-                    "restam_hoje": _rc.TETO_DIA - usadas, "cota_api": _pv_cota.get("dia")})
+                    "restam_hoje": _rc.restam(hoje), "cota_api": _pv_cota.get("dia")})
 
 
 @app.route("/api/recoleta/apipv", methods=["POST"])
@@ -15415,6 +15487,8 @@ def api_recoleta_apipv():
     """Geração por inversor e/ou ETM (POA e GHI em kWh/m²) de plantas × dias fechados, crus, para o Conversor comparar
     com o BD. Nada é gravado aqui."""
     import recoleta_apipv as _rc
+    if flask_request.args.get("formato") == "bd":
+        return _recoleta_por_fonte("apipv")
     recusa = _recoleta_recusa()
     if recusa is not None:
         return recusa

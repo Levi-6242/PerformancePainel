@@ -30,7 +30,8 @@ class Api:
 
 @pytest.fixture(autouse=True)
 def _conta_zerada(monkeypatch):
-    monkeypatch.setattr(rc, "_CONTA", {"dia": None, "n": 0})
+    from recoleta_fontes import comum
+    monkeypatch.setattr(comum, "_CONTA", {})           # o teto do dia mora no comum desde 17/11 (um só com a Coletas)
 
 
 def _corpo(**kw):
