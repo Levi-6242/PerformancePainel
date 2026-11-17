@@ -2712,6 +2712,13 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   - **A usina lê tudo ao mesmo tempo (17/11):** as strings, os trackers e a estação saem juntos (`PRE` guarda o `dr`
     antes de as strings voltarem), e as abas Trackers e ETM desenham com o que já chegou. Antes os trackers só eram
     pedidos depois das strings: medido na Santa Bárbara I, 2,1 s + 5,1 s em fila viraram 5,1 s no total.
+  - **A linha de botões das Strings fica fixa (17/11):** presa no topo ao rolar (`.barrafix`), com o **Criar OS**
+    dos inversores marcados (sem nenhum marcado, a tela diz como marcar; não escolhe por ninguém).
+  - **"Strings fora" é a conta do Tempo real (17/11):** esperadas − ativas do inversor NA CONTA (`faltaDe`, a régua do
+    `_resumoDrill` do Monitoramento), e não o estado de cada string: a SMP100 dizia "Cabine 6 · 12 strings fora" com os
+    dois inversores em 18/18 e 17/17 (eram strings de corrente baixa, agora contadas à parte). **A usina aberta reconta
+    a linha dela** (`recontaStrings`): a lateral e a aba passam a valer a soma das faltas dos inversores lidos agora
+    (a SMP100 dizia 3 no resumo e 2 ao abrir); o resumo mais novo que a leitura da usina volta a valer.
   - **Strings em cartão (17/11):** o número em cima e a corrente embaixo, SEMPRE, até na trancada (azul, borda
     tracejada, sem cadeado: "caso o técnico ligue a string numa trancada saberemos"). **A curva só abre no clique**:
     nenhum inversor abre o gráfico sozinho ao entrar na usina (a regra de 16/11 de abrir o 1º foi desfeita a pedido).

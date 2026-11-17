@@ -943,7 +943,7 @@ def test_a_usina_le_strings_trackers_e_estacao_ao_mesmo_tempo():
     ler = html[html.index("async function lerUsina(u, calada) {"):html.index("// (g) O que o SCADA da Grid tem desta usina AGORA")]
     assert ler.index("if (EPT[sk]) extras.push(pega(EPT[sk]") < ler.index("const pl = await pega(PLANT[sk]")           # os trackers saem antes de esperar as strings
     assert ler.index("if (EPE[sk]) extras.push((ETMS[sk]") < ler.index("const pl = await pega(PLANT[sk]")              # e a estação também
-    assert "if (!manter) PRE[u.u] = dr;" in ler and "dr.inv = inv; D.drill[u.u] = dr; delete PRE[u.u];" in ler
+    assert "if (!manter) PRE[u.u] = dr;" in ler and "dr.inv = inv; dr.em = Date.now(); dr.g = u.g; D.drill[u.u] = dr; delete PRE[u.u];" in ler
     assert "} catch (e) { delete PRE[u.u];" in ler                                                                    # a usina que falhou não deixa resto
     assert 'const dr = D.drill[u.u] || ((ABA === "trk" || ABA === "etm") && !FALHOU[u.u] ? PRE[u.u] : undefined), cp = $("corpo");' in html
     # os cartões de string: valores no centro e 20% mais estreitos (62 → 50 px)
@@ -957,3 +957,43 @@ def test_o_azul_e_so_quando_o_acompanhamento_e_igual_as_zeradas_como_no_tempo_re
     mon = (app.Path(app._RAIZ) / "docs" / "redesign" / "Monitoramento (novo design).html").read_text(encoding="utf-8-sig") if hasattr(app, "Path") else open(app.os.path.join(app._RAIZ, "docs", "redesign", "Monitoramento (novo design).html"), encoding="utf-8-sig").read()
     assert "const bate=(dif!=null&&tCount!=null&&dif===-tCount);" in mon                         # a regra de lá
     assert "ok = l.every(u => !(u.sf || u.sa) || u.sa === u.sf);" in html and 'u.sa >= tot ? "az"' not in html
+
+
+def test_a_linha_de_botoes_das_strings_fica_fixa_e_tem_o_criar_os():
+    """Levi, 17/11/2026: "gostaria que essa linha em string ficasse fixa, mesmo dando scroll ela fica no topo! tem que ter
+    um botão de criar OS aqui também"."""
+    html = _html()
+    assert ".barrafix{position:sticky;top:0;z-index:18;" in html and '<div class="diasel barrafix" style="gap:8px"><span>Dia</span>' in html
+    barra = html[html.index('<div class="diasel barrafix"'):]
+    barra = barra[:barra.index("Object.keys(cab)")]
+    assert 'data-criaros="1"' in barra and "${PODE ? `<button class=\"btn\" data-criaros" in barra            # só para quem grava
+    assert 'if ((x = q("[data-criaros]"))) { if (!PODE) return; if (MARC.size) abrirCriarOS(); else toast(' in html   # sem marcar, não escolhe por ninguém
+
+
+def test_strings_fora_e_a_conta_do_tempo_real_e_a_usina_aberta_reconta():
+    """Levi, 17/11/2026, a SMP100: "2 inversores e 12 strings fora não faz sentido pois tem que levar em conta a string
+    ativa"; "diz 3 strings fora, quando abri só tinha 2, no tempo real assim que carregava a usina ele recontava". A
+    regra roda de verdade (no node): a falta é esperadas − ativas, só de quem está na conta, sem a sobra pagar a falta."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert "fora = l.reduce((a, i) => a + faltaDe(i), 0)" in html and "const r = faltaDe(i), bx1 = " in html
+    assert "recontaStrings(u.u, u.g, inv);" in html and "if (dr && dr.em && dr.g && dr.em > tRes) recontaStrings(nome, dr.g, dr.inv);" in html
+    mon = open(app.os.path.join(app._RAIZ, "docs", "redesign", "Monitoramento (novo design).html"), encoding="utf-8-sig").read()
+    assert "const dif=conta.reduce((t,i)=>t+Math.min(0,i.diferenca),0);" in mon                    # a régua de lá
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const naConta = i =>"):html.index("const PRE = {};")]
+    D = {"grupos": [{"id": "athon", "usinas": [{"u": "SMP100", "sf": 3, "sa": 1, "sn": 2}, {"u": "OUTRA", "sf": 9, "sa": 0, "sn": 9}]}]}
+    inv = [{"n": "6.1", "dif": 0, "esp": 18, "at": 18}, {"n": "5.2", "dif": -2, "esp": 17, "at": 15}, {"n": "1.1", "dif": 3, "esp": 10, "at": 13},
+           {"n": "desligado", "dif": -17, "esp": 17, "at": 0, "desl": True}, {"n": "fora", "dif": -5, "esp": 5, "at": 0, "fora": True}, {"n": "sem conta", "dif": None}]
+    script = ("const D = " + json.dumps(D) + ";\n" + js + "\nconst inv = " + json.dumps(inv) + ";\nrecontaStrings('SMP100', 'athon', inv);\n"
+              "const semNumero = [{dif: -1, esp: null, at: 3}]; recontaStrings('OUTRA', 'athon', semNumero);\n"
+              "console.log(JSON.stringify([inv.map(faltaDe), D.grupos[0].usinas]));")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    faltas, usinas = json.loads(r.stdout)
+    assert faltas == [0, 2, 0, 0, 0, 0]                      # 18/18 não tem string fora; a sobra de +3 não paga; desligado e fora da conta ficam fora
+    assert usinas[0] == {"u": "SMP100", "sf": 2, "sa": 1, "sn": 1, "sfResumo": 3, "rec": True}       # o resumo dizia 3; os inversores dizem 2
+    assert usinas[1] == {"u": "OUTRA", "sf": 9, "sa": 0, "sn": 9}                                    # sem esperadas na conta: fica o resumo
