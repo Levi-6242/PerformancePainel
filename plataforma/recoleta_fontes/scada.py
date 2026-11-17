@@ -61,10 +61,12 @@ USINAS = {
     "Castelo do Piauí": {"scada": "castelo_do_piaui",
                          "inversores": {**{f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 9)},
                                         **{f"inversor-{i:02d}-12": f"Inversor 2.{i}" for i in range(1, 9)}}},
+    # O supervisório renomeou de "N" para "inversor-NN" (Demerval 04/11/2026, Irecê 05/11): o mesmo conserto do coletor
+    # (coletar_greenyellow.USINAS), pela ordem; a UG 02 da Demerval ("inversor-NN-12") espera o Levi decidir as colunas.
     "Demerval Lobão": {"scada": "dermeval_lobao",
-                       "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 13)}},
+                       "inversores": {f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 13)}},
     "Irece 2": {"scada": "irece_2",
-                "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
+                "inversores": {f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 11)}},
     "Cedro 1": {"scada": "cedro",
                 "inversores": {f"inversor-{i:02d}": f"Inversor 1.{i}" for i in range(1, 11)}},
     "Cedro 2": {"scada": "cedro",
