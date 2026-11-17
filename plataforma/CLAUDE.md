@@ -2706,8 +2706,9 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     ETM da Gravatá II, engrenagem) com dado real lido do servidor e o COS de mentira.
 - **Retornos de 16/11 (23h30), a visão limpa e as abas novas** (`tests/test_sala_de_controle.py`, os nove últimos):
   - **A coluna Str. da lateral (17/11):** TODAS as strings sem corrente (era a diferença, as sem acompanhamento), na
-    cor do Tempo real: azul quando o acompanhamento cobre todas, laranja quando falta alguma; o cartão da fonte segue a
-    mesma regra. A lateral ficou 10% maior.
+    cor do Tempo real, pela regra EXATA de lá (`bate = dif === -acomp` no Monitoramento): azul só quando o
+    acompanhamento é IGUAL às zeradas, laranja quando os dois números não batem (a mais ou a menos); o cartão da fonte
+    é azul quando todas as usinas dele batem. A lateral ficou 10% maior.
   - **A usina lê tudo ao mesmo tempo (17/11):** as strings, os trackers e a estação saem juntos (`PRE` guarda o `dr`
     antes de as strings voltarem), e as abas Trackers e ETM desenham com o que já chegou. Antes os trackers só eram
     pedidos depois das strings: medido na Santa Bárbara I, 2,1 s + 5,1 s em fila viraram 5,1 s no total.

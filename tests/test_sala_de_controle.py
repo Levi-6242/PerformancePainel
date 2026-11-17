@@ -929,7 +929,7 @@ def test_a_lateral_mostra_todas_as_strings_sem_corrente_na_cor_do_tempo_real():
     """Levi, 17/11/2026: "mostrasse todas as linhas que estão sem corrente. Eu acho que está fazendo a diferença. [...] Se
     acompanhamento está igual com o que tem de string zerada, fica em azul [...] Se está diferente [...] O laranja"."""
     html = _html()
-    assert '(tot => tot ? `<b class="${u.sa >= tot ? "az" : ""}">${tot}</b>`' in html and "(u.sf || u.sd)}</span><span class=\"ac" in html
+    assert '(tot => tot ? `<b class="${u.sa === tot ? "az" : ""}">${tot}</b>`' in html and "(u.sf || u.sd)}</span><span class=\"ac" in html
     assert "<span>${v(u.sf ? u.sn : u.sd)}</span>" not in html                                  # não é mais a diferença
     assert ".tela .lado .f .u b.az,.tela .lado .tri b.az{color:var(--info)}" in html and 'c("Strings", sf, sf ? (sa ? "ac. " + nf(sa) : "sem ac.") : ""' in html
     assert ".tela .lado{font-size:14.3px}" in html and ".tela .lado .f .u{font-size:13.2px}" in html   # a lateral 10% maior
@@ -948,3 +948,12 @@ def test_a_usina_le_strings_trackers_e_estacao_ao_mesmo_tempo():
     assert 'const dr = D.drill[u.u] || ((ABA === "trk" || ABA === "etm") && !FALHOU[u.u] ? PRE[u.u] : undefined), cp = $("corpo");' in html
     # os cartões de string: valores no centro e 20% mais estreitos (62 → 50 px)
     assert "button.st{width:auto;min-width:50px;" in html and "align-items:center;justify-content:flex-start;gap:2px;text-align:center;" in html
+
+
+def test_o_azul_e_so_quando_o_acompanhamento_e_igual_as_zeradas_como_no_tempo_real():
+    """Levi, 17/11/2026: "se as duas são iguais, vai ficar em azul, que nem é no tempo real. Usa a mesma lógica". O
+    Monitoramento usa `bate = dif === -tCount` (igual, não "pelo menos")."""
+    html = _html()
+    mon = (app.Path(app._RAIZ) / "docs" / "redesign" / "Monitoramento (novo design).html").read_text(encoding="utf-8-sig") if hasattr(app, "Path") else open(app.os.path.join(app._RAIZ, "docs", "redesign", "Monitoramento (novo design).html"), encoding="utf-8-sig").read()
+    assert "const bate=(dif!=null&&tCount!=null&&dif===-tCount);" in mon                         # a regra de lá
+    assert "ok = l.every(u => !(u.sf || u.sa) || u.sa === u.sf);" in html and 'u.sa >= tot ? "az"' not in html
