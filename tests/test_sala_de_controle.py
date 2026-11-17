@@ -551,9 +551,9 @@ def test_os_inversores_em_lista_com_ativas_esperadas_e_o_botao_das_strings():
     assert 'at: i.strings_ativas, dif: i.diferenca, fora: !!i.fora_da_conta' in html          # o que o Tempo real diz
     assert '<div class="ilista"><div class="il cab">' in html and "Ativas / esperadas" in html and "Diferença" in html and "+2 h hoje" in html
     assert 'class="expb" data-expi="${esc(i.n)}"' in html and 'data-expi="*"' in html          # um inversor, ou todos
-    assert '(ab ? `<div class="ilx">${chips(i)}${osBox(i)}</div>` : "")' in html               # as strings só abertas
+    assert '(gr || ab ? `<div class="ilx" data-hlbox="1">${gr ? graf(i) : ""}${chips(i)}${osBox(i)}</div>` : "")' in html   # só abertas
     assert 'class="inv ' not in html                                                           # os cartões saíram
-    assert 'if ((x = q(".il[data-inv]"))) { INV = x.dataset.inv;' in html                      # a linha abre a curva
+    assert 'if ((x = q(".il[data-inv]"))) { const n = x.dataset.inv, k = SEL.u + "|" + n;' in html   # a linha abre a curva
     # dentro da usina não há os números do alto
     assert '$("kpis").hidden = !!SEL.u;' in html and ".kpis[hidden]{display:none}" in html
 
@@ -621,7 +621,7 @@ def test_a_curva_vem_do_logger_do_cos_so_onde_a_fonte_e_lenta():
     assert "} catch (e) { return null; }" in cc                                                   # qualquer falha: vale a fonte
     assert 'const n = normN(x.nome), b = n.replace(/\\s+(\\d+|i{1,3}|iv|v)$/, ""); return b !== n ? tr.filter(u => normN(u.u) === b) : [];' in html
     assert "if (ex.length) return ex;" in html                                                    # com o nome inteiro, nunca pelo nome curto
-    assert 'data-curvafonte="1"' in html and "SEM_COS[k] = 1; delete D.curvas[k];" in html        # e dá para ver pela fonte
+    assert 'data-curvafonte="${esc(i.n)}"' in html and "SEM_COS[k] = 1; delete D.curvas[k];" in html        # e dá para ver pela fonte
 
 
 def test_a_curva_do_banco_tem_copia_e_um_pedido_so_no_ar(cli, monkeypatch):
@@ -707,3 +707,29 @@ def test_a_tela_mostra_o_nome_da_sala_e_junta_os_grupos_sem_somar():
     assert "só na Sala de controle" in cfg and 'data-cfgn="${esc(k)}"' in cfg and 'data-cfgg="${esc(k)}" list="cfggr"' in cfg
     assert '${gravaC ? "" : "disabled"}' in cfg and "gravaC ? '<button class=\"btn\" data-cfgsalvar=\"1\">Salvar</button>' : \"\"" in cfg
     assert 'await grava("/api/sala/arranjo", {nomes: limpa(ARRED.nomes), grupos: limpa(ARRED.grupos)});' in html
+
+
+def test_a_curva_abre_embaixo_do_inversor_e_varios_ficam_abertos():
+    """Levi, 16/11/2026 (noite): "O gráfico abrisse em Drill [...] clicando no inversor. E aí dá para clicar em vários
+    inversores de uma vez e carregar o gráfico". O clique abre ou fecha a curva DAQUELE inversor; os outros ficam."""
+    html = _html()
+    assert "const GRAF = new Set();" in html
+    assert "if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }" in html
+    assert 'const graf = i => { const bruta = D.curvas[u.u + "|" + i.n + "|" + dia];' in html and "if (bruta === undefined) lerCurva(u, i.n, dia);" in html
+    assert "<h3>Curva por string · ${esc(INV)}" not in html                                    # o painel fixo do alto saiu
+    assert 'data-grafx="1">Fechar as ${nG} curvas' in html and 'if ((x = q("[data-grafx]"))) { GRAF.clear();' in html
+    assert "if (INV) GRAF.add(u.u + \"|\" + INV); }" in html                                   # o 1º inversor já abre com a curva
+    assert "INV = null; GRAF.clear();" in html                                                 # outra usina começa do zero
+    # abrir vários inversores da mesma usina não repete a leitura da usina inteira: um pedido no ar por endereço
+    assert "await (CURVAP[url] || (CURVAP[url] = pega(url, 90000).finally(() => { delete CURVAP[url]; })))" in html
+    # o destaque no mouse fica no gráfico do inversor da string
+    assert '(x.closest("[data-hlbox]") || document).querySelectorAll("svg[data-ch] path[data-sn]")' in html
+    assert 'data-curvafonte="${esc(i.n)}"' in html and 'SEL.u + "|" + x.dataset.curvafonte + "|" + (DIA || HOJE)' in html
+
+
+def test_o_servidor_aquecendo_nao_abre_a_sala_vazia():
+    """16/11/2026: depois de uma subida a Entrada responde "aquecendo" por 2 a 7 min, e a Sala abria sem fonte nenhuma até
+    a volta de 5 min. A tela diz o que é, tenta de novo em 15 s e não troca a tela cheia de quem já estava nela."""
+    html = _html()
+    assert "if (ent && ent.aquecendo && !(ent.grupos || []).length) {" in html
+    assert "ligar.t = setTimeout(() => ligar(!D), 15000); return; }" in html and "if (!D) $(\"corpo\").innerHTML = " in html

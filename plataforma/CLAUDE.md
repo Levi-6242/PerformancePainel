@@ -2662,6 +2662,15 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     campos `strings_ativas`, `str_esp` e `diferenca` da leitura da usina, os do Tempo real), as com +2 h hoje e a
     situação; o `+` da linha abre as strings (ou "Abrir as strings de todos"). De noite a diferença aparece sem o
     vermelho (o inversor sem potência tem zero ativas).
+  - **Servidor aquecendo:** logo depois de uma subida a Entrada responde `aquecendo` sem fonte nenhuma (medido: 2,5 min
+    às 22:07 e 7 min às 22:31) e a Sala abria vazia até a volta de 5 min; agora avisa e tenta de novo a cada 15 s, sem
+    trocar a tela cheia de quem já estava nela.
+  - **A curva abre EMBAIXO do inversor** ("O gráfico abrisse em Drill [...] clicando no inversor. E aí dá para clicar em
+    vários inversores de uma vez e carregar o gráfico"): o clique na linha abre ou fecha a curva dela (`GRAF`), e várias
+    ficam abertas juntas, com as strings embaixo; o painel fixo do alto virou a barra do dia e do período solar, que
+    valem para todas. O 1º inversor (o novo, ou o com string fora) já abre com a curva. Abrir vários da mesma usina não
+    repete a leitura da usina inteira (`CURVAP`, um pedido no ar por endereço). O destaque do mouse fica no gráfico do
+    inversor da string (`data-hlbox`).
   - **Curva das strings:** todas em cinza, a sem corrente em vermelho e a de corrente baixa em laranja (o estado é o da
     leitura de agora); o mouse na string (lista ou legenda) destaca a linha em azul, e no cartão do tracker, em branco
     (`data-hl` → `path[data-sn]`). Sem o percentual na legenda. **O dia inteiro por padrão**; "Período solar (06–18h)" é

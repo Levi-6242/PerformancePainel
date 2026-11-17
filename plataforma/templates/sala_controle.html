@@ -369,6 +369,7 @@
   @media (max-width:1250px){.grade2{grid-template-columns:1fr}}
 
   /* nomes e grupos só na Sala (16/11, noite): o cabeçalho do grupo na lateral e a janela da engrenagem */
+  .gi{margin:2px 0 10px;padding:10px 12px;border-radius:10px;background:var(--fundo)}.gi p{margin:0;color:var(--mudo);font-size:12.5px}
   .lado .f .ug{display:flex;align-items:baseline;gap:6px;padding:8px 8px 3px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--verde)}
   .lado .f .ug small{color:var(--fraco);text-transform:none;letter-spacing:0;font-size:10.5px}
   .lado .f .u.dg{padding-left:16px}
@@ -824,6 +825,7 @@ function raioxHtml() {
       return `<tr><td><b>${esc(x.nome)}</b></td><td>${x.inv_total == null ? "—" : x.inv_total}</td><td>${x.trackers ? `<span class="tag i">${x.trackers}</span>` : Z}</td><td>${x.estacoes ? `<span class="tag i">${x.estacoes}</span>` : Z}</td><td style="text-align:left">${us.map(u => `<button class="btnl" data-pu="${esc(u.u)}" data-pg="${u.g}" data-pa="${x.trackers ? "trk" : x.estacoes ? "etm" : "str"}">${esc(u.u)}</button> <small style="color:var(--fraco)">${esc(NOME[u.g] || "")}</small>`).join("<br>") || '<span class="tag s">não está no Tempo real com este nome</span>'}</td></tr>`; }).join("") + "</tbody></table></div>";
 }
 // a curva por string do dia: o banco manda a usina inteira; as outras fontes, um inversor por vez
+const CURVAP = {};
 async function lerCurva(u, invNome, dia) {
   const sk = SKEY[u.g], pid = u.pid, dr = D.drill[u.u], iv = dr && dr.inv.find(i => i.n === invNome), k = u.u + "|" + invNome + "|" + dia;
   if (!iv || D.curvas[k] !== undefined) return;
@@ -836,7 +838,7 @@ async function lerCurva(u, invNome, dia) {
   else if (["sunop", "axis", "greenyellow", "salenergia", "apolo", "solaredge"].includes(sk)) url = "/api/" + sk + "/curva/" + encodeURIComponent(pid) + "?inv=" + encodeURIComponent(iv.id) + "&data=" + dia;
   try {
     if (!url) throw new Error("esta fonte não tem curva por string");
-    const d = await pega(url, 90000), lista = d.inversores || [];
+    const d = await (CURVAP[url] || (CURVAP[url] = pega(url, 90000).finally(() => { delete CURVAP[url]; }))), lista = d.inversores || [];
     const guarda = (x, nome) => { const s = {}; Object.entries(x.curva || {}).forEach(([n, c]) => { s[n] = [(c.x || []).slice(), (c.y || []).map(v => v == null ? null : +v)]; });
       D.curvas[u.u + "|" + nome + "|" + dia] = {s, e: Object.fromEntries((x.strings || []).map(z => [z.nome, [z.energia, z.pct, z.ativa]])), un: x.unidade || d.unidade || "A"}; };
     lista.forEach(x => { const nome = (dr.inv.find(i => String(i.id) === String(x.id) || i.n === x.nome) || {}).n; if (nome) guarda(x, nome); });
@@ -876,6 +878,7 @@ let SEL = {g: null, u: null}, MODO = {novo: "s", fora: "s"}, ABERTOS = new Set()
 let DIA = null, TDIA = null, TSEL = null, BXA = null, OSINV = null;
 // o que a pessoa escolheu para a OS e as OS que criou nesta visita
 const MARC = new Set(), VISTOEM = {}, CRIADAS = {};
+const GRAF = new Set();     // os inversores com a CURVA aberta embaixo da linha ("usina|inversor"): vários de uma vez
 const EXPI = new Set();     // os inversores com as strings abertas na lista ("usina|inversor")
 // as strings escolhidas para trancar ou destrancar de uma vez (Levi, 16/11/2026: "É melhor eu selecionar várias de uma
 // vez e clicar trancar só na última. Que aí tranca tudo de uma vez"): "inversor|string" -> {inv, sid, trancada}
@@ -986,7 +989,7 @@ function destaca(x) {
   HL = x;
   if (!x) return;
   const cor = x.dataset.hlc || "#4da3ff";
-  document.querySelectorAll("svg[data-ch] path[data-sn]").forEach(p => { if (p.dataset.sn !== x.dataset.hl) return;
+  (x.closest("[data-hlbox]") || document).querySelectorAll("svg[data-ch] path[data-sn]").forEach(p => { if (p.dataset.sn !== x.dataset.hl) return;
     p.classList.add("hl"); p.style.stroke = cor; p.style.strokeWidth = "3"; p.style.opacity = "1"; const cur = p.parentNode.querySelector(".cur"); if (cur) p.parentNode.insertBefore(p, cur); });
 }
 document.addEventListener("mouseover", e => destaca(e.target.closest ? e.target.closest("[data-hl]") : null));
@@ -1351,38 +1354,40 @@ function detalhe(u, bx) {
     h += `<div class="faixa"><label>Strings em acompanhamento <input class="campo n" id="acomp" type="text" inputmode="numeric" ${PODE ? "" : 'readonly tabindex="-1"'} value="${ac}" aria-label="Strings em acompanhamento" title="${PODE ? "Quantas strings desta usina já estão em acompanhamento: a mesma quantidade do Tempo real, por usina" : "A quantidade que o Tempo real guarda"}"> <span>de <b>${u.sf}</b> fora · <b>${Math.max(0, u.sf - ac)}</b> sem acompanhamento</span></label>
       <label>OS de performance <b>${oss.length}</b>${oss.length ? ` <span>${oss.map(o => esc(o.os) + (o.inv ? " (" + esc(o.inv.replace("Inversor ", "")) + ")" : "")).join(" · ")}</span>` : ` <span>${D.estado.osErro[u.u] ? "não consegui ler agora" : !(u.u in D.estado.os) ? "lendo…" : "nenhuma em aberto"}</span>`}</label></div>`;
     // o gráfico fica em cima dos cartões: clicar num inversor troca o gráfico, sem sair do lugar
-    if (!INV) INV = (dr.inv.find(i => novasS(u.u, i.n).length) || dr.inv.find(i => ruins(i)) || dr.inv[0] || {}).n;
-    const hoje = HOJE, dia = DIA || hoje, bruta = INV ? D.curvas[u.u + "|" + INV + "|" + dia] : undefined;
-    if (INV && bruta === undefined) lerCurva(u, INV, dia);
-    const cv = bruta && Object.keys(bruta.s).length ? bruta : null;
-    const campoDia = `Dia: <input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}">`;
-    if (cv) {
-      // Todas as strings em cinza; a sem corrente em vermelho e a de corrente baixa em laranja; passar o mouse na string (na
-      // lista ou na legenda) destaca a dela em azul (Levi, 16/11/2026: "quero que nem era antes")
-      const ivC = dr.inv.find(i => i.n === INV), stDe = {}; if (ivC) ivC.s.forEach(s => { stDe[String(s[0]).replace(/^\D+/, "").replace(/^0+(?=\d)/, "")] = est(ivC, s); });
-      const numS = n => String(n).replace(/^\D+/, "").replace(/^0+(?=\d)/, "");
+    if (!INV) { INV = (dr.inv.find(i => novasS(u.u, i.n).length) || dr.inv.find(i => ruins(i)) || dr.inv[0] || {}).n; if (INV) GRAF.add(u.u + "|" + INV); }
+    // A CURVA ABRE EMBAIXO DO INVERSOR (Levi, 16/11/2026, noite: "O gráfico abrisse em Drill [...] clicando no inversor. E
+    // aí dá para clicar em vários inversores de uma vez e carregar o gráfico"): o clique na linha abre ou fecha a curva
+    // dela, e várias ficam abertas juntas (`GRAF`). O dia e o período solar valem para todas as abertas.
+    // Todas as strings em cinza; a sem corrente em vermelho e a de corrente baixa em laranja; passar o mouse na string (na
+    // lista ou na legenda) destaca a dela em azul, só no gráfico do inversor dela ("quero que nem era antes").
+    const hoje = HOJE, dia = DIA || hoje, nG = dr.inv.filter(i => GRAF.has(u.u + "|" + i.n)).length;
+    const numS = n => String(n).replace(/^\D+/, "").replace(/^0+(?=\d)/, "");
+    const graf = i => { const bruta = D.curvas[u.u + "|" + i.n + "|" + dia];
+      if (bruta === undefined) lerCurva(u, i.n, dia);
+      const cv = bruta && Object.keys(bruta.s).length ? bruta : null;
+      if (!cv) return `<div class="gi"><p>${!bruta ? "Lendo a curva…" : bruta.erro ? "Não consegui ler a curva: " + esc(bruta.erro) : "A fonte não trouxe curva por string deste inversor neste dia."}</p></div>`;
+      const stDe = {}; i.s.forEach(s => { stDe[numS(s[0])] = est(i, s); });
       const ser = Object.keys(cv.s).map(n => { const e = stDe[numS(n)] || (cv.e[n] && cv.e[n][2] === false ? "sem_corrente" : ""), ruim = e === "sem_corrente" || e === "baixa_perf";
         return {nome: n, sn: numS(n), x: cv.s[n][0].map(mm), y: cv.s[n][1], cor: e === "sem_corrente" ? "#ff5b6e" : e === "baixa_perf" ? "#ff8f3c" : "#7b879d", forte: ruim, larg: ruim ? 2.2 : 1.1, op: ruim ? 1 : .6}; });
-      h += `<div class="painel"><h3>Curva por string · ${esc(INV)} · ${dm(dia)}${dia === hoje ? " (hoje)" : ""}</h3>
-        <div class="diasel">${campoDia}<span style="flex:1"></span><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button></div>
-        ${linhas(ser, "Curva por string", cv.un || "A", SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440})}
+      return `<div class="gi">${linhas(ser, "Curva por string · " + i.n, cv.un || "A", Object.assign({alto: 210}, SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440}))}
         <div class="lin">${ser.map(s => `<span data-hl="${esc(s.sn)}" style="cursor:default"><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join("")}</div>
-        <div class="mais">Cinza = gerando · <b style="color:#ff8f3c">laranja</b> = corrente baixa · <b style="color:#ff5b6e">vermelho</b> = sem corrente · passe o mouse numa string para destacar a dela em azul.</div>
-        ${cv.cos ? `<div class="mais">Curva do <b>logger do COS</b>${cv.cos.logger ? " (" + esc(cv.cos.logger) + ")" : ""}, gravada de ${cv.cos.passo} em ${cv.cos.passo} min: este inversor é o <b>${esc(cv.cos.inv)}</b> de lá, ligado ${cv.cos.porNome ? "pelo nome" : "pela ordem (a conferir em Conferir fontes)"}. <button class="btnl" data-curvafonte="1" style="margin-left:6px">Ver pela ${esc((NOME[u.g] || "").split(" · ")[1] || "fonte da usina")}</button></div>` : ""}</div>`;
-    } else h += `<div class="painel"><h3>Curva por string · ${esc(INV || "")} · ${dm(dia)}${dia === hoje ? " (hoje)" : ""}</h3><div class="diasel">${campoDia}</div><p style="margin-top:8px">${!bruta ? "Lendo a curva…" : bruta.erro ? "Não consegui ler a curva: " + esc(bruta.erro) : "A fonte não trouxe curva por string deste inversor neste dia."}</p></div>`;
+        ${cv.cos ? `<div class="mais">Curva do <b>logger do COS</b>${cv.cos.logger ? " (" + esc(cv.cos.logger) + ")" : ""}, gravada de ${cv.cos.passo} em ${cv.cos.passo} min: este inversor é o <b>${esc(cv.cos.inv)}</b> de lá, ligado ${cv.cos.porNome ? "pelo nome" : "pela ordem (a conferir em Conferir fontes)"}. <button class="btnl" data-curvafonte="${esc(i.n)}" style="margin-left:6px">Ver pela ${esc((NOME[u.g] || "").split(" · ")[1] || "fonte da usina")}</button></div>` : ""}</div>`; };
+    h += `<div class="painel" style="padding:10px 14px"><div class="diasel">Curva por string · dia: <input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}">
+      <span style="color:var(--mudo);font-size:12.5px">Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários. Cinza = gerando · <b style="color:#ff8f3c">laranja</b> = corrente baixa · <b style="color:#ff5b6e">vermelho</b> = sem corrente · o mouse na string destaca a dela em azul.</span>
+      <span style="flex:1"></span>${nG > 1 ? `<button class="btnl" data-grafx="1">Fechar as ${nG} curvas</button>` : ""}<button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button></div></div>`;
     // os inversores por cabine (o N de "Inversor N.M"), cada cabine recolhe
     const cab = {}; dr.inv.forEach(i => { const c = (i.n.match(/(\d+)\.\d+\s*$/) || [0, "—"])[1]; (cab[c] = cab[c] || []).push(i); });
-    const chips = i => `<div class="sts">${i.s.map(s => { const e = est(i, s); return `<button class="st ${e}${SELS.has(i.n + "|" + s[0]) ? " sel" : ""}" data-st="${esc(s[0])}" data-sinv="${esc(i.n)}"${INV === i.n ? ` data-hl="${esc(String(s[0]).replace(/^\D+/, "").replace(/^0+(?=\d)/, ""))}"` : ""} title="String ${esc(s[0])}: ${e === "trancada" ? "trancada" : (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A") + (e === "sem_corrente" ? " · sem corrente" : e === "baixa_perf" ? " · corrente baixa" : "")}">${esc(String(s[0]).replace(/^\D+/, ""))}</button>`; }).join("")}</div>`;
+    const chips = i => `<div class="sts">${i.s.map(s => { const e = est(i, s); return `<button class="st ${e}${SELS.has(i.n + "|" + s[0]) ? " sel" : ""}" data-st="${esc(s[0])}" data-sinv="${esc(i.n)}"${GRAF.has(u.u + "|" + i.n) ? ` data-hl="${esc(String(s[0]).replace(/^\D+/, "").replace(/^0+(?=\d)/, ""))}"` : ""} title="String ${esc(s[0])}: ${e === "trancada" ? "trancada" : (s[1] == null ? "sem leitura" : nf(s[1], 2) + " A") + (e === "sem_corrente" ? " · sem corrente" : e === "baixa_perf" ? " · corrente baixa" : "")}">${esc(String(s[0]).replace(/^\D+/, ""))}</button>`; }).join("")}</div>`;
     const osBox = i => OSINV === i.n ? `<div class="osbox">${osRecentes(u.u, i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag n">${esc(o.status)}</span> · recomposição de string<br>${esc(o.desc)}${o.strings.length ? " · strings " + o.strings.join(", ") : ""}<br>criada em ${dm(o.criada)}${o.concluida ? " · concluída em " + dm(o.concluida) : ""}</div>`).join("")}${osDe(i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag ${/andamento/i.test(o.status) ? "a" : "n"}">${esc(o.status)}</span><br>${esc(o.nota)}<br>aberta em ${dm(o.data)} · ${esc(o.sub || "")}</div>`).join("")}</div>` : "";
     h += `<div class="diasel" style="margin-top:14px;justify-content:flex-end"><button class="btnl" data-expi="*">${dr.inv.every(i => EXPI.has(u.u + "|" + i.n)) ? "Recolher as strings de todos" : "Abrir as strings de todos"}</button></div>` +
       Object.keys(cab).sort((a, b) => a - b).map(c => { const l = cab[c], fora = soma(l.map(i => ({n: ruins(i)})), "n"), nov = l.reduce((a, i) => a + novasS(u.u, i.n).length, 0);
       return `<details class="cabine" data-cab="${c}" ${FECHADAS.has(u.u + "|" + c) ? "" : "open"}><summary>${c === "—" ? "Inversores" : "Cabine " + esc(c)} <small>${l.length} inversor${l.length > 1 ? "es" : ""} · ${fora ? fora + " string" + (fora > 1 ? "s" : "") + " fora" : "nenhuma string fora"}</small>${pill(nov)}</summary>
         <div class="ilista"><div class="il cab"><span></span><span class="n">Inversor</span><span>Potência</span><span>Hoje</span><span title="Strings gerando agora / esperadas pelo cadastro">Ativas / esperadas</span><span title="Ativas menos esperadas">Diferença</span><span title="Strings com mais de 2 h sem corrente no período solar de hoje">+2 h hoje</span><span class="sit">Situação</span><span></span></div>` +
-        l.map(i => { const r = ruins(i), tr1 = i.s.filter(s => est(i, s) === "trancada").length, cls = i.desl || i.fc ? "n" : i.s.some(s => est(i, s) === "sem_corrente") ? "c" : r ? "s" : "", nv = novasS(u.u, i.n), ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n, sd = D.sdI[u.u + "|" + i.n] || 0;
+        l.map(i => { const r = ruins(i), tr1 = i.s.filter(s => est(i, s) === "trancada").length, cls = i.desl || i.fc ? "n" : i.s.some(s => est(i, s) === "sem_corrente") ? "c" : r ? "s" : "", nv = novasS(u.u, i.n), gr = GRAF.has(u.u + "|" + i.n), ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n, sd = D.sdI[u.u + "|" + i.n] || 0;
           const k = u.u + "|" + i.n, cri = CRIADAS[k], o = osRecentes(u.u, i.n)[0], qv = quemViu(u.u, i.n), extra = [];
           if (tr1) extra.push(tr1 + " trancada" + (tr1 > 1 ? "s" : "")); if (qv) extra.push(qv); if (cri) extra.push("<b>OS criada por você</b> às " + cri); else if (o) extra.push("<b>OS " + esc(o.os) + "</b> há " + diasAte(o.criada) + " dias · " + esc(o.status));
           const sit = i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : i.at === 0 ? "Sem geração agora" : "Todas gerando";
-          return `<div class="il ${cls} ${INV === i.n ? "on" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" title="Clique para ver a curva das strings deste inversor">
+          return `<div class="il ${cls} ${gr ? "on" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
             <span><input type="checkbox" class="selinv" data-sel="${esc(i.n)}" ${MARC.has(i.n) ? "checked" : ""} title="Escolher para criar OS" aria-label="Escolher ${esc(i.n)} para criar OS"></span>
             <span class="n">${esc(i.n)}${nv.length ? '<span class="nv">nova</span>' : ""}${osDe(i.n).length || osRecentes(u.u, i.n).length || cri ? `<button class="ferr" data-os="${esc(i.n)}" title="OS de performance deste inversor" aria-label="OS de performance deste inversor"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></button>` : ""}</span>
             <span>${i.kw == null ? "—" : nf(i.kw, 1) + " kW"}</span><span>${i.eday == null ? "—" : nf(i.eday) + " kWh"}</span>
@@ -1391,7 +1396,7 @@ function detalhe(u, bx) {
             <span>${sd ? `<span class="tag s">${sd}</span>` : Z}</span>
             <span class="sit">${sit}${extra.length ? " · " + extra.join(" · ") : ""}</span>
             <span><button class="expb" data-expi="${esc(i.n)}" aria-expanded="${ab}" title="${ab ? "Recolher as strings" : "Ver as strings deste inversor"}" aria-label="${ab ? "Recolher as strings" : "Ver as strings"} do ${esc(i.n)}">${ab ? "−" : "+"}</button></span></div>` +
-            (ab ? `<div class="ilx">${chips(i)}${osBox(i)}</div>` : ""); }).join("") + "</div></details>"; }).join("") +
+            (gr || ab ? `<div class="ilx" data-hlbox="1">${gr ? graf(i) : ""}${chips(i)}${osBox(i)}</div>` : ""); }).join("") + "</div></details>"; }).join("") +
       `<div class="leg"><span><i class="st"></i>gerando</span><span><i class="st inativa"></i>sem geração agora</span><span><i class="st baixa_perf"></i>corrente baixa</span><span><i class="st sem_corrente"></i>sem corrente</span><span><i class="st trancada"></i>trancada</span>${PODE ? '<span><i class="st sel"></i>escolhida: clique nas strings e tranque (ou destranque) todas de uma vez</span>' : ""}<span><i class="st desligado"></i>inversor desligado</span><span><i class="nv" style="margin:0">nova</i>parou desde a última vez; some ao abrir</span><span><i class="ferr" style="margin:0;width:16px;height:16px"></i>tem OS de performance; clique para ver</span></div>
       ${MARC.size || SELS.size ? `<div class="acoes">${SELS.size ? (() => { const l = [...SELS.values()], a = l.filter(x => !x.trancada).length, b = l.length - a, por = {}; l.forEach(x => (por[x.inv] = por[x.inv] || []).push(String(x.sid).replace(/^\D+/, "")));
           return `<div class="acao"><b>${l.length} string${l.length > 1 ? "s" : ""} escolhida${l.length > 1 ? "s" : ""}</b><span style="color:var(--mudo);flex:1">${Object.entries(por).map(([n, ss]) => esc(n.replace("Inversor ", "")) + ": " + ss.join(", ")).join(" · ")}</span><button class="btn2" data-stacao="limpar">Limpar</button>${b ? `<button class="btn2" data-stacao="destrancar">Destrancar ${b}</button>` : ""}${a ? `<button class="btn" data-stacao="trancar">Trancar ${a}</button>` : ""}</div>`; })() : ""}${MARC.size ? `<div class="acao"><b>${MARC.size} inversor${MARC.size > 1 ? "es" : ""} escolhido${MARC.size > 1 ? "s" : ""}</b><span style="color:var(--mudo);flex:1">${[...MARC].map(n => n.replace("Inversor ", "")).join(", ")}</span><button class="btn2" data-acao="limpar">Limpar</button><button class="btn" data-acao="criar">Criar OS</button></div>` : ""}</div>` : ``}
@@ -1546,7 +1551,7 @@ const verT = u => marcaVisto(D.novas.t.filter(x => x.u === u));
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
   const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
   return [eu ? "visto por <b>você</b> em " + q(eu) : "", ou.length ? "visto por <b>" + esc(lst(ou)) + "</b>" : ""].filter(Boolean).join(" · "); };
-const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; };
+const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; };
 
 function desenhar() {
   CH.length = 0;
@@ -1595,7 +1600,7 @@ document.addEventListener("click", e => {
   const q = s => e.target.closest(s);
   let x;
   if ((x = q(".nt[data-nu]"))) { abrirUsina(x.dataset.ng, x.dataset.nu); CLICADAS.add("u|" + x.dataset.nu); CLICADAS.add("g|" + x.dataset.ng); ABA = x.dataset.na;
-    if (ABA === "trk") verT(SEL.u); else { const n1 = novasS(SEL.u)[0]; if (n1) { INV = n1.i; verS(SEL.u, INV); } }
+    if (ABA === "trk") verT(SEL.u); else { const n1 = novasS(SEL.u)[0]; if (n1) { INV = n1.i; GRAF.add(SEL.u + "|" + INV); verS(SEL.u, INV); } }
     $("sino").open = false; desenhar(); scrollTo(0, 0); return; }
   if ((x = q("[data-denovo2]"))) { const k = x.dataset.denovo2, u = usinas()[0];
     if (k === "ger" && u) delete GERF[u.u]; else if (k === "pot" && u) delete POTF[u.u]; else if (k === "pot2") D.pot = {usina: null}; else if (k === "cf" && u) delete D.conf.usinas[u.u]; else if (k === "abx") { ABX_ERRO = ""; lerAbaixo(); } else if (k === "disp") DISP_ERRO = ""; else if (k === "scada" && u) delete D.scada[u.u]; else if (k === "raiox") RAIOX = null; else if (k === "cos") { COS = null; lerCos(); } else if (k === "cosi") { COSI = null; COSI_EM = 0; lerCosInv(); }
@@ -1632,10 +1637,11 @@ document.addEventListener("click", e => {
   if ((x = q("[data-cfgsalvar]"))) { salvarConfig(); return; }
   if (q(".modal")) return;
   if ((x = q("[data-gi]"))) { GI = GI === x.dataset.gi ? null : x.dataset.gi; desenhar(); const pn = $("insp"); if (pn) pn.scrollIntoView({block: "nearest"}); return; }
-  if ((x = q("[data-ir]"))) { ABA = "str"; INV = x.dataset.ir; DIA = null; desenhar(); scrollTo(0, 0); return; }
+  if ((x = q("[data-ir]"))) { ABA = "str"; INV = x.dataset.ir; GRAF.add(SEL.u + "|" + INV); DIA = null; desenhar(); scrollTo(0, 0); return; }
   if ((x = q("[data-exp]"))) { exportar(x.dataset.exp); return; }
   if ((x = q("[data-solar]"))) { SOLAR = !SOLAR; desenhar(); return; }
-  if ((x = q("[data-curvafonte]"))) { const k = SEL.u + "|" + INV + "|" + (DIA || HOJE); SEM_COS[k] = 1; delete D.curvas[k]; desenhar(); return; }
+  if ((x = q("[data-curvafonte]"))) { const k = SEL.u + "|" + x.dataset.curvafonte + "|" + (DIA || HOJE); SEM_COS[k] = 1; delete D.curvas[k]; desenhar(); return; }
+  if ((x = q("[data-grafx]"))) { GRAF.clear(); desenhar(); return; }
   if ((x = q("[data-gp]"))) { if (x.dataset.gp === "ver") GP = x.dataset.v; else GPER = x.dataset.v; desenhar(); return; }
   if ((x = q("[data-pv]"))) { PV = x.dataset.pv; desenhar(); return; }
   if ((x = q("[data-vg]"))) { VG = x.dataset.vg; desenhar(); return; }
@@ -1666,7 +1672,7 @@ document.addEventListener("click", e => {
       <div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn2" data-fechar="1">Cancelar</button><button class="btn" data-tranca="1" data-era="${era ? 1 : 0}">${era ? "Destrancar" : "Trancar"}${l.length > 1 ? " as " + l.length : ""}</button></div></div></div>`; };
     if (era) abre([]); else Promise.all(Object.entries(por).map(([n, ss]) => pega("/api/strings/trava-aviso?usina=" + encodeURIComponent(u.u) + "&inv=" + encodeURIComponent(n) + "&strings=" + encodeURIComponent(ss.join(",")), 8000).catch(() => null))).then(abre);
     return; }
-  if ((x = q(".dchip"))) { ABA = "str"; INV = x.dataset.inv; DIA = x.dataset.dia; desenhar(); scrollTo(0, 0); return; }
+  if ((x = q(".dchip"))) { ABA = "str"; INV = x.dataset.inv; GRAF.add(SEL.u + "|" + INV); DIA = x.dataset.dia; desenhar(); scrollTo(0, 0); return; }
   if ((x = q("tr[data-tp]"))) { TRK.ini = TRK.fim = x.dataset.td; TRK.soUm = x.dataset.tp; TRK.hide = {}; TRK.filtro = "custom"; desenhar(); const pn = document.querySelector(".painel"); if (pn) pn.scrollIntoView({block: "start"}); return; }
   if ((x = q("[data-denovo]"))) { delete FALHOU[SEL.u]; desenhar(); return; }
   if ((x = q("tr[data-bx]"))) { if (!SEL.u && x.dataset.bg === "?") { toast("A " + x.dataset.bu + " não está no Tempo real com este nome: não há usina para abrir"); return; }
@@ -1676,7 +1682,9 @@ document.addEventListener("click", e => {
     if (n === "*") { const todos = dr.inv.every(i => EXPI.has(u.u + "|" + i.n)); dr.inv.forEach(i => { if (todos) EXPI.delete(u.u + "|" + i.n); else EXPI.add(u.u + "|" + i.n); }); }
     else if (EXPI.has(u.u + "|" + n)) { EXPI.delete(u.u + "|" + n); if (OSINV === n) OSINV = null; } else EXPI.add(u.u + "|" + n);
     desenhar(); return; }
-  if ((x = q(".il[data-inv]"))) { INV = x.dataset.inv; DIA = null; verS(SEL.u, INV); desenhar(); return; }
+  if ((x = q(".il[data-inv]"))) { const n = x.dataset.inv, k = SEL.u + "|" + n;        // abre ou fecha a curva DESTE inversor; os outros ficam como estão
+    if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }
+    desenhar(); return; }
   if ((x = q(".u, tr.cl[data-u]"))) { CLICADAS.add("u|" + x.dataset.u); CLICADAS.add("g|" + x.dataset.g); const mesma = SEL.u === x.dataset.u && SEL.g === x.dataset.g; if (mesma) { SEL = {g: x.dataset.g, u: null}; INV = null; } else { abrirUsina(x.dataset.g, x.dataset.u); ABA = "str"; } desenhar(); scrollTo(0, 0); return; }
   if ((x = q("#eng"))) { abrirConfig(); return; }
   if ((x = q(".g"))) { const id = x.dataset.g;
@@ -1694,6 +1702,12 @@ async function ligar(primeira) {
   try {
     const [ent, fal, idr, vis, arrL] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas?mes=" + HOJE.slice(0, 7), 150000).catch(() => null),
       pega("/api/sala/idade", 60000).catch(() => null), pega("/api/sala/visto", 20000).catch(() => null), pega("/api/sala/arranjo", 20000).catch(() => null)]);
+    // Logo depois de uma subida a Entrada responde "aquecendo", sem fonte nenhuma (16/11/2026: 2,5 min às 22:07 e 7 min às
+    // 22:31), e a Sala abria VAZIA até a volta de 5 min. Agora diz o que é e tenta de novo em 15 s; quem já tinha a tela
+    // cheia fica com ela.
+    if (ent && ent.aquecendo && !(ent.grupos || []).length) {
+      if (!D) $("corpo").innerHTML = '<div class="carrega" style="padding:28px 0">O servidor acabou de ser atualizado e está aquecendo o tempo real (leva de 2 a 7 min). A tela tenta de novo sozinha a cada 15 s.</div>';
+      clearTimeout(ligar.t); ligar.t = setTimeout(() => ligar(!D), 15000); return; }
     if (arrL && arrL.nomes) ARR_LIDO.v = arrL;                  // o arquivo não abriu agora: vale o último lido, não "sem nome"
     const ant = D; D = montar(ent, fal, idr && idr.strings ? idr : null, vis && vis.eu ? vis : null, ARR_LIDO.v);
     if (ant) { D.osHist = ant.osHist; D.osHistFalhou = ant.osHistFalhou; D.osHistMotivo = ant.osHistMotivo; }
