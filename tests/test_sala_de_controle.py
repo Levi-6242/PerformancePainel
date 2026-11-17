@@ -101,9 +101,12 @@ def test_a_seta_da_fonte_so_abre_e_recolhe():
     """Levi, 16/11/2026: "quando eu vou clicar para recolher o cliente e ver outro, ele sai da tela da usina"."""
     html = _html()
     g = html[html.index('if ((x = q(".g"))) { const id = x.dataset.g;'):]
-    g = g[:g.index("if (id) CLICADAS.add")]
-    assert 'if (id && q(".seta")) { if (ABERTOS.has(id)) ABERTOS.delete(id); else ABERTOS.add(id);' in g and "arvore(); return; }" in g
-    assert "SEL =" not in g                                                    # a seta não mexe no que está aberto
+    g = g[:g.index("if (id) { CLICADAS.add")]
+    # 16/11, noite: "Só aparece a visão da fonte caso eu clique no nome da fonte, se eu clicar no quadrado só expande"
+    assert 'if (id && !q(".gn")) { if (ABERTOS.has(id)) ABERTOS.delete(id); else ABERTOS.add(id);' in g and "arvore(); return; }" in g
+    assert "SEL =" not in g                                                    # o cartão e a seta não mexem no que está aberto
+    assert 'if (id) { CLICADAS.add("g|" + id); ABERTOS.add(id); SEL = {g: id, u: null};' in html      # só o nome recorta a tela
+    assert '<span class="gn" title="Ver só esta fonte na tela">' in html
 
 
 def test_o_prontuario_da_usina_abre_no_nexus_pelo_nome():
@@ -503,8 +506,9 @@ def test_a_sala_le_o_que_o_monitoramento_do_cos_le():
     assert "raioxHtml() + cosHtml()" in html and "O que o Monitoramento do COS lê" in html
     cf = html[html.index('} else if (ABA === "cf") {'):html.index('} else if (ABA === "dp") {')]
     assert cf.count("cosConf(u, dr)") == 3                     # sem a usina na API do SCADA, sem como ligar, ou com erro
-    assert "lerCosInv.indo || (COSI && Date.now() - COSI_EM < 30000)" in html      # sem laço: uma leitura a cada 30 s no máximo
-    assert "if (lerCos.indo || COS) return;" in html
+    assert "if (COSI && !COSI.erro && Date.now() - COSI_EM < 30000) return Promise.resolve();" in html   # sem laço: uma leitura a cada 30 s no máximo
+    assert "return lerCosInv.p || (lerCosInv.p = " in html and "return lerCos.p || (lerCos.p = " in html   # e um pedido só no ar
+    assert "function lerCos() { if (COS) return Promise.resolve();" in html
 
 
 def test_o_cos_so_entra_onde_o_scada_da_grid_nao_serve(cli, monkeypatch):
@@ -537,3 +541,119 @@ def test_o_cos_so_entra_onde_o_scada_da_grid_nao_serve(cli, monkeypatch):
     cf = html[html.index('} else if (ABA === "cf") {'):html.index('} else if (ABA === "dp") {')]
     ja = cf[cf.index('c.sit === "ja"'):cf.index('c.sit === "fora"')]
     assert "cosConf" not in ja                               # a usina do SCADA da Grid não vai ao COS
+
+
+# --- os retornos de 16/11/2026 (noite): a lista de inversores, a curva, os sinais da estação, a engrenagem ------------
+def test_os_inversores_em_lista_com_ativas_esperadas_e_o_botao_das_strings():
+    """Levi: "Quero que os inversores apareçam em formato de lista como era no anterior e aí ter um botão de expandir para
+    ver as strings"; "tem que ter a contagem de ativas/esperadas e a diferença! que nem no tempo real"."""
+    html = _html()
+    assert 'at: i.strings_ativas, dif: i.diferenca, fora: !!i.fora_da_conta' in html          # o que o Tempo real diz
+    assert '<div class="ilista"><div class="il cab">' in html and "Ativas / esperadas" in html and "Diferença" in html and "+2 h hoje" in html
+    assert 'class="expb" data-expi="${esc(i.n)}"' in html and 'data-expi="*"' in html          # um inversor, ou todos
+    assert '(ab ? `<div class="ilx">${chips(i)}${osBox(i)}</div>` : "")' in html               # as strings só abertas
+    assert 'class="inv ' not in html                                                           # os cartões saíram
+    assert 'if ((x = q(".il[data-inv]"))) { INV = x.dataset.inv;' in html                      # a linha abre a curva
+    # dentro da usina não há os números do alto
+    assert '$("kpis").hidden = !!SEL.u;' in html and ".kpis[hidden]{display:none}" in html
+
+
+def test_a_curva_das_strings_em_cinza_com_o_destaque_no_mouse_e_o_dia_inteiro():
+    """Levi: "todas as strings em cinza, quando eu passo o mouse na string destaca em azul no gráfico, quando tiver abaixo
+    fica laranja e se for string que está sem corrente é vermelho"; "tira esse percentual"; "mostrar todas as horas do dia,
+    e se a pessoa quiser ver ela clica em período solar"; "Nos trackers também tem que destacar em branco"."""
+    html = _html()
+    assert "let SOLAR = false;" in html
+    assert 'cor: e === "sem_corrente" ? "#ff5b6e" : e === "baixa_perf" ? "#ff8f3c" : "#7b879d"' in html
+    lin = html[html.index('<div class="lin">${ser.map(s => `<span data-hl='):]
+    assert "%" not in lin[:lin.index("</div>")]                                                # sem o percentual na legenda
+    assert '<path data-sn="${esc(s.sn ?? s.nome)}"' in html                                     # a linha sabe de quem é
+    assert 'const cor = x.dataset.hlc || "#4da3ff";' in html and 'document.addEventListener("mouseover"' in html
+    assert 'data-hl="${esc(x.id)}" data-hlc="#ffffff"' in html                                  # o tracker, em branco
+
+
+def test_as_strings_com_mais_de_duas_horas_sem_corrente_hoje_aparecem_de_noite():
+    """Levi: "é importante contar quantas ficaram mais que 2 horas nulas em período solar para quando não tiver sol mesmo
+    assim conseguirmos ver". Sai das falhas do dia: a que começou hoje, pelas horas de sol dela; a que já vinha, quando o
+    inversor tem mais de 2 h de parada hoje com ela."""
+    html = _html()
+    assert "const conta = e.d0 === hoje ? (e.h_sol || 0) >= 2 : !!(r && (r.dur_h || 0) >= 2 &&" in html
+    assert "u.sd = sdU[u.u] || 0;" in html and 'D.sdI[u.u + "|" + i.n] || 0' in html
+    assert 'c("Strings", sd, "+2 h",' in html                                                  # a lateral, sem string fora agora
+    assert '"com mais de 2 h sem corrente hoje"' in html                                        # o número do alto
+    assert "<span>${v(u.sf ? u.sn : u.sd)}</span>" in html                                      # a linha da usina
+
+
+def test_a_aba_etm_mostra_os_sinais_que_a_entrada_conta():
+    """16/11/2026, a Gravatá II com 1 na lateral e "Sem análise de estação" na aba: o alarme vem da irradiação gravada no
+    mês (a lista `etm` da Entrada), não da leitura de agora da fonte. A aba mostra os dois, e a OS leva os sinais."""
+    html = _html()
+    assert "etmL: Array.isArray(u.etm) ? u.etm.map(String) : [], etmA: Array.isArray(u.etm_alarmes) ? u.etm_alarmes.map(String) : []" in html
+    assert "Sinais da estação no mês" in html and 'u.etmA.includes(x) ? "c" : "a"' in html
+    assert 'Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length)' in html
+    assert ": (u.etmA.length ? u.etmA : u.etmL).slice(0, 4);" in html
+
+
+def test_a_engrenagem_abre_as_fontes_do_tempo_real_so_para_quem_administra():
+    html = _html()
+    assert '<button class="eng" id="eng"' in html and 'if ((x = q("#eng"))) { abrirConfig(); return; }' in html
+    cfg = html[html.index("async function abrirConfig() {"):]
+    cfg = cfg[:cfg.index("\n}") + 2]
+    assert "if (!ADM || !ADM.abre_admin) {" in cfg and 'src="/admin/tempo-real?janela=1"' in cfg
+    assert "if (cfg) ligar(false);" in html                                                    # fechar relê a lateral
+    with app.app.test_client() as c:
+        pagina = c.get("/admin/tempo-real?janela=1").get_data(as_text=True)
+    assert "html.janela [data-casca]{display:none}" in pagina and "classList.add('janela')" in pagina
+
+
+def test_a_curva_vem_do_logger_do_cos_so_onde_a_fonte_e_lenta():
+    """Levi: "a leitura das strings e inversores na API COS > MONITORAMENTO é super rápida, veja como é feito e se dá para
+    aplicar". Na usina da API PV com logger, a curva vem do histórico gravado no COS; a do SCADA da Grid nunca passa por
+    ele (a regra do dono), e o banco da Thopen fica com a curva dele. A usina do Tempo real que são vários loggers no COS
+    (a Guatambu = Guatambú 1 a 4) casa pelo nome sem o número, só quando não há o nome inteiro."""
+    html = _html()
+    assert "if (ehApiPv(sk, pid) && !doScadaGrid(u) && !SEM_COS[k]) { const c = await curvaCos(u, dr, invNome, dia);" in html
+    cc = html[html.index("async function curvaCos(u, dr, invNome, dia) {"):]
+    cc = cc[:cc.index("\n}\n")]
+    assert 'nexusPega("/t/performance/sala-de-controle/cos/entradas?inv=" + encodeURIComponent(p.s.id) + "&dia=" + dia)' in cc
+    assert "if (!pr.porNome && !(p.s.strings && p.s.strings === p.iv.s.length)) return null;" in cc     # par pela ordem só com as mesmas strings
+    assert "pt.s[k] / 100" in cc and "buraco" in cc                                               # centésimos de A; o buraco não se liga
+    assert "} catch (e) { return null; }" in cc                                                   # qualquer falha: vale a fonte
+    assert 'const n = normN(x.nome), b = n.replace(/\\s+(\\d+|i{1,3}|iv|v)$/, ""); return b !== n ? tr.filter(u => normN(u.u) === b) : [];' in html
+    assert "if (ex.length) return ex;" in html                                                    # com o nome inteiro, nunca pelo nome curto
+    assert 'data-curvafonte="1"' in html and "SEM_COS[k] = 1; delete D.curvas[k];" in html        # e dá para ver pela fonte
+
+
+def test_a_curva_do_banco_tem_copia_e_um_pedido_so_no_ar(cli, monkeypatch):
+    """O padrão do Monitoramento do COS na curva do banco da Thopen: 5 min de cópia para hoje, 1 h para o dia que passou, e
+    a tranca de uma string da usina faz a próxima leitura ser nova. A tela pede a usina inteira de uma vez."""
+    lidas = []
+    monkeypatch.setattr(app, "_pg_strings_curva", lambda pid, dia, inv=None: lidas.append((pid, dia, inv)) or {"plant_id": pid, "data": dia, "inversores": [{"id": inv}]})
+    monkeypatch.setattr(app, "_pg_curva_copia", {})
+    monkeypatch.setattr(app, "_trancadas", set())
+    hoje = app.datetime.now().strftime("%Y-%m-%d")
+    for _ in range(3):
+        assert cli.get(f"/api/pg/curva/33?data={hoje}&inv=181").get_json()["inversores"] == [{"id": 181}]
+    assert lidas == [(33, hoje, 181)]                                    # três pedidos, uma consulta
+    cli.get(f"/api/pg/curva/33?data={hoje}&inv=182")
+    cli.get("/api/pg/curva/33?data=2026-11-01&inv=181")
+    assert len(lidas) == 3                                               # outro inversor e outro dia são outras leituras
+    relogio = [app.time.time()]
+    monkeypatch.setattr(app.time, "time", lambda: relogio[0])
+    relogio[0] += 290
+    cli.get(f"/api/pg/curva/33?data={hoje}&inv=181")
+    assert len(lidas) == 3                                               # dentro dos 5 min, a cópia
+    relogio[0] += 11
+    cli.get(f"/api/pg/curva/33?data={hoje}&inv=181")
+    cli.get("/api/pg/curva/33?data=2026-11-01&inv=181")
+    assert len(lidas) == 4 and lidas[-1] == (33, hoje, 181)              # hoje venceu em 5 min; o dia que passou, não
+    monkeypatch.setattr(app, "_trancadas", {"33|181|4", "99|1|1"})
+    cli.get("/api/pg/curva/33?data=2026-11-01&inv=181")
+    assert len(lidas) == 5                                               # trancou uma string da usina: leitura nova
+
+    def falha(pid, dia, inv=None):
+        raise RuntimeError("banco fora")
+    monkeypatch.setattr(app, "_pg_strings_curva", falha)
+    r = cli.get("/api/pg/curva/34?data=2026-11-01")
+    assert r.status_code == 500 and app._pg_curva_no_ar == {}            # a falha não fica guardada nem trava o próximo
+    assert 'url = "/api/pg/curva/" + encodeURIComponent(pid) + "?data=" + dia;' in _html()      # a usina inteira, uma vez

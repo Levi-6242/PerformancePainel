@@ -75,7 +75,11 @@
   .msg.ruim{color:var(--vermelho)} .msg.bom{color:var(--verde-txt)}
   .rodape{color:var(--txt3);font-size:12px;margin-top:22px;padding-top:12px;border-top:1px solid var(--linha);max-width:900px}
   :focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+  /* ?janela=1 (16/11/2026): aberta por cima da Sala de controle pela engrenagem das Fontes do tempo real, sem o
+     "Início" (quem fecha é a janela) */
+  html.janela [data-casca]{display:none}
 </style>
+<script>if(new URLSearchParams(location.search).get('janela')==='1') document.documentElement.classList.add('janela');</script>
 </head>
 <body>
 <div class="topo">

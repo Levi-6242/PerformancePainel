@@ -20990,6 +20990,47 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
             "mediana_usina": round(med_usina, 1)}
 
 
+# A CÓPIA DA CURVA (16/11/2026, Levi: "a leitura das strings e inversores na API COS > MONITORAMENTO é super rápida,
+# veja como é feito e se dá para aplicar"). O Monitoramento do COS guarda a leitura no servidor (60 s para hoje, 1 h para
+# o dia que passou) e deixa UM pedido no ar por inversor e dia; aqui cada abertura de usina refazia a consulta no banco
+# da Thopen (medido: 7 a 18 s e 400 a 600 KB pela usina inteira; 2 a 8 s por inversor), sem cópia nenhuma. Hoje a cópia
+# vale os 5 min do Tempo real (o banco recebe leitura de 5 em 5); o dia que passou não muda, 1 h. A string trancada sai
+# da curva, então as trancadas da usina entram na chave: trancou ou destrancou, a próxima leitura é nova.
+PG_CURVA_TTL_HOJE_S, PG_CURVA_TTL_PASSADO_S, _PG_CURVA_MAX = CACHE_TTL, 3600, 120
+_pg_curva_copia, _pg_curva_no_ar, _pg_curva_trava = {}, {}, threading.Lock()
+
+
+def _pg_curva_com_copia(plant_id: int, dia: str, inv=None) -> dict:
+    pref = f"{plant_id}|"
+    chave = (plant_id, dia, inv, tuple(sorted(k for k in list(_trancadas) if str(k).startswith(pref))))
+    ttl = PG_CURVA_TTL_PASSADO_S if dia < datetime.now().strftime("%Y-%m-%d") else PG_CURVA_TTL_HOJE_S
+    with _pg_curva_trava:
+        c = _pg_curva_copia.get(chave)
+        if c and time.time() - c[0] < ttl:
+            return c[1]
+        no_ar = _pg_curva_no_ar.get(chave)
+        dono = no_ar is None
+        if dono:
+            no_ar = _pg_curva_no_ar[chave] = threading.Event()
+    if not dono:                                  # outro pedido igual já está no banco: espera a resposta dele
+        no_ar.wait(60)
+        with _pg_curva_trava:
+            c = _pg_curva_copia.get(chave)
+        return c[1] if c else _pg_strings_curva(plant_id, dia, inv)
+    try:
+        d = _pg_strings_curva(plant_id, dia, inv)
+        with _pg_curva_trava:
+            _pg_curva_copia[chave] = (time.time(), d)
+            if len(_pg_curva_copia) > _PG_CURVA_MAX:
+                for k in sorted(_pg_curva_copia, key=lambda k: _pg_curva_copia[k][0])[:len(_pg_curva_copia) - _PG_CURVA_MAX]:
+                    _pg_curva_copia.pop(k, None)
+        return d
+    finally:                                      # falhou: nada fica guardado, e quem esperava lê por conta própria
+        with _pg_curva_trava:
+            _pg_curva_no_ar.pop(chave, None)
+        no_ar.set()
+
+
 @app.route("/api/pg/curva/<int:plant_id>")
 def api_pg_curva(plant_id):
     dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
@@ -20997,7 +21038,7 @@ def api_pg_curva(plant_id):
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
     inv = flask_request.args.get("inv", type=int)          # opcional: só um inversor (device_id)
     try:
-        return jsonify(_pg_strings_curva(plant_id, dia, inv))
+        return jsonify(_pg_curva_com_copia(plant_id, dia, inv))
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
 

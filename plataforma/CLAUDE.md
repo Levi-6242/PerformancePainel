@@ -2611,7 +2611,8 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   `/api/pg/trackers/<id>` da mesma usina, e a tela esperava por ele (e pela estação) antes de desenhar. A consulta no
   banco da Thopen NÃO é o gargalo (62 ms no banco, 0,8 s ida e volta, com o índice certo: `idx_raw_tracker_plant`); o
   tempo é da análise da curva do dia no processo web, que fica bem pior na largada depois de um deploy. Agora `lerUsina` desenha quando a usina chega e cada aba diz "lendo" até a parte dela.
-- **A seta da fonte** só abre e recolhe a lista (`.seta`), sem sair da usina aberta.
+- **O cartão da fonte** só abre e recolhe a lista, sem sair da usina aberta; a fonte recorta a tela só no clique do
+  NOME dela (`.gn`; 16/11, noite: "Só aparece a visão da fonte caso eu clique no nome da fonte").
 - **Trancar várias strings de uma vez:** o clique na string só ESCOLHE (`SELS`); a barra tem Trancar N / Destrancar N,
   com UMA confirmação (e o aviso de OS/ticket por inversor) e um POST por inversor.
 - **Prontuário da usina:** o botão abre `/t/comando/usinas/abrir?nome=` do Nexus em outra aba (o Nexus acha pelo nome).
@@ -2638,6 +2639,55 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
   quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro
   caíram junto com a Castelo.
+- **Retornos de 16/11 (noite), depois de usar à noite:**
+  - **Lateral:** os valores no centro; o cartão da fonte numa altura menor (~58 px, o rótulo, o número e o "de N" numa
+    linha: "para ficar em um formato que caiba mais coisas"); a **engrenagem** ao lado do título abre por cima a tela
+    Fontes do tempo real da administração (`/admin/tempo-real?janela=1`: o que cada fonte tem, o que entra, o que fica de
+    fora), só para quem o `/api/eu` diz que administra; fechar relê a lateral. **Renomear e agrupar UFVs não existe**
+    (pergunta em aberto com o Levi: vale para todo o Tempo real ou só na Sala; agrupar soma ou só junta na lista).
+  - **Strings com mais de 2 h sem corrente hoje** (`u.sd`, `D.sdI` por inversor): "para quando não tiver sol mesmo assim
+    conseguirmos ver". Sai do pacote de falhas (o `gerado_em` dele é o frescor: o que parou depois da última geração do
+    pacote só entra na seguinte): o episódio que começou hoje conta pelas horas de sol dele (`h_sol >= 2`); o que já
+    vinha, quando a linha de hoje do inversor tem `dur_h >= 2` com a string. Sem string fora agora, é o número da
+    lateral e do alto ("+2 h"); com string fora, vai no texto de apoio.
+  - **Dentro da usina não há os números do alto** ("Ao clicar na UFV não precisa de KPI").
+  - **Inversores em LISTA** (não mais cartões): potência, energia de hoje, **ativas / esperadas e a diferença** (os
+    campos `strings_ativas`, `str_esp` e `diferenca` da leitura da usina, os do Tempo real), as com +2 h hoje e a
+    situação; o `+` da linha abre as strings (ou "Abrir as strings de todos"). De noite a diferença aparece sem o
+    vermelho (o inversor sem potência tem zero ativas).
+  - **Curva das strings:** todas em cinza, a sem corrente em vermelho e a de corrente baixa em laranja (o estado é o da
+    leitura de agora); o mouse na string (lista ou legenda) destaca a linha em azul, e no cartão do tracker, em branco
+    (`data-hl` → `path[data-sn]`). Sem o percentual na legenda. **O dia inteiro por padrão**; "Período solar (06–18h)" é
+    o botão.
+  - **ETM:** a aba mostra os "Sinais da estação no mês" (a lista `etm` da Entrada, os de `etm_alarmes` em vermelho). O
+    alarme da lateral vem da irradiação GRAVADA no mês, não da leitura de agora: a Gravatá II tinha 1 na lateral e "Sem
+    análise de estação" na aba.
+  - **A curva lenta, e o que se aprendeu com o Monitoramento do COS** ("a leitura das strings e inversores na API COS >
+    MONITORAMENTO é super rápida, veja como é feito e se dá para aplicar"). O COS é rápido por três coisas: a Ronda COS
+    GRAVA as entradas de cada inversor de 5 em 5 min (não pergunta ao portal na hora), o servidor guarda a resposta (60 s
+    hoje, 1 h o dia que passou) e há um pedido só no ar por inversor e dia. Medido em 16/11, 22h: a curva do banco da
+    Thopen levava 7 a 18 s e 600 KB (a usina inteira a cada clique, SEM cópia); por inversor, 2 s e 45 KB. A da API PV
+    (Guatambu, 26 inversores), 13 s a frio e 0,3 s nos 5 min seguintes; o dia que passou, 9 s na primeira vez e depois
+    guardado para sempre. O que foi aplicado:
+    1. **banco da Thopen:** `_pg_curva_com_copia` guarda a resposta (5 min hoje, 1 h o dia que passou, um pedido no ar
+       por chave; as trancadas da usina entram na chave). A tela segue pedindo a USINA INTEIRA de uma vez: por inversor são
+       2 a 8 s a CADA clique, e a usina inteira são 13 s uma vez, com todo inversor na hora depois (testado e desfeito na
+       mesma noite). A 1ª leitura continua no tempo do banco; o que falta medir é a consulta (32 extrações do JSON por
+       linha da `raw_inverter`);
+    2. **API PV com logger no COS:** a curva vem do histórico gravado no COS (`curvaCos`, rota do Nexus
+       `/t/performance/sala-de-controle/cos/entradas?inv=<logger>:<modbus>&dia=`). A ligação do inversor é a do Conferir
+       fontes (`paresCos`: pelo nome; senão pela ordem, e aí só quando o inversor tem a mesma quantidade de strings dos
+       dois lados). O gráfico diz de onde veio e tem "Ver pela API PV". Qualquer falha (sem sessão do Nexus, sem logger,
+       sem par, sem ponto) cai na fonte da usina, como antes. A usina do SCADA da Grid nunca passa pelo COS (a regra).
+    3. **Uma usina = vários loggers no COS** (`trDoCos`): a Guatambu da API PV são a "Guatambú 1" a "Guatambú 4" no
+       Monitoramento, e a Sala dizia "o COS também não tem esta usina". Sem usina do Tempo real com o nome inteiro do COS,
+       vale o nome sem o número do fim; com o nome inteiro (a Ipixuna 1), nunca.
+    A API PV sem logger continua nos 13 s da primeira leitura: é o tempo do portal, e pré-carregar gastaria a fonte paga.
+  - **Geração e PR** (pergunta do Levi): a geração por inversor do mês vem dos BDs do banco (`_inv_dias_por_base`: a
+    usina da Thopen lê a aba diária do BD_Thopen e, de reserva, o BD_Performance; as demais, só o BD_Performance); o
+    IPOA e as metas, da base diária da cascata. Só o "hoje" (`lerPr`, `/api/<fonte>/pr/`) vem da fonte ao vivo.
+  - Prova: os sete últimos testes de `tests/test_sala_de_controle.py`; a tela na cópia local (lista, curva, destaque,
+    ETM da Gravatá II, engrenagem) com dado real lido do servidor e o COS de mentira.
 - **"Em tratamento" da estação:** não existe no Tempo real (o `/api/etm/ticket` de antes não é usado pela tela nova);
   o botão do mockup não foi feito.
 

@@ -99,7 +99,19 @@ recolhe; trancar várias strings com uma confirmação só; o botão do prontuá
 da Grid tem de tracker e de estação aparece na usina mesmo quando a fonte dela não traz, com o raio-x na visão geral.
 Detalhe e medições em `plataforma/CLAUDE.md`.
 
+## Retornos de 16/11/2026 (noite)
+
+Valores no centro e cartões mais baixos na lateral; a engrenagem das Fontes do tempo real; as strings com mais de 2 h sem
+corrente hoje (para ver de noite); dentro da usina, sem os números do alto e com os inversores em lista (ativas /
+esperadas, diferença, o `+` das strings); a curva em cinza com o destaque no mouse, o dia inteiro por padrão; os sinais
+da estação que a Entrada conta; a fonte só recorta a tela no clique do nome. E a curva de strings mais rápida, com o que
+o Monitoramento do COS faz: um pedido por inversor e cópia no servidor (banco da Thopen), e o histórico gravado no COS
+nas usinas da API PV que têm logger. Detalhe e medições em `plataforma/CLAUDE.md`.
+
 ## Em aberto com o Levi
+
+- Renomear e agrupar UFVs pela engrenagem: não existe hoje; falta dizer se vale para todo o Tempo real ou só para a Sala,
+  e se agrupar soma numa linha ou só junta na lista.
 
 - O corte do "Ver agora" (no mockup, 8 dias ou mais sem OS; agora com a idade real).
 - (Fechado em 16/11) A Geração do mês "lenta" era a largada depois de um deploy: com o servidor assentado, 0,4 s.
