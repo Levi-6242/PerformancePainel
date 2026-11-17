@@ -236,7 +236,8 @@
   .buscaN input::placeholder{color:var(--mudo)}
   #dica{position:fixed;z-index:80;pointer-events:none;background:#1c2233;border:1px solid var(--linha2);border-radius:10px;padding:8px 10px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:11.5px;max-width:min(560px,90vw)}
   #dica h5{margin:0 0 5px;font-size:12px;font-weight:600}
-  #dica .cols{columns:1;column-gap:14px}#dica .cols.c2{columns:2}#dica .cols.c3{columns:3}
+  #dica .cols{columns:1;column-gap:14px}#dica .cols.c2{columns:2}#dica .cols.c3{columns:3}#dica .cols.c4{columns:4;font-size:10.5px}#dica:has(.c4){max-width:min(860px,96vw)}
+  .tc.nvt{box-shadow:0 0 0 2px var(--critico)}
   #dica .it{display:flex;align-items:center;gap:6px;white-space:nowrap;break-inside:avoid;font-variant-numeric:tabular-nums}
   #dica .it i{width:9px;height:9px;border-radius:2px;flex:none}#dica .it b{margin-left:auto;padding-left:10px;font-weight:600}
   svg[data-ch]{cursor:crosshair}
@@ -764,6 +765,7 @@ function recontaStrings(nome, g, inv) {
   const n = conta.reduce((t, i) => t + Math.max(0, -i.dif), 0);
   D.grupos.forEach(gr => gr.usinas.forEach(x => { if (gr.id === g && x.u === nome) { if (x.sf !== n) { x.sfResumo = x.sfResumo ?? x.sf; x.sf = n; x.sn = Math.max(0, n - x.sa); } x.rec = true; } }));
 }
+const AOVIVO = {};          // a usina da API PV que a pessoa pediu para ler AGORA na fonte (o botão "Ler agora")
 const PRE = {};             // a usina cuja leitura de strings ainda não voltou: os trackers e a estação dela já podem estar aqui
 async function lerUsina(u, calada) {
   if ((D.drill[u.u] && !calada) || LENDO[u.u]) return;
@@ -784,14 +786,23 @@ async function lerUsina(u, calada) {
     if (EPT[sk]) extras.push(pega(EPT[sk] + "/" + encodeURIComponent(pid), 90000).then(tk => { if (tk && tk.tem_trackers !== false && (tk.trackers || []).length) dr.trk = {total: tk.total, parados: tk.parados, com: tk.parados_com, sem: tk.parados_sem, severos: tk.severos, lido: tk.ultima_leitura || "", semHist: !!tk.sem_historico,
       l: tk.trackers.filter(x => x.status !== "normal" || x.sem_comunicacao).map(x => [x.id, x.atual, x.alvo, x.disparidade, x.status, x.ticket_status, !!x.sem_comunicacao])}; else dr.trk = {fora: true, l: []}; }).catch(() => { dr.trk = {fora: true, erro: true, l: []}; }).finally(() => pinta("trk")));
     if (EPE[sk]) extras.push((ETMS[sk] = ETMS[sk] || pega(EPE[sk], 60000)).then(e => { const r = (e.rows || []).find(x => String(x.plant_id) === String(pid) || x.usina === u.u); if (r) { const sp = r.spark || {}; dr.etm = {flags: r.flags || [], sens: r.sensores || {}, x: sp.labels || [], ghi: sp.ghi || [], poa: sp.poa || []}; } }).catch(() => { delete ETMS[sk]; }).finally(() => { dr.etmLendo = false; pinta("etm"); }));
-    const pl = await pega(PLANT[sk] + encodeURIComponent(pid), 90000);
+    // nas fontes da API PV, o detalhe que o ciclo do servidor já montou (`?tabela=1`: na hora, com até 15 min), em vez
+    // de baixar de novo o dia inteiro da fonte paga a cada abertura (12 a 62 s medidos em 17/11/2026)
+    const urlPl = PLANT[sk] + encodeURIComponent(pid) + (PLANT[sk] === "/api/plant/" ? (AOVIVO[u.u] ? "?force=1" : "?tabela=1") : "");
+    delete AOVIVO[u.u];
+    // A leitura que falha de primeira e volta no "Tentar de novo" (Levi, 17/11/2026, a Athon: "Ele recusa e depois
+    // carrega"): a tela tenta mais uma vez sozinha, 1,5 s depois, antes de mostrar o erro. Na API PV não: lá a falha é o
+    // teto de espera da fonte, e repetir só dobraria a espera.
+    let pl;
+    try { pl = await pega(urlPl, 90000); }
+    catch (e1) { if (PLANT[sk] === "/api/plant/") throw e1; await new Promise(r => setTimeout(r, 1500)); pl = await pega(urlPl, 90000); }
     const inv = (pl.inversores || []).map(i => ({n: i.nome, id: i.id, kw: i.active_power, eday: i.eday, desl: !!i.desligado, fc: !!i.falha_comunicacao, esp: i.str_esp, at: i.strings_ativas, dif: i.diferenca, fora: !!i.fora_da_conta, temp: i.temp,
       s: (i.strings || []).map(s => [s.id, s.corrente, s.status || (s.trancada ? "trancada" : s.ativa === false ? "sem_corrente" : "ativa")])}));
     // As strings aparecem assim que a leitura da usina chega (Levi, 16/11/2026: "por que as da Thopen em banco de dados
     // demoram tanto para carregar as strings?"). Medido no servidor: a usina responde em 0,1 a 1,5 s; quem levava de 9 a
     // 30 s era a leitura dos trackers da mesma usina, e a tela esperava por ela (e pela estação) para mostrar qualquer
     // coisa. Agora cada um chega na sua hora: a aba dele diz "lendo" e o resto já está na tela.
-    dr.inv = inv; dr.em = Date.now(); dr.g = u.g; D.drill[u.u] = dr; delete PRE[u.u];
+    dr.inv = inv; dr.em = Date.now() - (pl.da_tabela ? (pl.idade_s || 0) * 1000 : 0); dr.g = u.g; dr.tabela = pl.da_tabela ? (pl.lido_em || "") : ""; D.drill[u.u] = dr; delete PRE[u.u];
     recontaStrings(u.u, u.g, inv);
     // a trava recém-gravada vale até a leitura concordar com ela (há fonte que responde do cache por alguns minutos)
     Object.keys(TRANCA).forEach(k => { if (!k.startsWith(u.u + "|")) return; const [, n, sid] = k.split("|"), iv = inv.find(i => i.n === n), s = iv && iv.s.find(x => String(x[0]) === sid); if (!s || (s[2] === "trancada") === TRANCA[k]) delete TRANCA[k]; });
@@ -1028,7 +1039,7 @@ async function lerTrk(u, dia) {
   if (SEL.u === u.u && D.trkc.usina === u.u) desenhar();
 }
 const NOME = {"thopen-pv":"Thopen · API PV","thopen-db":"Thopen · Banco de dados","athon":"Athon · SunOp","axis":"Axis · scadaGridco",
-  "renogrid":"RenoGrid · SolarEdge","2c":"2C · Owen e API PV","semp":"SEMP · API PV","alveslima":"Alves Lima · API PV",
+  "renogrid":"RenoGrid · SolarEdge","2c":"2C · API PV","semp":"SEMP · API PV","alveslima":"Alves Lima · API PV",
   "greenyellow":"GreenYellow · scadaGridco","salenergia":"Sal Energia · scadaGridco","apolo":"Apolo · scadaGridco"};
 const CRIT = {sem_comm: 0, critico: 1, atencao: 2, desligada: 3, ok: 4};
 let BXM = "top", IDF = null, VG = "str";      // a aba da visão geral: Strings, Trackers, ETM ou Geração
@@ -1177,7 +1188,7 @@ document.addEventListener("mousemove", e => {
   const perto = s => { let bi = -1, bd = 21; s.x.forEach((x, i) => { const dx = Math.abs(x - m); if (dx < bd && s.y[i] != null) { bd = dx; bi = i; } }); return bi < 0 ? null : s.y[bi]; };
   const its = c.series.map(s => ({n: s.nome, c: s.cor, v: perto(s), u: c.un})).filter(x => x.v != null).sort((a, b) => b.v - a.v).concat(c.dir.map(s => ({n: s.nome, c: s.cor, v: perto(s), u: "W/m²"})).filter(x => x.v != null));
   const cur = sv.querySelector(".cur"), px = c.L + (c.W - c.L - c.R) * (m - c.x0) / (c.x1 - c.x0); cur.setAttribute("x1", px); cur.setAttribute("x2", px); cur.setAttribute("visibility", "visible");
-  dc.innerHTML = `<h5>${hm(Math.round(m))}${its.length ? "" : " · sem leitura"}</h5><div class="cols ${its.length > 24 ? "c3" : its.length > 10 ? "c2" : ""}">${its.map(x => `<div class="it"><i style="background:${x.c}"></i>${esc(x.n)}<b>${nf(x.v, x.u === "A" ? 2 : 1)} ${esc(x.u === "Ângulo (°)" ? "°" : x.u)}</b></div>`).join("")}</div>`;
+  dc.innerHTML = `<h5>${hm(Math.round(m))}${its.length ? "" : " · sem leitura"}</h5><div class="cols ${its.length > 60 ? "c4" : its.length > 24 ? "c3" : its.length > 10 ? "c2" : ""}">${its.map(x => `<div class="it"><i style="background:${x.c}"></i>${esc(x.n)}<b>${nf(x.v, x.u === "A" ? 2 : 1)} ${esc(x.u === "Ângulo (°)" ? "°" : x.u)}</b></div>`).join("")}</div>`;
   dc.hidden = false; const w = dc.offsetWidth, h = dc.offsetHeight;
   dc.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX + (e.clientX > innerWidth * .6 ? -w - 16 : 16))) + "px";
   dc.style.top = Math.max(8, Math.min(innerHeight - h - 8, e.clientY - h / 2)) + "px";
@@ -1583,6 +1594,7 @@ function detalhe(u, bx) {
     const osBox = i => OSINV === i.n ? `<div class="osbox">${osRecentes(u.u, i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag n">${esc(o.status)}</span> · recomposição de string<br>${esc(o.desc)}${o.strings.length ? " · strings " + o.strings.join(", ") : ""}<br>criada em ${dm(o.criada)}${o.concluida ? " · concluída em " + dm(o.concluida) : ""}</div>`).join("")}${osDe(i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag ${/andamento/i.test(o.status) ? "a" : "n"}">${esc(o.status)}</span><br>${esc(o.nota)}<br>aberta em ${dm(o.data)} · ${esc(o.sub || "")}</div>`).join("")}</div>` : "";
     h += `<div class="diasel barrafix" style="gap:8px"><span>Dia</span><input type="date" class="campo" style="background:var(--sup);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}" aria-label="Dia da curva das strings"><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button>
       <span style="color:var(--mudo);font-size:12.5px;margin-left:8px" title="Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários">OS de performance <b style="color:var(--tinta)">${oss.length}</b> ${oss.length ? esc(oss.map(o => o.os + (o.inv ? " (" + o.inv.replace("Inversor ", "") + ")" : "")).join(" · ")) : D.estado.osErro[u.u] ? "· não consegui ler agora" : !(u.u in D.estado.os) ? "· lendo…" : "· nenhuma em aberto"}</span>
+      ${dr.tabela ? `<span style="color:var(--mudo);font-size:12.5px;margin-left:8px" title="Inversores e strings da leitura que o servidor fez às ${esc(dr.tabela)} (o ciclo de 5 min da API PV)">leitura das ${esc(dr.tabela)}</span><button class="btnl" data-aovivo="1" title="Ler agora na API PV (pode levar de 10 a 60 s)">Ler agora</button>` : ""}
       <span style="flex:1"></span>${nG > 1 ? `<button class="btnl" data-grafx="1">Fechar as ${nG} curvas</button>` : ""}<button class="btnl" data-expi="*">${dr.inv.every(i => EXPI.has(u.u + "|" + i.n)) ? "Recolher as strings de todos" : "Abrir as strings de todos"}</button>${PODE ? `<button class="btn" data-criaros="1" title="${MARC.size ? "Criar a OS de recomposição de string dos " + MARC.size + " inversores marcados" : "Marque os inversores na caixa à esquerda de cada linha e clique aqui"}">Criar OS${MARC.size ? " (" + MARC.size + ")" : ""}</button>` : ""}</div>` +
       Object.keys(cab).sort((a, b) => a - b).map(c => { const l = cab[c], fora = l.reduce((a, i) => a + faltaDe(i), 0), bxc = l.reduce((a, i) => a + i.s.filter(s => est(i, s) === "baixa_perf").length, 0), nov = l.reduce((a, i) => a + novasS(u.u, i.n).length, 0);
       return `<details class="cabine" data-cab="${c}" ${FECHADAS.has(u.u + "|" + c) ? "" : "open"}><summary>${c === "—" ? "Inversores" : "Cabine " + esc(c)} <small>${l.length} inversor${l.length > 1 ? "es" : ""} · ${fora ? fora + " string" + (fora > 1 ? "s" : "") + " fora" : "nenhuma string fora"}${bxc ? " · " + bxc + " com corrente baixa" : ""}</small>${pill(nov)}</summary>
@@ -1613,6 +1625,8 @@ function detalhe(u, bx) {
     const ds = temC && D.trkc.usina === u.u ? Object.keys(D.trkc.dias).filter(k => D.trkc.dias[k]).sort() : [];
     const trkp = D.trkRows.filter(r => r.usina === u.u).map(r => [r.tracker, r.inicio, r.fim || "", r.h_sol, Math.round(r.perda_kwh || 0), !!r.cronico]).sort((a, b) => String(b[1]).localeCompare(String(a[1])));
     const rec = (id, tit, sub, corpo) => `<div class="sec"><details class="rec" data-rec="${id}" ${REC.has(id) ? "open" : ""}><summary>${tit} <small>${sub}</small></summary><div>${corpo}</div></details></div>`;
+    const nvt = NOVT[u.u] || [], nvSet = new Set(nvt.map(x => x.tk));
+    if (nvt.length) h += `<div class="aviso" style="border-left:3px solid var(--critico)"><b>${nvt.length} tracker${nvt.length > 1 ? "s novos" : " novo"} desde a sua última visita</b> (o aviso vermelho era ${nvt.length > 1 ? "deles" : "dele"}): ${nvt.slice().sort((a, b) => natural(a.tk, b.tk)).map(x => `<span class="tag c" style="margin:0 4px 4px 0">${esc(x.tk)}</span><small style="color:var(--fraco);margin-right:8px">parou em ${dm(x.d)}</small>`).join("")}</div>`;
     if (temC) {
       // O MESMO gráfico do Tempo real de hoje (_trkChartInline): os mesmos controles e a mesma conta
       const dias = ds.filter(x => x >= TRK.ini && x <= TRK.fim), ref = D.trkc.dias[TRK.fim] || D.trkc.dias[dias[dias.length - 1]] || {t: {}, alvo: []};
@@ -1630,14 +1644,14 @@ function detalhe(u, bx) {
         <div style="font-size:12.5px;margin:4px 0 8px"><b style="color:#ff5b6e">${qt("parado")} parado</b> · <b style="color:#ff8f3c">${qt("severo")} severo</b> · <b style="color:#ffb43d">${qt("medio")} médio</b> · <b style="color:#ffd83d">${qt("leve")} leve</b>${qt("sem_comunicacao") ? ` · <b style="color:#c9b6ff">${qt("sem_comunicacao")} sem comunicação</b>` : ""} · <span style="color:var(--mudo)">mostrando ${shown.length} de ${all.length}${shown.length ? "" : ' · <b style="color:#ffb43d">nenhum selecionado: clique nos cartões ou em Todos</b>'}</span></div>
         <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px">${legb(COR_T.parado, "Parado", "parado")}${legb(COR_T.severo, "Severo", "severo")}${legb(COR_T.medio, "Médio", "medio")}${legb(COR_T.leve, "Leve", "leve")}${legb(COR_T.sem_comunicacao, "Sem comunicação", "sem_comunicacao")}${legb(COR_T.normal, "Normal", "normal")}${legb("#e2e8f0", "Alvo", "alvo", true)}</div>
         ${dias.length ? dias.map(graf).join("") : `<p style="margin:14px 0">${Object.values(D.trkc.dias).some(v => v && v.erro) ? "Não consegui ler a curva dos trackers neste período." : "Lendo a curva dos trackers…"}</p>`}
-        <div class="tcs">${all.map(x => `<button class="tc ${TRK.hide[x.id] ? "off" : ""}" data-tc="${esc(x.id)}" data-hl="${esc(x.id)}" data-hlc="var(--tinta)" style="border-color:${COR_T[x.st] || COR_T.normal};color:${COR_T[x.st] || COR_T.normal}" title="${esc(x.id)} · ${x.st.replace("_", " ")} · clique para ${TRK.hide[x.id] ? "pôr no" : "tirar do"} gráfico">${esc(x.id.replace(/^Tracker\s*/, ""))}</button>`).join("")}</div></div>`;
+        <div class="tcs">${all.map(x => `<button class="tc ${TRK.hide[x.id] ? "off" : ""}${nvSet.has(String(x.id)) ? " nvt" : ""}" data-tc="${esc(x.id)}" data-hl="${esc(x.id)}" data-hlc="var(--tinta)" style="border-color:${COR_T[x.st] || COR_T.normal};color:${COR_T[x.st] || COR_T.normal}" title="${esc(x.id)} · ${x.st.replace("_", " ")} · clique para ${TRK.hide[x.id] ? "pôr no" : "tirar do"} gráfico">${esc(x.id.replace(/^Tracker\s*/, ""))}</button>`).join("")}</div></div>`;
     } else h += dr.trk.lendo ? '<div class="carrega" style="padding:18px 0">Lendo os trackers desta usina…</div>'
       : `<div class="aviso">${dr.trk.erro ? "Não consegui ler os trackers desta usina na fonte dela agora." : "A fonte desta usina no Tempo real não tem trackers dela."}</div>` + scadaBloco(u, "trk");
     if (!dr.trk.fora) { const cor = {parado: "c", severo: "s", medio: "a", leve: "i"}, nome = {parado: "Parado", severo: "Desvio severo", medio: "Desvio médio", leve: "Desvio leve"}, ord = "parado severo medio leve".split(" ");
       h += (dr.trk.semHist ? '<div class="aviso">O histórico de hoje dos trackers não respondeu no supervisório: a lista abaixo é só a leitura de agora, sem a curva do dia (por isso ninguém sai como parado).</div>' : "") + rec("agora", "Agora", `${dr.trk.parados} parados (${dr.trk.com} com ticket, ${dr.trk.sem} sem) · ${dr.trk.severos} com desvio severo · de ${dr.trk.total} trackers · lido às ${esc((dr.trk.lido || "").slice(11))}`,
         `<div class="rol"><table><thead><tr><th>Tracker</th><th>Situação</th><th>Ângulo atual</th><th>Alvo</th><th>Desvio</th><th>Acompanhamento</th></tr></thead><tbody>` +
         (dr.trk.l.slice().sort((a, b) => ord.indexOf(a[4]) - ord.indexOf(b[4]) || (b[3] || 0) - (a[3] || 0)).map(x =>
-          `<tr><td><b>${esc(x[0])}</b></td><td><span class="tag ${cor[x[4]] || "n"}">${nome[x[4]] || esc(x[4])}</span>${x[6] ? ' <span class="tag n">sem comunicação</span>' : ""}</td><td>${x[1] == null ? "—" : nf(x[1], 1) + "°"}</td><td>${x[2] == null ? "—" : nf(x[2], 1) + "°"}</td><td>${x[3] == null ? "—" : nf(x[3], 1) + "°"}</td><td>${x[5] ? `<span class="tag o">ticket: ${esc(x[5])}</span>` : (x[4] === "parado" ? '<span class="tag s">sem OS nem ticket</span>' : T)}</td></tr>`).join("") ||
+          `<tr><td><b>${esc(x[0])}</b>${nvSet.has(String(x[0])) ? '<span class="nv">novo</span>' : ""}</td><td><span class="tag ${cor[x[4]] || "n"}">${nome[x[4]] || esc(x[4])}</span>${x[6] ? ' <span class="tag n">sem comunicação</span>' : ""}</td><td>${x[1] == null ? "—" : nf(x[1], 1) + "°"}</td><td>${x[2] == null ? "—" : nf(x[2], 1) + "°"}</td><td>${x[3] == null ? "—" : nf(x[3], 1) + "°"}</td><td>${x[5] ? `<span class="tag o">ticket: ${esc(x[5])}</span>` : (x[4] === "parado" ? '<span class="tag s">sem OS nem ticket</span>' : T)}</td></tr>`).join("") ||
          `<tr><td colspan="6" class="zero">Todos os trackers seguindo o alvo.</td></tr>`) + "</tbody></table></div>"); }
     if (trkp.length) h += rec("quando", "Quando parou", `${trkp.length} paradas no mês · clique na linha para abrir o gráfico no dia`,
         `<div class="rol"><table><thead><tr><th>Tracker</th><th>Quando parou</th><th>Voltou</th><th>Horas de sol parado</th><th>Perda estimada</th><th>Gráfico</th></tr></thead><tbody>` +
@@ -1807,7 +1821,10 @@ const marcaVisto = l => { const ks = l.filter(x => !VISTO.has(x.k)).map(x => x.k
   ks.forEach(k => { VISTO.add(k); (D.vis.vistos[k] = D.vis.vistos[k] || []).push({nome: EU.nome || "você", quando: HOJE + " " + agora(), eu: true}); });
   fetch("/api/sala/visto", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify({chaves: ks})}).catch(() => {}); };
 const verS = (u, i) => marcaVisto(D.novas.s.filter(x => x.u === u && x.i === i));
-const verT = u => marcaVisto(D.novas.t.filter(x => x.u === u));
+// Quais são os NOVOS (Levi, 17/11/2026: "tem 11 parados [...] citou 2. Quais são os 2?"): abrir a aba marca os trackers
+// como vistos, e o aviso sumia sem dizer de quem falava. Agora os novos ficam guardados (`NOVT`) e a aba os aponta.
+const NOVT = {};
+const verT = u => { const l = D.novas.t.filter(x => x.u === u && !VISTO.has(x.k)); if (l.length) NOVT[u] = (NOVT[u] || []).filter(a => !l.some(b => b.tk === a.tk)).concat(l.map(x => ({tk: String(x.tk), d: x.d}))); marcaVisto(D.novas.t.filter(x => x.u === u)); };
 // quem já viu as strings paradas deste inversor (para todos: evita OS em dobro)
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
   const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
@@ -1915,6 +1932,7 @@ document.addEventListener("click", e => {
   if ((x = q("[data-solar]"))) { SOLAR = !SOLAR; desenhar(); return; }
   if ((x = q("[data-curvafonte]"))) { const k = SEL.u + "|" + x.dataset.curvafonte + "|" + (DIA || HOJE); SEM_COS[k] = 1; delete D.curvas[k]; desenhar(); return; }
   if ((x = q("[data-grafx]"))) { GRAF.clear(); desenhar(); return; }
+  if ((x = q("[data-aovivo]"))) { const u = usinas()[0]; if (u) { AOVIVO[u.u] = 1; x.disabled = true; x.textContent = "Lendo na API PV…"; lerUsina(u, true).then(() => { if (SEL.u === u.u) desenhar(); }); } return; }
   if ((x = q("[data-criaros]"))) { if (!PODE) return; if (MARC.size) abrirCriarOS(); else toast("Marque os inversores da OS na caixa à esquerda de cada linha"); return; }
   if ((x = q("[data-gp]"))) { if (x.dataset.gp === "ver") GP = x.dataset.v; else GPER = x.dataset.v; desenhar(); return; }
   if ((x = q("[data-pv]"))) { PV = x.dataset.pv; desenhar(); return; }

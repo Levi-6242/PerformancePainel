@@ -5070,6 +5070,49 @@ def build_summary(plant: dict, records: list) -> dict:
     }
 
 
+# ── O DETALHE POR INVERSOR DA LEITURA QUE O CICLO JÁ FEZ (17/11/2026) ──────────────────────────────────────────
+# Levi: "ainda demora 1 século para abrir [...] investigue o motivo dos inversores da API PV demorarem tanto e corrija".
+# Medido em produção (17/11, 09:40): a Altair deu 504 aos 61,7 s e depois 38,9 s; a Céu Azul, 12,3 s. Cada abertura de
+# usina baixava DE NOVO o `day_inverter` (o dia inteiro de leituras, fonte paga), que o ciclo do worker já baixa de 5 em
+# 5 min para montar a linha da tabela. É o que o Monitoramento do COS ensina: gravar antes, ler depois. O ciclo agora
+# monta também o detalhe por inversor com AS MESMAS leituras (nenhuma chamada nova à API PV; os dispositivos e a combiner
+# vêm dos caches de sempre) e o publica com as tabelas; a Sala pede `/api/plant/<id>?tabela=1` e recebe na hora.
+# - Nos primeiros minutos depois da subida o ciclo NÃO calcula o detalhe: a 1ª tabela tem de sair no tempo de sempre
+#   (em 16/11, com várias subidas, a tabela da API PV ficou parada a tarde toda).
+# - O detalhe que falha não derruba a linha da usina.
+# - Sem `?tabela=1` (o Tempo real, o Diagnóstico) a rota continua ao vivo, como sempre.
+PV_DET_VALE_S = 900                 # o detalhe do ciclo vale 15 min (três ciclos): mais velho que isso, a rota vai à fonte
+PV_DET_ESPERA_BOOT_S = 600          # depois da subida, 10 min sem o detalhe
+_PV_DET_BOOT = time.time()
+_pv_det_cache = {"ts": 0.0, "payload": None}
+_pv_det_lock = threading.Lock()
+
+
+def _pv_det_guarda(pid, records) -> None:
+    """Guarda o detalhe por inversor da usina, a partir das leituras que o ciclo acabou de baixar."""
+    if not isinstance(records, list) or not records or time.time() - _PV_DET_BOOT < PV_DET_ESPERA_BOOT_S:
+        return
+    try:
+        invs = _pv_plant_inversores_busca(pid, force=True, records=records)
+    except Exception as e:                                   # noqa: BLE001 — o detalhe é um extra: a linha da usina segue
+        print(f"[pv-det] {pid}: {type(e).__name__}: {str(e)[:160]}")
+        return
+    with _pv_det_lock:
+        plantas = dict((_pv_det_cache.get("payload") or {}).get("plantas") or {})
+        plantas[str(pid)] = {"ts": time.time(), "inversores": invs}
+        _pv_det_cache["payload"] = {"plantas": plantas}
+        _pv_det_cache["ts"] = time.time()
+    _persist_mark()
+
+
+def _pv_det_da_tabela(pid):
+    """O detalhe que o ciclo publicou para a usina, se ainda vale: {"ts", "inversores"} ou None."""
+    d = ((_pv_det_cache.get("payload") or {}).get("plantas") or {}).get(str(pid))
+    if not isinstance(d, dict) or not isinstance(d.get("inversores"), list) or not d["inversores"]:
+        return None
+    return d if time.time() - float(d.get("ts") or 0) < PV_DET_VALE_S else None
+
+
 # ── Processa uma usina (visão geral) ──────────────────────────────────────────
 def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
     pid  = plant["id"]
@@ -5087,7 +5130,9 @@ def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
         return base
     if not records:
         return base
-    return build_summary(plant, records)
+    linha = build_summary(plant, records)
+    _pv_det_guarda(pid, records)         # o detalhe por inversor, das mesmas leituras (ver _pv_det_guarda)
+    return linha
 
 
 # ── Severidade para ordenação ─────────────────────────────────────────────────
@@ -5239,7 +5284,7 @@ def _pv_plant_inversores(plant_id, force=False):
             raise
 
 
-def _pv_plant_inversores_busca(plant_id, force=False):
+def _pv_plant_inversores_busca(plant_id, force=False, records=None):
     """Inversores da usina (API PV) com strings classificadas. Reusado pelo endpoint /api/plant
     e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede.
 
@@ -5250,7 +5295,10 @@ def _pv_plant_inversores_busca(plant_id, force=False):
     Coração 1: 5,3 s na 1ª chamada e 18,4 s na 2ª. O memo faz a segunda perna reaproveitar a primeira, corta
     as chamadas à fonte pela metade e ainda deixa instantâneo reabrir a mesma usina logo em seguida. Curto
     de propósito: a tela é AO VIVO, então 90 s é o teto do que se pode repetir sem mentir sobre o "agora"."""
-    if not force:
+    # `records` = as leituras do dia que o chamador JÁ baixou (o ciclo do worker, `_pv_det_guarda`): o detalhe sai delas,
+    # sem outro day_inverter.
+    _ja_lidas = records
+    if not force and _ja_lidas is None:
         with _pv_plant_memo_lock:
             ent = _PV_PLANT_MEMO.get(plant_id)
         if ent and (time.time() - ent[0]) < _PV_PLANT_MEMO_S:
@@ -5289,7 +5337,8 @@ def _pv_plant_inversores_busca(plant_id, force=False):
     # uma depois da outra. Juntas, a espera é a da mais lenta. Os dispositivos vêm do cache de 30 min do
     # _pv_plant_devices, que só guarda resposta boa (falha de rede devolve a última lista, não uma vazia).
     with ThreadPoolExecutor(max_workers=3) as _ex:
-        _f_rec, _f_nome, _f_devs = _ex.submit(_leituras), _ex.submit(_nome_api), _ex.submit(_nomes_dispositivos)
+        _f_rec, _f_nome, _f_devs = (_ex.submit(_leituras if _ja_lidas is None else (lambda: _ja_lidas)), _ex.submit(_nome_api),
+                                    _ex.submit(_nomes_dispositivos))
         records = _f_rec.result()          # erro de rede, ou o dict de erro da API, sobe (a rota devolve 504)
         plant_nome_api, dev_names = _f_nome.result(), _f_devs.result()
 
@@ -5538,6 +5587,14 @@ def _pv_plant_inversores_busca(plant_id, force=False):
 
 @app.route("/api/plant/<int:plant_id>")
 def api_plant_detail(plant_id):
+    # `?tabela=1` (a Sala de controle, 17/11/2026): o detalhe que o ciclo já montou, na hora, com a idade dele; sem ele
+    # (ou com `force=1`, ou sem o detalhe), a leitura ao vivo de sempre.
+    if flask_request.args.get("tabela") == "1" and flask_request.args.get("force") != "1":
+        det = _pv_det_da_tabela(plant_id)
+        if det:
+            return jsonify({"plant_id": plant_id, "inversores": det["inversores"], "da_tabela": True,
+                            "idade_s": int(time.time() - float(det["ts"])),
+                            "lido_em": time.strftime("%H:%M", time.localtime(float(det["ts"])))})
     try:
         invs = _pv_plant_inversores(plant_id, force=flask_request.args.get("force") == "1")
     except Exception as e:
@@ -26339,6 +26396,7 @@ def _persist_registry():
         "2c_trk":        _2c_trk_cache,       # aba de trackers da 2C: o web não monta (30/09/2026, _build_2c_trk_payload)
         "semp_etm":      _semp_etm_cache,
         "semp_analise":  _semp_etm_analise_cache,
+        "pv_det":        _pv_det_cache,       # o detalhe por inversor que o ciclo monta (17/11/2026, _pv_det_guarda)
     }
 
 

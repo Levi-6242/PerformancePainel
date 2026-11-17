@@ -941,9 +941,9 @@ def test_a_usina_le_strings_trackers_e_estacao_ao_mesmo_tempo():
     juntos e as abas Trackers e ETM desenham com o que já chegou."""
     html = _html()
     ler = html[html.index("async function lerUsina(u, calada) {"):html.index("// (g) O que o SCADA da Grid tem desta usina AGORA")]
-    assert ler.index("if (EPT[sk]) extras.push(pega(EPT[sk]") < ler.index("const pl = await pega(PLANT[sk]")           # os trackers saem antes de esperar as strings
-    assert ler.index("if (EPE[sk]) extras.push((ETMS[sk]") < ler.index("const pl = await pega(PLANT[sk]")              # e a estação também
-    assert "if (!manter) PRE[u.u] = dr;" in ler and "dr.inv = inv; dr.em = Date.now(); dr.g = u.g; D.drill[u.u] = dr; delete PRE[u.u];" in ler
+    assert ler.index("if (EPT[sk]) extras.push(pega(EPT[sk]") < ler.index("try { pl = await pega(urlPl, 90000); }")           # os trackers saem antes de esperar as strings
+    assert ler.index("if (EPE[sk]) extras.push((ETMS[sk]") < ler.index("try { pl = await pega(urlPl, 90000); }")              # e a estação também
+    assert "if (!manter) PRE[u.u] = dr;" in ler and "D.drill[u.u] = dr; delete PRE[u.u];" in ler and "dr.inv = inv; dr.em = Date.now()" in ler
     assert "} catch (e) { delete PRE[u.u];" in ler                                                                    # a usina que falhou não deixa resto
     assert 'const dr = D.drill[u.u] || ((ABA === "trk" || ABA === "etm") && !FALHOU[u.u] ? PRE[u.u] : undefined), cp = $("corpo");' in html
     # os cartões de string: valores no centro e 20% mais estreitos (62 → 50 px)
@@ -997,3 +997,65 @@ def test_strings_fora_e_a_conta_do_tempo_real_e_a_usina_aberta_reconta():
     assert faltas == [0, 2, 0, 0, 0, 0]                      # 18/18 não tem string fora; a sobra de +3 não paga; desligado e fora da conta ficam fora
     assert usinas[0] == {"u": "SMP100", "sf": 2, "sa": 1, "sn": 1, "sfResumo": 3, "rec": True}       # o resumo dizia 3; os inversores dizem 2
     assert usinas[1] == {"u": "OUTRA", "sf": 9, "sa": 0, "sn": 9}                                    # sem esperadas na conta: fica o resumo
+
+
+def test_os_inversores_da_api_pv_saem_da_leitura_que_o_ciclo_ja_fez(cli, monkeypatch):
+    """Levi, 17/11/2026: "ainda demora 1 século para abrir [...] investigue o motivo dos inversores da API PV demorarem
+    tanto e corrija". Cada abertura baixava de novo o dia inteiro da fonte paga; o ciclo já baixa de 5 em 5 min."""
+    chamadas = []
+    monkeypatch.setattr(app, "_PV_DET_BOOT", 0.0)
+    monkeypatch.setattr(app, "_pv_det_cache", {"ts": 0.0, "payload": None})
+    monkeypatch.setattr(app, "_pv_plant_inversores_busca", lambda pid, force=False, records=None: chamadas.append((pid, force, len(records))) or [{"id": 1, "nome": "Inversor 1.1"}])
+    app._pv_det_guarda(777, [{"idefinversor": 1}])
+    assert chamadas == [(777, True, 1)]                                   # monta com as leituras que o ciclo já tem
+    r = cli.get("/api/plant/777?tabela=1").get_json()
+    assert r["da_tabela"] is True and r["inversores"] == [{"id": 1, "nome": "Inversor 1.1"}] and r["idade_s"] < 5 and len(r["lido_em"]) == 5
+    # sem ?tabela=1 a rota segue ao vivo (o Tempo real e o Diagnóstico não mudam); force=1 também
+    monkeypatch.setattr(app, "_pv_plant_inversores", lambda pid, force=False: [{"id": 9}])
+    assert cli.get("/api/plant/777").get_json() == {"plant_id": 777, "inversores": [{"id": 9}]}
+    assert cli.get("/api/plant/777?tabela=1&force=1").get_json() == {"plant_id": 777, "inversores": [{"id": 9}]}
+    assert cli.get("/api/plant/778?tabela=1").get_json() == {"plant_id": 778, "inversores": [{"id": 9}]}     # usina sem detalhe: ao vivo
+    app._pv_det_cache["payload"]["plantas"]["777"]["ts"] -= app.PV_DET_VALE_S + 1
+    assert "da_tabela" not in cli.get("/api/plant/777?tabela=1").get_json()                                # detalhe velho: ao vivo
+    # nos primeiros minutos depois da subida o ciclo não calcula o detalhe (a 1ª tabela sai no tempo de sempre)
+    monkeypatch.setattr(app, "_PV_DET_BOOT", app.time.time())
+    chamadas.clear()
+    app._pv_det_guarda(779, [{"idefinversor": 1}])
+    assert chamadas == []
+    # o detalhe que falha não derruba a linha, e leitura vazia não gera detalhe
+    monkeypatch.setattr(app, "_PV_DET_BOOT", 0.0)
+
+    def explode(pid, force=False, records=None):
+        raise RuntimeError("combiner fora")
+    monkeypatch.setattr(app, "_pv_plant_inversores_busca", explode)
+    app._pv_det_guarda(780, [{"idefinversor": 1}])
+    app._pv_det_guarda(781, [])
+    assert "780" not in app._pv_det_cache["payload"]["plantas"] and "781" not in app._pv_det_cache["payload"]["plantas"]
+    assert app._persist_registry()["pv_det"] is app._pv_det_cache                                          # vai junto com as tabelas para o web
+    html = _html()
+    assert '(PLANT[sk] === "/api/plant/" ? (AOVIVO[u.u] ? "?force=1" : "?tabela=1") : "")' in html and 'data-aovivo="1"' in html
+    assert '"2c":"2C · API PV"' in html and "Owen e API PV" not in html
+
+
+def test_o_detalhe_com_as_leituras_dadas_nao_chama_o_day_inverter(monkeypatch):
+    """A montagem do detalhe com `records` usa as leituras do chamador: nenhum POST à API PV."""
+    class _SemRede:
+        def post(self, *a, **k):
+            raise AssertionError("o day_inverter não pode ser chamado de novo")
+    monkeypatch.setattr(app, "_http", lambda: _SemRede())
+    monkeypatch.setattr(app, "_pv_token_for", lambda pid: "t")
+    monkeypatch.setattr(app, "get_plants", lambda token: [])
+    monkeypatch.setattr(app, "_pv_plant_devices", lambda pid: [])
+    assert app._pv_plant_inversores_busca(999001, force=True, records=[]) == []      # sem leitura e sem cadastro: vazio, sem rede
+
+
+def test_a_leitura_tenta_de_novo_os_trackers_novos_ficam_marcados_e_a_dica_tem_quatro_colunas():
+    """Levi, 17/11/2026: a Athon "recusa e depois carrega"; "tem 11 parados [...] citou 2. Quais são os 2?"; e a dica do
+    gráfico dos trackers "separado em 4 colunas"."""
+    html = _html()
+    ler = html[html.index("async function lerUsina(u, calada) {"):html.index("// (g) O que o SCADA da Grid tem desta usina AGORA")]
+    assert 'catch (e1) { if (PLANT[sk] === "/api/plant/") throw e1; await new Promise(r => setTimeout(r, 1500)); pl = await pega(urlPl, 90000); }' in ler
+    assert "const NOVT = {};" in html and "NOVT[u] = (NOVT[u] || [])" in html                       # os novos guardados ANTES de marcar como vistos
+    assert "desde a sua última visita</b>" in html and "nvSet.has(String(x[0])) ? '<span class=\"nv\">novo</span>'" in html
+    assert 'nvSet.has(String(x.id)) ? " nvt" : ""' in html and ".tc.nvt{box-shadow:0 0 0 2px var(--critico)}" in html
+    assert 'its.length > 60 ? "c4" :' in html and "#dica .cols.c4{columns:4;" in html

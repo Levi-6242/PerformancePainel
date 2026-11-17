@@ -2709,6 +2709,19 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     cor do Tempo real, pela regra EXATA de lá (`bate = dif === -acomp` no Monitoramento): azul só quando o
     acompanhamento é IGUAL às zeradas, laranja quando os dois números não batem (a mais ou a menos); o cartão da fonte
     é azul quando todas as usinas dele batem. A lateral ficou 10% maior.
+  - **Os inversores da API PV sem esperar o portal (17/11):** cada abertura baixava de novo o `day_inverter` (o dia
+    inteiro, fonte paga): Altair 504 aos 61,7 s e depois 38,9 s, Céu Azul 12,3 s. O ciclo do worker, que já baixa isso
+    de 5 em 5 min para a tabela, passou a guardar o detalhe por inversor das MESMAS leituras (`_pv_det_guarda`, cache
+    `pv_det` publicado com as tabelas; nenhuma chamada nova à API PV). A Sala pede `/api/plant/<id>?tabela=1` (vale 15
+    min), mostra "leitura das HH:MM" e tem o "Ler agora" (`force=1`). Sem `?tabela=1` a rota segue ao vivo (o Tempo
+    real e o Diagnóstico não mudaram). Nos 10 min depois de uma subida o ciclo não calcula o detalhe, para a 1ª tabela
+    sair no tempo de sempre. O grupo passou a se chamar **2C · API PV** (a Owen acabou).
+  - **Nova tentativa sozinha (17/11):** a leitura da usina que falha tenta mais uma vez, 1,5 s depois, antes de
+    mostrar o erro (a Athon "recusa e depois carrega"; não reproduzido em quatro usinas medidas: 1,7 s e 0,3 s). Na
+    API PV não há nova tentativa (a falha lá é o teto de espera da fonte).
+  - **Trackers novos apontados (17/11):** abrir a aba marcava os novos como vistos e o aviso vermelho sumia sem dizer
+    de quem falava; agora eles ficam guardados (`NOVT`) e a aba os lista no alto, marca na tabela e contorna no cartão.
+    A dica do gráfico com mais de 60 séries sai em 4 colunas.
   - **A usina lê tudo ao mesmo tempo (17/11):** as strings, os trackers e a estação saem juntos (`PRE` guarda o `dr`
     antes de as strings voltarem), e as abas Trackers e ETM desenham com o que já chegou. Antes os trackers só eram
     pedidos depois das strings: medido na Santa Bárbara I, 2,1 s + 5,1 s em fila viraram 5,1 s no total.
