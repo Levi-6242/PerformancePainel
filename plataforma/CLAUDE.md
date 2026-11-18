@@ -3229,6 +3229,11 @@ link "Tela anterior"; sem rota nova, porque o mapa do Nexus é cópia assinada),
   ver o motivo. `_falhas_ciclo()` grava `falhas_ciclo.json` (início, fim, ok, erro, rastro, último ok, duração),
   `/api/painel/falhas/ciclo` devolve e a tela avisa em vermelho quando o último recálculo falhou. Pacote velho? Abrir
   essa rota antes de qualquer coisa.
+- **Dentro da Sala de controle (18/11):** era o pedido original ("indo para todas as fontes da sala de controle") e eu
+  tinha feito só a tela separada. A Sala tem a aba **"Falhas do mês"** em "Todas as fontes", numa fonte e numa usina:
+  é esta tela com `?embed=1` num quadro (`#falmes`, fora do `#corpo` da Sala, que é refeito a cada desenho), sem a
+  lateral e o título. O recorte vem da lateral da Sala (na URL e depois por mensagem `st-recorte`, sem recarregar); a
+  altura (`st-altura`), o aviso (`st-toast`) e o Criar OS (`st-criar-os`, a janela é a da Sala) vão por mensagem.
 - **Como provar:** `tests/test_strings_trackers_tela.py` (a rota, a folha da Sala e o `montar()` rodando no node com
   um pacote pequeno). Na mão: a soma da lateral contra `strings.episodios` e `trackers.rows` do pacote.
 

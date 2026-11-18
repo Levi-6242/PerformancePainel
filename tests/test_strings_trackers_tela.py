@@ -82,7 +82,7 @@ def test_o_montar_pendura_as_falhas_do_mes_nas_usinas_da_entrada():
            "strings_os": [{"data_evento": "2026-11-05", "os": "18000", "status": "Concluída", "plant_id": "1", "inversor": "inversor 1", "usina": "Usina A"}],
            "trackers": {"rows": [trk("Tracker 1", None, 300.0, True), trk("Tracker 2", "2026-11-03", 40.0)],
                         "desconsideradas": [trk("Tracker 9", None, 999.0)], "qualidade": {}}}
-    script = ("globalThis.window = {}; globalThis.document = {querySelector: () => null, getElementById: () => null};\n" + js +
+    script = ("globalThis.window = {}; globalThis.parent = globalThis.window; globalThis.location = {search: ''}; globalThis.document = {querySelector: () => null, getElementById: () => null};\n" + js +
               "\nconst d = montar(" + json.dumps(ent) + ", " + json.dumps(fal) + ");\n"
               "const u = k => US[k];\n"
               "console.log(JSON.stringify({a: [u('thopen-db|1').sAb, u('thopen-db|1').nS, u('thopen-db|1').perdaS, u('thopen-db|1').tAb, u('thopen-db|1').nT, u('thopen-db|1').perdaT],"
@@ -120,3 +120,15 @@ def test_o_ciclo_das_falhas_grava_o_proprio_estado(tmp_path, monkeypatch):
         j = cli_.get("/api/painel/falhas/ciclo").get_json()
     assert j["ok"] and j["ciclo"]["ok"] is True
     assert 'pega("/api/painel/falhas/ciclo", 20000).catch(() => null)' in HTML and "o último recálculo FALHOU" in HTML
+
+
+def test_embutida_na_sala_de_controle():
+    """A aba "Falhas do mês" da Sala (18/11/2026) mostra esta tela com ?embed=1: sem a lateral e o título, o recorte vindo
+    da Sala (na URL e por mensagem), e o aviso e o Criar OS pedidos à Sala (a janela inteira é de lá)."""
+    assert 'EMBED = QS.get("embed") === "1" && parent !== window;' in HTML
+    assert ".embed .lado,.embed .topo .sobre,.embed .topo h1,.embed .topo a.btnl{display:none}" in HTML
+    assert 'if (EMBED) { paraSala({gc: "st-toast", texto: t, erro: !!erro}); return; }' in HTML
+    assert 'if (EMBED) { paraSala({gc: "st-criar-os", query: p.toString(), usina: u.u, g: u.g}); return; }' in HTML
+    assert 'ev.source !== parent || !d || d.gc !== "st-recorte"' in HTML and "new ResizeObserver(altura).observe(q(\".meio\"));" in HTML
+    assert 'new MutationObserver(altura).observe(q(".meio"), {childList: true, subtree: true});' in HTML
+    assert 'SEL.k = g && pid && US[g + "|" + pid] ? g + "|" + pid : null;' in HTML

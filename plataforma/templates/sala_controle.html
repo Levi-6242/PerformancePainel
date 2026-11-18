@@ -358,6 +358,7 @@
   .lado .f.pulsa{animation:pulsoF 1.8s ease-in-out infinite}
   .lado .f.pulsa:has(>.g.on){animation:none}
   .lado .u.pulsa{animation:pulsoL 1.8s ease-in-out infinite}
+  #falmesq{display:block;width:100%;height:700px;border:0;margin-top:14px;background:transparent}
   /* o pulso segue até o problema (17/11/2026): o inversor com ocorrência nova e a aba que guarda a novidade */
   .tela .il.pulsa{animation:pulsoL 1.8s ease-in-out infinite}
   .abas .aba.pulsa{animation:pulsoL 1.8s ease-in-out infinite;border-radius:7px 7px 0 0;color:var(--tinta)}
@@ -519,6 +520,8 @@
     <div class="aviso" id="aviso0" hidden style="margin:0 0 12px">Não consegui ler as falhas do mês agora: "há quanto tempo", os Insights e a perda ficam vazios até a próxima leitura.</div>
     <div class="kpis" id="kpis"></div>
     <div id="corpo"></div>
+    <!-- As falhas do mês (a tela de Strings e trackers) embutidas: fora do #corpo de propósito, que é refeito a cada desenho -->
+    <div id="falmes" hidden><iframe id="falmesq" title="Falhas do mês: strings e trackers"></iframe></div>
   </main>
 </div>
 <script>
@@ -1640,7 +1643,7 @@ function visaoGeral(us, bx) {
   const c = $("corpo"); c.classList.add("geral");
   [...c.children].forEach(e => { e.hidden = !dono(e).includes(VG); });
   const nEtm = us.filter(u => u.ea).length, nBx = bx.filter(b => b.sem > 0).length, ab = (id, rot, n) => `<button class="aba ${VG === id ? "on" : ""}" data-vg="${id}">${rot}<em class="${n ? "s" : ""}">${nf(n)}</em></button>`;
-  c.insertAdjacentHTML("afterbegin", `<div class="abas vg">${ab("str", "Strings", soma(us, "sn"))}${ab("trk", "Trackers", soma(us, "tp") - soma(us, "to"))}${ab("etm", "ETM", nEtm)}${ab("ger", "Geração", nBx)}</div>` +
+  c.insertAdjacentHTML("afterbegin", `<div class="abas vg">${ab("str", "Strings", soma(us, "sn"))}${ab("trk", "Trackers", soma(us, "tp") - soma(us, "to"))}${ab("etm", "ETM", nEtm)}${ab("ger", "Geração", nBx)}<button class="aba ${VG === "fal" ? "on" : ""}" data-vg="fal" title="As ocorrências de string e de tracker do mês neste recorte: perda, curva na linha, Criar OS, Tirar da conta e Excel">Falhas do mês</button></div>` +
     (VG === "etm" && ![...c.children].some(e => !e.hidden) ? `<div class="aviso">${usinas().some(u => EPE[SKEY[u.g]] && !ETMG_LIDO[u.g]) || Object.values(ETMG_LIDO).includes(1) ? "Lendo as estações…" : "Nenhuma estação com análise neste recorte."}</div>` : ""));
   const pu = [...c.children].find(e => /Por usina/.test((e.querySelector("h2") || {}).textContent || ""));
   if (pu) { const tb = pu.querySelector("table"), fora = VG === "trk" ? [2, 3, 6, 7] : [4, 5, 6, 7]; [...tb.rows].forEach(r => fora.forEach(i => { if (r.cells[i]) r.cells[i].hidden = true; })); }
@@ -1696,10 +1699,10 @@ function detalhe(u, bx) {
   // ocorrências novas (as mesmas que fazem a fonte e a usina pulsar); a ETM pelo alarme sem OS, até o clique nela.
   const novoNaAba = id => id === "str" ? novasS(u.u).length : id === "trk" ? novasT(u.u).length : id === "etm" ? (u.ea && !u.eo && !CLICADAS.has("e|" + u.u) ? 1 : 0) : 0;
   const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""} ${ABA !== id && novoNaAba(id) ? "pulsa" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
-  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
+  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}${aba("fal", "Falhas do mês")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
   if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
-  if (!dr && !["gp", "dp"].includes(ABA)) { cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : `<div class="carrega">${ABA === "str" ? "Lendo os inversores e as strings desta usina… (os trackers e a estação já estão sendo lidos ao mesmo tempo)" : "Lendo esta usina…"}</div>`); return; }
+  if (!dr && !["gp", "dp", "fal"].includes(ABA)) { cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : `<div class="carrega">${ABA === "str" ? "Lendo os inversores e as strings desta usina… (os trackers e a estação já estão sendo lidos ao mesmo tempo)" : "Lendo esta usina…"}</div>`); return; }
   if (ABA === "str") {
     // o que o Tempo real já guarda da usina: a quantidade em acompanhamento (digitada) e as OS de performance
     const ac = D.estado.acomp[u.u] || 0;
@@ -1823,6 +1826,8 @@ function detalhe(u, bx) {
         <div>${e.flags.map(f => `<span class="tag ${f.sensor === "COM" ? "" : (tp[f.tipo] || "n")}" style="margin:0 6px 6px 0${f.sensor === "COM" ? ";background:rgba(180,151,255,.16);color:var(--violeta)" : ""}">${esc(f.sensor)} · ${esc(f.t)}${f.info ? " (" + esc(f.info) + ")" : ""}</span>`).join("") || '<span class="tag o">Nenhum sinal</span>'}</div>
         ${etmGrafico(u, e)}
         <div class="diasel" style="margin-top:12px">${PODE ? '<button class="btnl" data-etmos="1">Abrir OS da estação</button>' : ""}<button class="btnl" data-etmhist="0">OSs da estação</button></div></div>`; }
+  } else if (ABA === "fal") {
+    h += "";                                         // o quadro das falhas do mês fica logo abaixo (`falMes`), fora do #corpo
   } else if (ABA === "gp") {
     const G = D.ger;
     if (G.usina !== u.u) { if (GERF[u.u]) h += `<div class="erro"><b>Não consegui ler a geração desta usina.</b> ${esc(GERF[u.u])} <button class="btnl" data-denovo2="ger" style="margin-left:10px">Tentar de novo</button></div>`; else { lerGer(u); h += '<div class="carrega">Lendo a geração do mês por inversor… A primeira leitura da usina pode levar alguns minutos; pode olhar as outras abas enquanto isso.</div>'; } }
@@ -2001,8 +2006,30 @@ function desenhar() {
   if (!SEL.u) kpis(us, bx);
   $("corpo").classList.remove("geral");
   if (SEL.u && us[0]) detalhe(us[0], bx); else visaoGeral(us, bx);
+  falMes(us);
   arvore(); sino();
 }
+// AS FALHAS DO MÊS DENTRO DA SALA (18/11/2026). Levi, 17/11: "A parte de string e trackers vai passar por um rework indo
+// para todas as fontes da sala de controle"; e em 18/11: "trazer os trackers e strings para a parte de 'todas as fontes'
+// da sala de controle, deu certo?". A aba "Falhas do mês" mostra a tela de Strings e trackers (/painel/falhas?embed=1)
+// sem a lateral dela: quem escolhe o recorte é a lateral DAQUI (todas, uma fonte, uma usina), avisado por mensagem para
+// o quadro não recarregar. Ele mora fora do #corpo porque o #corpo é refeito a cada desenho (a cada 5 min e a cada clique).
+let FALREC = null;
+function falMes(us) {
+  const mostra = SEL.u ? ABA === "fal" : VG === "fal", cx = $("falmes"), f = $("falmesq");
+  cx.hidden = !mostra;
+  if (!mostra) return;
+  const g = SEL.g || "", pid = SEL.u && us[0] ? String(us[0].pid) : "", rec = g + "|" + pid;
+  if (!f.getAttribute("src")) { FALREC = rec; f.src = "/painel/falhas?embed=1&g=" + encodeURIComponent(g) + "&pid=" + encodeURIComponent(pid); return; }
+  if (FALREC !== rec) { FALREC = rec; f.contentWindow.postMessage({gc: "st-recorte", g, pid}, location.origin); }
+}
+window.addEventListener("message", ev => { const d = ev.data, f = $("falmesq");
+  if (ev.origin !== location.origin || !d || !f || !f.getAttribute("src")) return;
+  if (d.gc === "os-criada") { f.contentWindow.postMessage(d, location.origin); return; }      // a OS saiu: o quadro das falhas também fica sabendo
+  if (ev.source !== f.contentWindow) return;
+  if (d.gc === "st-altura" && d.h > 0) f.style.height = Math.max(420, Math.ceil(d.h) + 8) + "px";
+  if (d.gc === "st-toast") toast(String(d.texto || ""));
+  if (d.gc === "st-criar-os") abreJanela(new URLSearchParams(String(d.query || "")), {u: String(d.usina || ""), g: String(d.g || ""), nomes: []}); });
 document.addEventListener("toggle", e => { const c = e.target; if (!c.classList || !c.classList.contains("rec")) return; if (c.dataset.rec) { if (c.open) REC.add(c.dataset.rec); else REC.delete(c.dataset.rec); if (c.dataset.rec === "raiox" && c.open) desenhar(); } else visaoGeral.aberto = c.open; }, true);
 document.addEventListener("change", e => { const x = e.target;
   if (x.classList.contains("aci")) { const r = x.closest(".u"), u = r && todas().find(z => z.u === r.dataset.u && z.g === r.dataset.g);

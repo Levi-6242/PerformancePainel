@@ -43,6 +43,8 @@
   .zero{color:var(--fraco)}
   .toastm{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--sup);border:1px solid var(--linha2);border-radius:10px;padding:10px 16px;font-size:12.5px;z-index:60;max-width:min(680px,92vw)}
   .toastm.erro{border-color:var(--critico)}
+  .embed .lado,.embed .topo .sobre,.embed .topo h1,.embed .topo a.btnl{display:none}
+  .embed .tela{grid-template-columns:minmax(0,1fr);min-height:0}.embed .meio{padding:0 0 8px}.embed body,html.embed body{background:transparent}
   .janos{position:fixed;inset:0;background:rgba(4,7,14,.72);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
   .janos>div{position:relative;width:min(1520px,100%);height:min(900px,100%);background:var(--sup);border-radius:12px;overflow:hidden}
   .janos iframe{width:100%;height:100%;border:0;background:var(--fundo)}
@@ -90,6 +92,12 @@ const ehApiPv = (sk, pid) => sk === "pv" || sk === "semp" || sk === "alveslima" 
 // tem leitura de tracker em lugar nenhum, e nas outras fontes a usina sem registro pode simplesmente ser fixa.
 const TRK_SO_NA_SALA = ["greenyellow", "apolo", "axis"];
 const EU = window.gcEu || {}, PODE = !!EU.grava;
+// EMBUTIDA NA SALA DE CONTROLE (?embed=1, 18/11/2026): a aba "Falhas do mês" da Sala mostra esta tela sem a lateral e sem o
+// título; o recorte vem da lateral de lá (na URL e depois por mensagem), e o que precisa da janela inteira (o aviso, o
+// Criar OS) é pedido à Sala. A altura vai por mensagem para o quadro não ter rolagem própria.
+const QS = new URLSearchParams(location.search), EMBED = QS.get("embed") === "1" && parent !== window;
+if (EMBED) document.documentElement.classList.add("embed");
+const paraSala = m => parent.postMessage(m, location.origin);
 
 const q = (s, e) => (e || document).querySelector(s), $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -348,7 +356,7 @@ function corpo() {
 
 function tudo() { lado(); topo(); kpis(); corpo(); }
 let tT = null;
-function toast(t, erro) { const e = $("toast"); e.textContent = t; e.className = "toastm" + (erro ? " erro" : ""); e.hidden = false; clearTimeout(tT); tT = setTimeout(() => { e.hidden = true; }, erro ? 9000 : 5200); }
+function toast(t, erro) { if (EMBED) { paraSala({gc: "st-toast", texto: t, erro: !!erro}); return; } const e = $("toast"); e.textContent = t; e.className = "toastm" + (erro ? " erro" : ""); e.hidden = false; clearTimeout(tT); tT = setTimeout(() => { e.hidden = true; }, erro ? 9000 : 5200); }
 const acha = id => (id[0] === "s" ? D.s.find(o => idS(o) === id) : D.t.find(o => idT(o) === id));
 
 // ── Criar OS: a mesma página do OS Creator que a Sala abre, já preenchida (uma usina por vez) ──
@@ -360,6 +368,7 @@ function criarOS(ids) {
   os.forEach(o => { p.append("ativo", ehS ? o.inv : o.trk); p.append("obs", ehS ? fraseS(o) : ""); });
   const ev = os.map(o => o.ini).sort()[0]; if (ehS && ev) p.set("evento", (ev.length > 10 ? ev.replace(" ", "T") : ev + "T08:00").slice(0, 16));
   p.set("origem", "strings-trackers"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
+  if (EMBED) { paraSala({gc: "st-criar-os", query: p.toString(), usina: u.u, g: u.g}); return; }      // a janela do OS Creator é a da Sala
   $("modal").innerHTML = `<div class="janos" data-fechar="1"><div role="dialog" aria-label="Criar OS no OS Creator"><iframe title="Criar OS no OS Creator" src="/os/performance/criar?${esc(p.toString())}"></iframe><button class="x" data-fechar="1" aria-label="Fechar a janela">×</button></div></div>`;
 }
 window.addEventListener("message", ev => { const d = ev.data; if (ev.origin !== location.origin || !d || d.gc !== "os-criada") return;
@@ -426,6 +435,21 @@ document.addEventListener("change", ev => { const t = ev.target;
   if (t.id === "mes" && t.value !== MES) { MES = t.value; ABERTAS.clear(); MARC.clear(); carregar(); } });
 $("q").addEventListener("input", e => { BUSCA = e.target.value; if (D) lado(); });
 
+// o recorte que a Sala manda: uma fonte, uma usina (fonte + id) ou nada (todas as fontes)
+let RECORTE_LIDO = false;
+function recorte(g, pid) {
+  g = NOME[g] ? g : null;
+  SEL.k = g && pid && US[g + "|" + pid] ? g + "|" + pid : null;
+  SEL.g = SEL.k ? null : g;
+  LIM = 60; GAVETA = false;
+}
+if (EMBED) {
+  window.addEventListener("message", ev => { const d = ev.data; if (ev.origin !== location.origin || ev.source !== parent || !d || d.gc !== "st-recorte" || !D) return; recorte(d.g, d.pid); tudo(); });
+  const altura = () => paraSala({gc: "st-altura", h: Math.ceil(q(".tela").getBoundingClientRect().height)});
+  new ResizeObserver(altura).observe(q(".meio"));
+  // o desenho novo também avisa (o ResizeObserver espera a pintura, e a aba em segundo plano não pinta)
+  new MutationObserver(altura).observe(q(".meio"), {childList: true, subtree: true});
+}
 // ── A carga: a Entrada (as fontes) e o pacote do mês. Aquecendo (depois de uma subida) ou pacote frio: tenta de novo. ──
 let tR = null;
 async function carregar(calada) {
@@ -438,6 +462,7 @@ async function carregar(calada) {
       $("frescor").innerHTML = `<b>${ent.aquecendo ? "O tempo real está aquecendo depois de uma subida" : "O pacote de falhas do mês ainda não foi publicado pelo worker"}</b>: tento de novo em 20 s.`;
       tR = setTimeout(() => carregar(true), 20000); return; }
     D = montar(ent, fal); MES = D.mes; D.ciclo = (cic && cic.ciclo) || {};
+    if (EMBED && !RECORTE_LIDO) { RECORTE_LIDO = true; recorte(QS.get("g"), QS.get("pid")); }
     if (SEL.k && !US[SEL.k]) SEL.k = null;
     tudo();
     tR = setTimeout(() => carregar(true), 10 * 60 * 1000);          // o pacote muda de 30 em 30 min: a tela relê de 10 em 10, sem piscar

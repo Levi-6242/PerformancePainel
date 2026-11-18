@@ -1301,3 +1301,17 @@ def test_o_historico_da_etm_de_ate_4_dias(monkeypatch):
         r = c.get("/api/apolo/etm/chart?plant=usina_x&date=2026-11-15")
         assert r.status_code == 502 and "não respondeu" in r.get_json()["error"]
     app._sg_etm_dia_memo.clear()
+
+
+def test_as_falhas_do_mes_dentro_da_sala():
+    """Levi, 18/11/2026: "sobre aquele assunto de trazer os trackers e strings para a parte de 'todas as fontes' da sala
+    de controle, deu certo?". A aba "Falhas do mês" (em Todas as fontes, numa fonte e numa usina) embute a tela de Strings
+    e trackers, que segue o recorte da lateral da Sala sem recarregar."""
+    html = _html()
+    assert '<div id="falmes" hidden><iframe id="falmesq"' in html                                # fora do #corpo, que é refeito a cada desenho
+    assert 'data-vg="fal"' in html and '${aba("fal", "Falhas do mês")}' in html                   # na visão geral e na usina
+    assert 'const mostra = SEL.u ? ABA === "fal" : VG === "fal"' in html
+    assert 'f.src = "/painel/falhas?embed=1&g=" + encodeURIComponent(g) + "&pid=" + encodeURIComponent(pid)' in html
+    assert 'f.contentWindow.postMessage({gc: "st-recorte", g, pid}, location.origin)' in html     # trocar o recorte não recarrega o quadro
+    assert 'if (ev.source !== f.contentWindow) return;' in html                                   # só o quadro das falhas manda na altura, no aviso e na OS
+    assert 'if (d.gc === "st-criar-os") abreJanela(' in html and '!["gp", "dp", "fal"].includes(ABA)' in html
