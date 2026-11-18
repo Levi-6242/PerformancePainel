@@ -358,6 +358,9 @@
   .lado .f.pulsa{animation:pulsoF 1.8s ease-in-out infinite}
   .lado .f.pulsa:has(>.g.on){animation:none}
   .lado .u.pulsa{animation:pulsoL 1.8s ease-in-out infinite}
+  /* o pulso segue até o problema (17/11/2026): o inversor com ocorrência nova e a aba que guarda a novidade */
+  .tela .il.pulsa{animation:pulsoL 1.8s ease-in-out infinite}
+  .abas .aba.pulsa{animation:pulsoL 1.8s ease-in-out infinite;border-radius:7px 7px 0 0;color:var(--tinta)}
   .pulsa .nv,.inv .nv,.aba .nv,.cabine>summary .nv{display:inline-block;animation:pulsoN 1.4s ease-in-out infinite}
   .inv:has(.l1 .nv){animation:pulsoI 1.8s ease-in-out infinite}
   @keyframes pulsoI{0%,100%{outline:1.5px solid rgba(240,222,150,.18)}50%{outline:1.5px solid rgba(240,222,150,.95)}}
@@ -1639,7 +1642,11 @@ function detalhe(u, bx) {
   const ruins = i => i.s.filter(s => ["sem_corrente", "baixa_perf"].includes(est(i, s))).length;
   const temOc = doScadaGrid(u) || SKEY[u.g] === "pg", ocs = temOc ? ocorrenciasDe(u) : [];
   if (ABA === "oc" && !temOc) ABA = "str";
-  const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
+  // O PULSO SEGUE ATÉ O PROBLEMA (Levi, 17/11/2026: "se for tracker ou ETM pulsa a parte de trackers ou ETM até eu clicar e
+  // ser levado para o problema"). A aba que guarda a novidade pulsa enquanto não é a aberta: Strings e Trackers pelas
+  // ocorrências novas (as mesmas que fazem a fonte e a usina pulsar); a ETM pelo alarme sem OS, até o clique nela.
+  const novoNaAba = id => id === "str" ? novasS(u.u).length : id === "trk" ? novasT(u.u).length : id === "etm" ? (u.ea && !u.eo && !CLICADAS.has("e|" + u.u) ? 1 : 0) : 0;
+  const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""} ${ABA !== id && novoNaAba(id) ? "pulsa" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
   let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
   if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
@@ -1685,11 +1692,11 @@ function detalhe(u, bx) {
       Object.keys(cab).sort((a, b) => a - b).map(c => { const l = cab[c], fora = l.reduce((a, i) => a + faltaDe(i), 0), bxc = l.reduce((a, i) => a + i.s.filter(s => est(i, s) === "baixa_perf").length, 0), nov = l.reduce((a, i) => a + novasS(u.u, i.n).length, 0);
       return `<details class="cabine" data-cab="${c}" ${FECHADAS.has(u.u + "|" + c) ? "" : "open"}><summary>${c === "—" ? "Inversores" : "Cabine " + esc(c)} <small>${l.length} inversor${l.length > 1 ? "es" : ""} · ${fora ? fora + " string" + (fora > 1 ? "s" : "") + " fora" : "nenhuma string fora"}${bxc ? " · " + bxc + " com corrente baixa" : ""}</small>${pill(nov)}</summary>
         <div class="ilista"><div class="il cab"><span></span><span class="n">Inversor</span><span>Potência</span><span>Hoje</span><span title="Strings gerando agora / esperadas pelo cadastro">Ativas / esperadas</span><span title="Ativas menos esperadas">Diferença</span><span title="Strings com mais de 2 h sem corrente no período solar de hoje">+2 h hoje</span><span class="sit">Situação</span><span></span></div>` +
-        l.map(i => { const r = faltaDe(i), bx1 = i.s.filter(s => est(i, s) === "baixa_perf").length, tr1 = i.s.filter(s => est(i, s) === "trancada").length, cls = i.desl || i.fc ? "n" : r ? "c" : bx1 ? "s" : "", nv = novasS(u.u, i.n), gr = GRAF.has(u.u + "|" + i.n), ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n, sd = D.sdI[u.u + "|" + i.n] || 0;
+        l.map(i => { const r = faltaDe(i), bx1 = i.s.filter(s => est(i, s) === "baixa_perf").length, tr1 = i.s.filter(s => est(i, s) === "trancada").length, cls = i.desl || i.fc ? "n" : r ? "c" : bx1 ? "s" : "", nv = novasS(u.u, i.n), gr = GRAF.has(u.u + "|" + i.n), ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n || nv.length > 0, sd = D.sdI[u.u + "|" + i.n] || 0;      // o inversor com ocorrência nova já vem com as strings abertas ("já carrega as strings e fica pulsando o inversor")
           const k = u.u + "|" + i.n, cri = CRIADAS[k], o = osRecentes(u.u, i.n)[0], qv = quemViu(u.u, i.n), extra = [];
           if (tr1) extra.push(tr1 + " trancada" + (tr1 > 1 ? "s" : "")); if (qv) extra.push(qv); if (cri) extra.push("<b>OS criada por você</b> às " + cri); else if (o) extra.push("<b>OS " + esc(o.os) + "</b> há " + diasAte(o.criada) + " dias · " + esc(o.status));
           const sit = (i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : i.at === 0 ? "Sem geração agora" : "Todas gerando") + (bx1 && !i.desl && !i.fc ? " · " + bx1 + " com corrente baixa" : "");
-          return `<div class="il ${cls} ${gr ? "on" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
+          return `<div class="il ${cls} ${gr ? "on" : ""} ${nv.length ? "pulsa" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
             <span><input type="checkbox" class="selinv" data-sel="${esc(i.n)}" ${MARC.has(i.n) ? "checked" : ""} title="Escolher para criar OS" aria-label="Escolher ${esc(i.n)} para criar OS"></span>
             <span class="n">${esc(i.n)}${nv.length ? '<span class="nv">nova</span>' : ""}${osDe(i.n).length || osRecentes(u.u, i.n).length || cri ? `<button class="ferr" data-os="${esc(i.n)}" title="OS de performance deste inversor" aria-label="OS de performance deste inversor"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></button>` : ""}</span>
             <span>${i.kw == null ? "—" : nf(i.kw, 1) + " kW"}</span><span>${i.eday == null ? "—" : nf(i.eday) + " kWh"}</span>
@@ -1918,6 +1925,15 @@ const verS = (u, i) => marcaVisto(D.novas.s.filter(x => x.u === u && x.i === i))
 // Quais são os NOVOS (Levi, 17/11/2026: "tem 11 parados [...] citou 2. Quais são os 2?"): abrir a aba marca os trackers
 // como vistos, e o aviso sumia sem dizer de quem falava. Agora os novos ficam guardados (`NOVT`) e a aba os aponta.
 const NOVT = {};
+// Leva a tela ao que pulsava: na aba Strings, o 1º inversor com ocorrência nova (as linhas só existem depois de a leitura
+// da usina chegar: `IR_NOVO` guarda a usina e o `desenhar` tenta de novo); nas outras, o alto da aba, onde está o aviso.
+let IR_NOVO = null;
+function irAoNovo() {
+  const e = ABA === "str" ? document.querySelector(".il.pulsa") : document.querySelector(".abas");
+  if (ABA === "str" && !e) return;                           // ainda lendo a usina: o `desenhar` chama de novo
+  if (ABA === "str") IR_NOVO = null;
+  if (e) e.scrollIntoView({block: ABA === "str" ? "center" : "start"});
+}
 const verT = u => { const l = D.novas.t.filter(x => x.u === u && !VISTO.has(x.k)); if (l.length) NOVT[u] = (NOVT[u] || []).filter(a => !l.some(b => b.tk === a.tk)).concat(l.map(x => ({tk: String(x.tk), d: x.d}))); marcaVisto(D.novas.t.filter(x => x.u === u)); };
 // quem já viu as strings paradas deste inversor (para todos: evita OS em dobro)
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
@@ -1926,6 +1942,7 @@ const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.a
 const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; };
 
 function desenhar() {
+  if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(() => { if (IR_NOVO && SEL.u === IR_NOVO) irAoNovo(); }, 0);
   CH.length = 0;
   const us = usinas(), bx = D.baixos.filter(b => (!SEL.g || b.g === SEL.g) && (!SEL.u || b.u === SEL.u));
   cabecalho();
@@ -2065,13 +2082,15 @@ document.addEventListener("click", e => {
   if ((x = q("[data-denovo]"))) { delete FALHOU[SEL.u]; desenhar(); return; }
   if ((x = q("tr[data-bx]"))) { if (!SEL.u && x.dataset.bg === "?") { toast("A " + x.dataset.bu + " não está no Tempo real com este nome: não há usina para abrir"); return; }
     if (!SEL.u) { abrirUsina(x.dataset.bg === "?" ? SEL.g : x.dataset.bg, x.dataset.bu); ABA = "bx"; BXA = x.dataset.bx; scrollTo(0, 0); } else BXA = BXA === x.dataset.bx ? null : x.dataset.bx; desenhar(); return; }
-  if ((x = q(".aba"))) { ABA = x.dataset.aba; if (ABA === "trk") verT(SEL.u); desenhar(); return; }
+  if ((x = q(".aba"))) { const pulsava = x.classList.contains("pulsa"); ABA = x.dataset.aba; IR_NOVO = null; if (ABA === "trk") verT(SEL.u); if (ABA === "etm") CLICADAS.add("e|" + SEL.u);
+    desenhar(); if (pulsava) irAoNovo(); return; }
   if ((x = q("[data-expi]"))) { const n = x.dataset.expi, u = usinas()[0], dr = D.drill[u.u];
     if (n === "*") { const todos = dr.inv.every(i => EXPI.has(u.u + "|" + i.n)); dr.inv.forEach(i => { if (todos) EXPI.delete(u.u + "|" + i.n); else EXPI.add(u.u + "|" + i.n); }); }
     else if (EXPI.has(u.u + "|" + n)) { EXPI.delete(u.u + "|" + n); if (OSINV === n) OSINV = null; } else EXPI.add(u.u + "|" + n);
     desenhar(); return; }
   if ((x = q(".il[data-inv]"))) { const n = x.dataset.inv, k = SEL.u + "|" + n;        // abre ou fecha a curva DESTE inversor; os outros ficam como estão
-    if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }
+    if (novasS(SEL.u, n).length) { EXPI.add(k); GRAF.add(k); INV = n; verS(SEL.u, n); }      // o que pulsava: abre a curva, as strings ficam abertas e ele é dado como visto
+    else if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }
     desenhar(); return; }
   // (1) o acompanhamento na lateral (Levi, 16/11/2026: "Strings em acompanhamento vão para barra lateral, depois da coluna
   // strings"): o clique no número abre o campo ali mesmo; Enter ou sair grava (a mesma chave do Tempo real)
@@ -2081,7 +2100,7 @@ document.addEventListener("click", e => {
     const c = x.firstChild; c.focus(); c.select(); c.addEventListener("blur", () => setTimeout(arvore, 0)); c.addEventListener("keydown", ev => { if (ev.key === "Enter") c.dispatchEvent(new Event("change", {bubbles: true})); if (ev.key === "Escape") { c.value = u.sa || ""; c.blur(); } ev.stopPropagation(); });
     return; }
   if ((x = q(".dvg[data-dvg]"))) { const r = x.closest(".u"); if (r) { abrirUsina(r.dataset.g, r.dataset.u); CLICADAS.add("u|" + r.dataset.u); } ABA = "cf"; desenhar(); scrollTo(0, 0); return; }
-  if ((x = q(".u, tr.cl[data-u]"))) { CLICADAS.add("u|" + x.dataset.u); CLICADAS.add("g|" + x.dataset.g); const mesma = SEL.u === x.dataset.u && SEL.g === x.dataset.g; if (mesma) { SEL = {g: x.dataset.g, u: null}; INV = null; } else { abrirUsina(x.dataset.g, x.dataset.u); ABA = "str"; } desenhar(); scrollTo(0, 0); return; }
+  if ((x = q(".u, tr.cl[data-u]"))) { CLICADAS.add("u|" + x.dataset.u); CLICADAS.add("g|" + x.dataset.g); const mesma = SEL.u === x.dataset.u && SEL.g === x.dataset.g; if (mesma) { SEL = {g: x.dataset.g, u: null}; INV = null; IR_NOVO = null; } else { abrirUsina(x.dataset.g, x.dataset.u); ABA = "str"; IR_NOVO = novasS(x.dataset.u).length ? x.dataset.u : null; } desenhar(); scrollTo(0, 0); irAoNovo(); return; }
   if ((x = q("#eng"))) { abrirConfig(); return; }
   if ((x = q(".g"))) { const id = x.dataset.g;
     // a seta só abre e recolhe a lista da fonte, sem sair da usina aberta (Levi, 16/11/2026: "quando eu vou clicar para

@@ -1223,3 +1223,24 @@ def test_sem_o_historico_do_supervisorio_a_curva_do_dia_e_a_que_a_plataforma_jun
     assert "propDesde: tk.curva_propria_desde" in _html()
     app._sg_trk_sem_hist.clear()
     app._sg_trk_acum_cache.update({"ts": 0.0, "payload": None})
+
+
+def test_o_pulso_segue_ate_o_problema():
+    """Levi, 17/11/2026: "Quando a fonte de dados pulsa mostrando algo novo deve continuar pulsando o que está com
+    problema, por exemplo, se for inversor então já carrega as strings e fica pulsando o inversor, se for tracker ou ETM
+    pulsa a parte de trackers ou ETM até eu clicar e ser levado para o problema!"."""
+    html = _html()
+    # o inversor com ocorrência nova: linha pulsando e as strings já abertas
+    assert '${nv.length ? "pulsa" : ""}" role="button" tabindex="0" data-inv=' in html
+    assert 'ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n || nv.length > 0' in html
+    assert ".tela .il.pulsa{animation:pulsoL 1.8s ease-in-out infinite}" in html
+    # o clique nele abre a curva, mantém as strings abertas e marca como visto
+    assert 'if (novasS(SEL.u, n).length) { EXPI.add(k); GRAF.add(k); INV = n; verS(SEL.u, n); }' in html
+    # a aba que guarda a novidade pulsa enquanto não é a aberta; a ETM, pelo alarme sem OS, até o clique
+    assert 'id === "etm" ? (u.ea && !u.eo && !CLICADAS.has("e|" + u.u) ? 1 : 0) : 0;' in html
+    assert '${ABA !== id && novoNaAba(id) ? "pulsa" : ""}" data-aba="${id}"' in html
+    assert ".abas .aba.pulsa{animation:pulsoL 1.8s ease-in-out infinite" in html
+    assert 'if (ABA === "etm") CLICADAS.add("e|" + SEL.u);' in html and "desenhar(); if (pulsava) irAoNovo(); return; }" in html
+    # abrir a usina que pulsava por string nova desce até o inversor, mesmo com a leitura chegando depois
+    assert 'IR_NOVO = novasS(x.dataset.u).length ? x.dataset.u : null;' in html
+    assert 'if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(' in html

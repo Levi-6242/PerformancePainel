@@ -2736,6 +2736,13 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     zero. A ligação era "pela ordem" (o 1.3 com o SKID 1 · INV02) e a numeração das strings do logger não é a da API PV.
     Só religa com o de-para de inversor E de string entre as duas fontes conferido. As strings passaram a sair em ordem
     numérica (vinham 1, 10, 11, ..., 2, 20).
+  - **O pulso segue até o problema (17/11, noite).** Levi: "se for inversor então já carrega as strings e fica
+    pulsando o inversor, se for tracker ou ETM pulsa a parte de trackers ou ETM até eu clicar e ser levado para o
+    problema". O inversor com ocorrência nova vem com as strings abertas e a linha pulsando (`.il.pulsa`); o clique abre
+    a curva e o dá como visto. A aba que guarda a novidade pulsa enquanto não é a aberta (`novoNaAba`): Strings e
+    Trackers pelas ocorrências novas, a ETM pelo alarme sem OS (para no clique, só nesta sessão: a ETM NÃO faz a fonte
+    nem a usina pulsarem, que seguem só com string e tracker novos). O clique na aba que pulsava leva ao alto dela
+    (`irAoNovo`), e abrir a usina que pulsava por string desce a tela até o inversor (`IR_NOVO`).
   - **Trackers do scadaGridco sem o histórico do supervisório: a curva própria (17/11, noite).** O
     `/api/trackers/<usina>/historico` não responde para a Castelo do Piauí (128 trackers, 90 s sem resposta em 17/11
     22:40) nem para a Demerval Lobão (126 trackers desde a troca de 04/11), e cada tracker ficava com UM ponto: aba sem
