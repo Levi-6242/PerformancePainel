@@ -43,6 +43,7 @@
   .frescor{color:var(--fraco);font-size:11.5px;margin:2px 0 16px}
   .frescor b{color:var(--mudo);font-weight:500}
   .lt{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--fraco);font-weight:600;display:flex;justify-content:space-between}
+  .cosfora{margin:0 0 8px;padding:7px 10px;border-radius:8px;border-left:3px solid var(--alerta);background:var(--sup);color:var(--mudo);font-size:11.5px;line-height:1.4}
   .lt span{letter-spacing:0;text-transform:none;font-weight:400}
   /* o "!" do Nexus (gc-explica): a explicação fica guardada */
   .explica{position:relative;display:inline-block}
@@ -500,6 +501,7 @@
     <div class="lt"><span>Fontes do tempo real<button class="eng" id="eng" title="Configurar a Sala: o nome e o grupo de cada usina (só aqui) e o que entra no tempo real" aria-label="Configurar a Sala de controle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></span> <span id="fresco1"></span></div>
     <label class="buscaN" title="Filtra as usinas e as fontes pelo nome"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar usina ou fonte…" aria-label="Buscar usina ou fonte"></label>
     <div class="cab"><span>Fonte · usina</span><span>Strings<small>sem acomp. / fora</small></span><span>Trackers<small>sem OS / parados</small></span><span>ETM<small>alarme</small></span></div>
+    <div id="cosfora" class="cosfora" role="status" hidden></div>
     <div id="arvore"></div>
   </aside>
   <main class="meio">
@@ -946,7 +948,8 @@ let COS = null, COSI = null, COSI_EM = 0;
 async function nexusPega(url) {
   const r = await fetch(url, {credentials: "same-origin", headers: {Accept: "application/json"}});
   const j = /json/.test(r.headers.get("content-type") || "") ? await r.json() : null;
-  if (!j) throw new Error("esta leitura é do Nexus: abra a Sala de controle pela Performance do Nexus");
+  // sem JSON: 5xx é o Nexus fora (reiniciando numa subida); o resto é a tela de entrada dele (a Sala aberta fora do Nexus)
+  if (!j) throw new Error(r.status >= 500 ? "o Nexus respondeu " + r.status + ", pode estar reiniciando" : "esta leitura é do Nexus: abra a Sala de controle pela Performance do Nexus");
   if (!r.ok || j.erro) throw new Error(j.erro || (r.status === 403 ? "sem acesso a esta leitura no Nexus" : "o Nexus respondeu " + r.status));
   return j;
 }
@@ -1121,7 +1124,26 @@ function calcDvg() {
     if (d.length) DVG[k] = d.join("; "); });
 }
 const divergeCos = u => DVG[u.g + "|" + u.u] || "";
-async function atualizaCos() { try { const c = await nexusPega("/t/performance/sala-de-controle/cos/usinas"); if (c && c.usinas) { COS = c; calcDvg(); arvore(); if (SEL.u) { const r = $("recorte"); if (r) cabecalho(); } } } catch (e) { if (!COS) COS = {erro: String(e && e.message || e)}; } }
+// O SELO DO COS NÃO SOME CALADO (Levi, 18/11/2026, 13:50: "não está aparecendo nenhum selo do COS nessas que são API PV;
+// parece que tapa um buraco e abre outro"). O selo, o aviso das fontes que não batem e o quadro do logger saem de UM
+// pedido ao Nexus por volta de 5 min. Falhou uma vez (o Nexus reiniciando numa subida: houve uma às 13:38 desse dia; a
+// Ronda COS sem responder; a tela aberta fora do Nexus), a lateral ficava sem selo nenhum até a volta seguinte, sem dizer
+// nada. Agora a falha tenta de novo em 20, 40 e 80 s (a volta de 5 min zera a conta) e a lateral diz que o COS não
+// respondeu e por quê; quando volta, a tela se redesenha sozinha.
+let COS_FALHA = "", COS_TENT = 0;
+const COS_DE_NOVO_MS = [20000, 40000, 80000];
+function cosAviso() { const a = $("cosfora"); if (!a) return; a.hidden = !COS_FALHA;
+  a.textContent = COS_FALHA ? "Sem o Monitoramento do COS agora (" + COS_FALHA + "). O selo COS, o aviso das fontes que não batem e as strings pelo logger voltam sozinhos quando ele responder" + (COS_TENT < COS_DE_NOVO_MS.length ? "; a tela já está tentando de novo." : "; nova tentativa na próxima leitura.") : ""; }
+async function atualizaCos(daVolta) {
+  if (daVolta) COS_TENT = 0;
+  clearTimeout(atualizaCos.t);
+  try { const c = await nexusPega("/t/performance/sala-de-controle/cos/usinas"); if (!c || !c.usinas) throw new Error("o Nexus respondeu sem a lista do COS");
+    const voltou = !COS || !!COS.erro || !!COS_FALHA; COS = c; COS_FALHA = ""; COS_TENT = 0; calcDvg(); cosAviso();
+    if (voltou) redesenhar(); else { arvore(); if (SEL.u) { const r = $("recorte"); if (r) cabecalho(); } } }
+  catch (e) { COS_FALHA = String(e && e.message || e); if (!COS) COS = {erro: COS_FALHA};
+    if (COS_TENT < COS_DE_NOVO_MS.length) atualizaCos.t = setTimeout(atualizaCos, COS_DE_NOVO_MS[COS_TENT++]);
+    cosAviso(); }
+}
 // A REGRA (Levi, 16/11/2026): "a API do COS só substitui o que não temos ou o que é por uma API diferente da API do SCADA
 // Grid". A API do SCADA da Grid vem primeiro; a usina que o Tempo real já lê dela não ganha nada do COS (é a mesma leitura).
 const doScadaGrid = u => /scadaGridco/.test(NOME[u.g] || "");
@@ -2278,7 +2300,7 @@ async function ligar(primeira) {
     Object.keys(D.drill).forEach(nome => { const dr = D.drill[nome]; if (dr && dr.em && dr.g && dr.em > tRes) recontaStrings(nome, dr.g, dr.inv); });
     calcDvg();
     if (primeira) desenhar(); else redesenhar();
-    atualizaCos();                                              // a lista do COS, para o aviso das fontes que não batem
+    atualizaCos(true);                                          // a lista do COS, para o selo e o aviso das fontes que não batem
     if (!ABX || Date.now() - ABX_EM > 18e5) lerAbaixo();          // a conta do mês muda com a subida dos BDs: de 30 em 30 min basta
   } catch (e) {
     if (primeira) $("corpo").innerHTML = `<div class="erro"><b>Não consegui ler o tempo real.</b> ${esc(e && e.message || e)} <button class="btnl" onclick="location.reload()" style="margin-left:10px">Tentar de novo</button></div>`;

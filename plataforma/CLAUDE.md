@@ -2785,7 +2785,15 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     `CURVC`, `lerCurvaCos`, a `/cos/entradas`; "mas gera gráfico? só vi cards e strings"), em cinza e com a numeração
     do logger; ao chegar a lista da fonte, a curva segue aberta no inversor de mesmo nome só se a ligação conferir
     (`levaCurvasCos`), senão fecha (a tela não pede sozinha a curva à fonte paga). A conversão da resposta do logger
-    é uma só (`cosCurvaDe`), a do `curvaCos`. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
+    é uma só (`cosCurvaDe`), a do `curvaCos`.
+  - **O selo do COS não some calado (18/11, 13:50; `atualizaCos`, `cosAviso`, `#cosfora`).** Levi: "não está aparecendo
+    nenhum selo do COS nessas que são API PV; parece que tapa um buraco e abre outro". O selo, o **!** das fontes que
+    não batem e o quadro do logger saem de UM pedido ao Nexus (`/cos/usinas`) por volta de 5 min; falhando uma vez (o
+    Nexus reiniciando numa subida, a Ronda COS sem responder, a tela aberta fora do Nexus), a lateral ficava sem selo
+    até a volta seguinte, sem dizer nada. Agora: nova tentativa em 20, 40 e 80 s (três por volta), a lateral diz que o
+    COS não respondeu e por quê, a lista boa que já estava na tela fica, e na volta a tela se redesenha. A causa do
+    caso de 18/11 NÃO ficou provada (sem a sessão do Nexus não dá para pedir a rota daqui): o código do selo não tinha
+    mudado, e o Nexus teve uma subida às 13:38. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
     a fonte até o detalhe do ciclo voltar (`PV_DET_CICLO`, montado só com cache). Prova: abrir uma usina da API PV com
     a marca COS e ver o quadro antes de a lista de inversores chegar.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no

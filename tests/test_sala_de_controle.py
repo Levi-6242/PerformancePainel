@@ -798,7 +798,7 @@ def test_as_fontes_que_nao_batem_viram_aviso_ao_lado_da_usina():
     assert 'if (x.fonte !== "SCADA Grid") return;' in dv and "if (doScadaGrid(u)) return;" in dv                    # a regra do COS
     assert "if (tot && u.inv && tot !== u.inv)" in dv and 'const semC = ms.every(m => m.grupo === "sem_comunicacao"), euSem = u.st === "sem_comm";' in dv
     assert '<span class="dvg" data-dvg="1"' in html and 'ABA = "cf"; desenhar(); scrollTo(0, 0); return; }' in html   # o clique abre o lado a lado
-    assert "atualizaCos();" in html and "calcDvg();" in html
+    assert "atualizaCos(true);" in html and "calcDvg();" in html
 
 
 def test_as_ocorrencias_juntam_o_que_caiu_em_dez_minutos_do_primeiro():
@@ -1417,3 +1417,54 @@ console.log(JSON.stringify({fechado, lendo, pedidosLendo, curva, aberto, graf: [
     assert len(o["pedidosLendo"]) == 1 and 'class="cosl on"' in o["aberto"]
     # a lista da fonte chegou: o 1.3 confere com o INVERSOR03 e leva a curva; o 1.2 não confere e fecha
     assert o["graf"] == ["Taguaí|Inversor 1.3"] and o["grafc"] == []
+
+
+def test_o_selo_do_cos_nao_some_calado_quando_o_nexus_falha():
+    """Levi, 18/11/2026: "não está aparecendo nenhum selo do COS nessas que são API PV; parece que tapa um buraco e abre
+    outro". A lista do COS falhando uma vez deixava a lateral sem selo até a volta de 5 min, calada. Agora tenta de novo
+    em 20, 40 e 80 s e a lateral diz que o COS não respondeu. A regra roda de verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert '<div id="cosfora" class="cosfora" role="status" hidden></div>' in html and "atualizaCos(true);" in html
+    assert 'if (!j) throw new Error(r.status >= 500 ? "o Nexus respondeu " + r.status + ", pode estar reiniciando" : "esta leitura é do Nexus' in html   # o 502 diz o que foi
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index('let COS_FALHA = "", COS_TENT = 0;'):html.index("// A REGRA (Levi, 16/11/2026): \"a API do COS só substitui")]
+    antes = """
+const el = {hidden: true, textContent: ''}, $ = id => id === 'cosfora' ? el : null, SEL = {};
+let COS = null, respostas = [], prazos = [], conta = {dvg: 0, arvore: 0, redesenhar: 0};
+const calcDvg = () => conta.dvg++, arvore = () => conta.arvore++, redesenhar = () => conta.redesenhar++, cabecalho = () => {};
+globalThis.setTimeout = (f, ms) => { prazos.push(ms); return prazos.length; }; globalThis.clearTimeout = () => {};
+async function nexusPega() { const r = respostas.shift(); if (r instanceof Error) throw r; return r; }
+"""
+    depois = """
+(async () => {
+  const foto = () => ({falha: COS_FALHA, tent: COS_TENT, oculto: el.hidden, texto: el.textContent, erro: !!(COS && COS.erro), usinas: COS && COS.usinas ? COS.usinas.length : null, prazos: prazos.slice(), conta: Object.assign({}, conta)});
+  const o = {};
+  respostas = [new Error('o Nexus respondeu 502'), new Error('o Nexus respondeu 502'), {usinas: [{id: 1}]}, {usinas: [{id: 1}, {id: 2}]}, new Error('a Ronda COS não respondeu'), new Error('x'), new Error('x'), new Error('x')];
+  await atualizaCos(true); o.falhou1 = foto();
+  await atualizaCos(); o.falhou2 = foto();                 // a nova tentativa (a do relógio)
+  await atualizaCos(); o.voltou = foto();
+  await atualizaCos(true); o.volta_seguinte = foto();      // a volta de 5 min, com o COS bom: só a lateral
+  await atualizaCos(true); o.caiu_de_novo = foto();        // caiu com a lista boa na tela: a lista fica
+  await atualizaCos(); await atualizaCos(); await atualizaCos(); o.esgotou = foto();
+  console.log(JSON.stringify(o));
+})();
+"""
+    r = subprocess.run(["node", "-e", antes + js + depois], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    o = json.loads(r.stdout)
+    a = o["falhou1"]
+    assert a["falha"] == "o Nexus respondeu 502" and a["erro"] and a["oculto"] is False and a["prazos"] == [20000]
+    assert "Sem o Monitoramento do COS agora" in a["texto"] and "tentando de novo" in a["texto"]
+    assert o["falhou2"]["prazos"] == [20000, 40000] and o["falhou2"]["tent"] == 2
+    v = o["voltou"]
+    assert v["falha"] == "" and v["oculto"] is True and v["texto"] == "" and v["usinas"] == 1 and v["tent"] == 0
+    assert v["conta"] == {"dvg": 1, "arvore": 0, "redesenhar": 1}                       # voltou: a tela inteira se redesenha
+    assert o["volta_seguinte"]["conta"] == {"dvg": 2, "arvore": 1, "redesenhar": 1} and o["volta_seguinte"]["usinas"] == 2
+    c = o["caiu_de_novo"]
+    assert c["usinas"] == 2 and not c["erro"] and c["oculto"] is False                  # a lista boa não é jogada fora
+    e = o["esgotou"]
+    assert e["prazos"] == [20000, 40000, 20000, 40000, 80000] and e["tent"] == 3 and "próxima leitura" in e["texto"]   # três tentativas por volta, não mais
