@@ -118,3 +118,69 @@ def test_trava_nova_refaz_o_dia_guardado(monkeypatch):
     falhas_job.montar(app, sol, "2026-09-01", "2026-09-01", geracao={}, str_store={}, trk_store={}, book={},
                       hist_2c=hist, mortas_curva={}, log=lambda m: None)
     assert pedidos == ["2026-09-01"]
+
+
+def _serie():
+    return [(f"{h:02d}:{m:02d}", 8.0) for h in range(7, 17) for m in (0, 10, 20, 30, 40, 50)]
+
+
+def test_trava_de_outra_fonte_nao_refaz_a_2c(monkeypatch):
+    """18/11/2026: o pacote de falhas do mês parou em 17/11 14:32. A marca dos dias guardados da 2C era a de TODAS as
+    strings trancadas: trancar uma string do Banco da Thopen (a Sala de controle, a tarde toda) mandava pedir de novo o
+    mês inteiro da 2C à API PV. A marca agora é só das travas da 2C."""
+    pedidos = []
+
+    def hist(dia):
+        pedidos.append(dia)
+        return {"strings": {"TUP": {"1.1": {f"{i}": _serie() for i in range(1, 5)}}}}
+
+    def monta():
+        return falhas_job.montar(app, sol, "2026-09-01", "2026-09-02", geracao={}, str_store={}, trk_store={}, book={},
+                                 hist_2c=hist, mortas_curva={}, log=lambda m: None)
+    monkeypatch.setattr(falhas_job, "_CACHE_2C", {})
+    monkeypatch.setattr(falhas_job, "_CACHE_2C_ARQ", {"path": None})
+    monta()
+    pedidos.clear()
+    monkeypatch.setattr(app, "_trancadas", set(app._trancadas) | {"8|Inversor 7|ST 05", "18747433|Inversor 1.1|Ipv13"})   # Banco e API PV
+    monta()
+    assert pedidos == []                                                      # nenhuma consulta nova à API PV
+    monkeypatch.setattr(app, "_trancadas", set(app._trancadas) | {"IPX|2.3|7"})                                          # esta é da 2C
+    monta()
+    assert sorted(pedidos) == ["2026-09-01", "2026-09-02"]
+
+
+def test_travas_da_2c_mudaram_o_mes_e_refeito_aos_poucos_e_o_pacote_nao_espera(monkeypatch):
+    """A volta refaz DIAS_2C_REFEITOS_POR_VOLTA dias e usa o achado de antes nos outros (o pacote sai em toda volta); cada
+    dia refeito vai para o disco na hora (o reinício não joga fora); e a API fora não abre buraco onde havia achado."""
+    pedidos, gravou, fora = [], [], set()
+
+    def hist(dia):
+        pedidos.append(dia)
+        if dia in fora:
+            raise RuntimeError("API PV fora")
+        return {"strings": {"TUP": {"1.1": {f"{i}": _serie() for i in range(1, 5)}}}}
+
+    def monta():
+        return falhas_job.montar(app, sol, "2026-09-01", "2026-09-06", geracao={}, str_store={}, trk_store={}, book={},
+                                 hist_2c=hist, mortas_curva={}, log=lambda m: None)
+    monkeypatch.setattr(falhas_job, "_CACHE_2C", {})
+    monkeypatch.setattr(falhas_job, "_CACHE_2C_ARQ", {"path": None})
+    grava = falhas_job._cache_2c_grava
+    monkeypatch.setattr(falhas_job, "_cache_2c_grava", lambda a, log=print: (gravou.append(1), grava(a, log))[1])
+    monta()
+    assert len(pedidos) == 6 and len(gravou) == 6                             # a 1ª vez pede tudo (não há achado de antes), dia a dia no disco
+    pedidos.clear()
+    monkeypatch.setattr(app, "_trancadas", set(app._trancadas) | {"TUP|1.1|3"})
+    monta()
+    assert pedidos == ["2026-09-01", "2026-09-02", "2026-09-03"]              # três por volta
+    pedidos.clear()
+    fora.add("2026-09-04")
+    monta()
+    assert pedidos == ["2026-09-04", "2026-09-05", "2026-09-06"]              # o 04 falhou (segue com o achado de antes) e a volta seguiu
+    pedidos.clear()
+    fora.clear()
+    monta()
+    assert pedidos == ["2026-09-04"]
+    pedidos.clear()
+    monta()
+    assert pedidos == []                                                      # o mês em dia

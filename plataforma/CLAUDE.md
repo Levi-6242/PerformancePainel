@@ -3204,6 +3204,13 @@ link "Tela anterior"; sem rota nova, porque o mapa do Nexus é cópia assinada),
   string leva todas as chaves dela em `chaves`), o Excel do que está na lista (`/api/painel/falhas/exportar`) e Criar
   OS (o `/os/performance/criar` numa janela, como a Sala: a frase, o ativo e o texto "Strings 5, 6 e 8 com corrente
   nula, verificar e normalizar"; uma usina por vez). Quem só lê (gestor) não vê os botões (`window.gcEu.grava`).
+- **O pacote parado de 17/11 (14:32 até a madrugada de 18/11): a causa.** O ciclo não falhava, ficava HORAS no 2C. O
+  achado de cada dia fechado da 2C é guardado com a marca das travas, e a marca era a de TODAS as strings trancadas da
+  plataforma: trancar uma string em qualquer usina (a Sala fez isso a tarde toda) mandava pedir de novo o mês inteiro da
+  2C ao histórico da API PV (umas 25 consultas por dia do mês), e o que já vinha só ia para o disco no fim, então cada
+  reinício jogava fora. Conserto no `falhas_job.montar`: a marca é só das travas da 2C (chaves que começam pelo código
+  da usina); o achado vai para o disco dia a dia; e a volta refaz `DIAS_2C_REFEITOS_POR_VOLTA` dias, usando o achado de
+  antes nos outros (e quando a API não responde), para o pacote sair em toda volta.
 - **O ciclo diz o próprio estado (18/11):** o pacote parou em 17/11 14:32 e seguiu parado por três reinícios sem ninguém
   ver o motivo. `_falhas_ciclo()` grava `falhas_ciclo.json` (início, fim, ok, erro, rastro, último ok, duração),
   `/api/painel/falhas/ciclo` devolve e a tela avisa em vermelho quando o último recálculo falhou. Pacote velho? Abrir

@@ -201,7 +201,7 @@ function topo() {
   const sel = $("mes"), ms = (D.meses.length ? D.meses : [D.mes]).slice().sort().reverse();
   sel.innerHTML = ms.map(m => `<option value="${m}" ${m === D.mes ? "selected" : ""}>${m.slice(5)}/${m.slice(0, 4)}</option>`).join("");
   $("fresco1").textContent = D.gerado ? "pacote das " + D.gerado.slice(11) : "";
-  $("frescor").innerHTML = `Falhas do mês geradas às <b>${esc(D.gerado.slice(11))}</b> de ${dh(D.gerado.slice(0, 10))} (o worker refaz de 30 em 30 min)${D.ciclo.ok === false ? ` · <b style="color:var(--critico)" title="${esc(D.ciclo.erro || "")}">o último recálculo FALHOU às ${esc(String(D.ciclo.fim || "").slice(11, 16))}: o pacote abaixo é o anterior</b>` : D.ciclo.inicio && !D.ciclo.fim ? ` · recalculando desde as ${esc(D.ciclo.inicio.slice(11, 16))}` : ""} · tempo real lido às <b>${esc(D.lido)}</b>${D.regua.janela_strings ? " · régua das strings: " + esc(D.regua.janela_strings) : ""}`;
+  $("frescor").innerHTML = `Falhas do mês geradas às <b>${esc(D.gerado.slice(11))}</b> de ${dh(D.gerado.slice(0, 10))} (o worker refaz de 30 em 30 min)${D.ciclo.ok === false ? ` · <b style="color:var(--critico)" title="${esc(D.ciclo.erro || "")}">o último recálculo FALHOU às ${esc(String(D.ciclo.fim || "").slice(11, 16))}: o pacote abaixo é o anterior</b>` : D.ciclo.inicio && !D.ciclo.fim ? ` · recalculando desde as ${esc(D.ciclo.inicio.slice(11, 16))}${D.ciclo.passo ? " (" + esc(D.ciclo.passo) + ")" : ""}` : ""}${D.ciclo.dias_2c_atrasados ? ` · 2C: ${D.ciclo.dias_2c_atrasados} dia(s) com as travas de antes, sendo refeitos` : ""} · tempo real lido às <b>${esc(D.lido)}</b>${D.regua.janela_strings ? " · régua das strings: " + esc(D.regua.janela_strings) : ""}`;
   let h = "";
   if (u) {
     const f = D.fontes.find(z => z.id === u.g);

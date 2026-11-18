@@ -120,6 +120,10 @@ FONTE_ROT = {"pv": "API PV", "pvsb": "API PV · String Box", "pg": "Banco", "sun
 _CACHE_2C = {}                # dia fechado → (marca das travas, [(cod, usina, strings sem corrente)])
 _CACHE_2C_ARQ = {"path": None}  # de qual arquivo (app._FALHAS_2C_PATH) o _CACHE_2C foi carregado
 CACHE_2C_DIAS = 70              # o mês e o anterior (remontado até o dia 2), com folga
+# Quando as travas da 2C mudam, os dias fechados guardados ficam com a marca antiga. Refazer TODOS numa volta só segurava
+# o pacote do mês por horas (17/11/2026: parado das 14:32 até a madrugada, com a API PV lenta). A volta refaz estes
+# poucos e usa o achado de antes nos outros; em algumas voltas o mês está em dia, e o pacote sai em todas.
+DIAS_2C_REFEITOS_POR_VOLTA = 3
 
 
 def _marca_trancadas(tranc) -> str:
@@ -634,15 +638,30 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     # fechado não muda: guarda o achado (com a marca das travas, que podem mudar) e o ciclo seguinte do worker não
     # pede o mês de novo. API fora levanta: o dia não é guardado e volta no ciclo seguinte.
     _cache_2c_carrega(app)
-    marca = _marca_trancadas(TRANC)
-    dias_2c, novos_2c = {}, False
+    # A MARCA É SÓ DAS TRAVAS DA 2C (18/11/2026). Era a de todas as strings trancadas da plataforma: trancar uma string em
+    # qualquer usina mandava pedir de novo o mês inteiro da 2C à API PV. As chaves da 2C começam pelo código da usina
+    # (`_str_key("TUP", inversor, string)`); a trava das outras fontes não muda o achado da 2C.
+    cod_2c = tuple(str(c) + "|" for c in (getattr(app, "_2C_STR_PLANTAS", None) or {}))
+    marca = _marca_trancadas(k for k in TRANC if str(k).startswith(cod_2c)) if cod_2c else _marca_trancadas(TRANC)
+    passo = getattr(app, "_falhas_ciclo_marca", None)        # o estado do ciclo à vista (app.py); sem ele (teste), nada
+    dias_2c, refeitos, atrasados = {}, 0, []
     for dia in _dias_entre(ini, fim):
         ach = _CACHE_2C.get(dia)
         if ach is None or ach[0] != marca or dia >= hoje:
+            velho = ach if (ach is not None and dia < hoje) else None      # o achado de antes da troca de travas
+            if velho is not None and refeitos >= DIAS_2C_REFEITOS_POR_VOLTA:
+                dias_2c[dia] = velho[1]                      # fica para as próximas voltas; o pacote não espera
+                atrasados.append(dia)
+                continue
+            if passo:
+                passo(passo=f"2C {dia}")
             try:
                 data = (hist_2c or app._2c_hist_api)(dia).get("strings", {})
             except Exception as e:
                 log(f"[falhas] 2C {dia}: {e}")
+                if velho is not None:
+                    dias_2c[dia] = velho[1]                  # a API não respondeu: o achado de antes vale mais que um buraco
+                    atrasados.append(dia)
                 continue
             lst = []
             for u, invs in data.items():
@@ -655,10 +674,15 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             ach = (marca, lst)
             if dia < hoje:
                 _CACHE_2C[dia] = ach
-                novos_2c = True
+                _cache_2c_grava(app, log)                    # DIA A DIA: o reinício não joga fora o que já foi pedido
+                if velho is not None:
+                    refeitos += 1
         dias_2c[dia] = ach[1]
-    if novos_2c:
-        _cache_2c_grava(app, log)
+    if atrasados:
+        log(f"[falhas] 2C: {len(atrasados)} dia(s) fechado(s) com o achado de antes da troca de travas "
+            f"({DIAS_2C_REFEITOS_POR_VOLTA} refeitos por volta): {atrasados[0]} a {atrasados[-1]}")
+    if passo:
+        passo(dias_2c_atrasados=len(atrasados))
     # a curva da 2C também prova que a usina comunicou (usina_comunicou, 08/10/2026): ela não passa pelo registro de
     # strings, e os trackers da 2C usam o mesmo código (ARA, IPX, STL, TUP) e o mesmo nome
     for dia_c, lst_c in dias_2c.items():

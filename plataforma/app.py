@@ -30258,6 +30258,7 @@ def _falhas_recalcular():
     import falhas_job
     import sol as _sol
     t0 = time.time()
+    _falhas_ciclo_marca(passo="histórico importado")
     try:
         _falhas_importa_historico()
     except Exception as e:                                # noqa: BLE001 — a carga fica para a próxima volta
@@ -30266,10 +30267,12 @@ def _falhas_recalcular():
         store = json.loads(json.dumps(_perdas_str))       # cópia: o backfill mexe no original
     trk = _falhas_ler(_TRK_EV_PATH) or {}
     book = _falhas_ler(_PARADAS_PATH) or {}
+    _falhas_ciclo_marca(passo="varredura do Banco")
     try:
         _falhas_pg_varre()
     except Exception as e:                                # noqa: BLE001 — sem o Banco, o resto do mês sai igual
         print(f"[falhas] varredura do Banco falhou: {e}")
+    _falhas_ciclo_marca(passo="varredura do scadaGridco")
     try:
         _falhas_sg_varre()
     except Exception as e:                                # noqa: BLE001 — sem o scadaGridco, o resto do mês sai igual
@@ -30285,6 +30288,7 @@ def _falhas_recalcular():
         ini = max(FALHAS_INI, f"{mes}-01")
         prox = (datetime.strptime(f"{mes}-28", "%Y-%m-%d") + timedelta(days=4)).replace(day=1).date()
         fim = min(prox - timedelta(days=1), hoje).isoformat()
+        _falhas_ciclo_marca(passo=f"montando {mes}")
         pacote = falhas_job.montar(_sys.modules[__name__], _sol, ini, fim, geracao=_falhas_geracao(mes, ini, fim),
                                    pv_dev=pv_dev, mortas_curva=mortas, str_store=store, trk_store=trk, book=book,
                                    abertos_antes=antes, desconsideradas=_falhas_desc_chaves(),
@@ -30303,6 +30307,7 @@ def _falhas_recalcular():
                 print(f"[falhas] OS abertas do Fracttal (mantido o índice anterior): {e}")
                 idx = _falhas_ler(_FALHAS_OS_PATH) or {}
             _falhas_anexa_travas(pacote, idx, pv_dev)
+        _falhas_ciclo_marca(passo=f"publicando {mes}")
         _falhas_publicar(mes, pacote, meses)
         print(f"[falhas] {mes} publicado: {len(pacote['strings']['episodios'])} episódios de string, "
               f"{len(pacote['trackers']['rows'])} de tracker ({time.time()-t0:.0f}s)")
@@ -30310,6 +30315,7 @@ def _falhas_recalcular():
         _falhas_disp_fora_da_volta(a_montar)
     except Exception as e:                                # noqa: BLE001 — o mês não remontado espera a próxima volta
         print(f"[falhas] disponibilidade dos meses não remontados (fica a anterior): {e}")
+    _falhas_ciclo_marca(passo="workbook")
     try:
         _falhas_publicar_workbook(meses)
     except Exception as e:
@@ -30639,10 +30645,10 @@ def _falhas_ciclo():
     import traceback
     agora = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")   # noqa: E731
     t0 = time.time()
-    _falhas_ciclo_marca(inicio=agora(), fim=None)
+    _falhas_ciclo_marca(inicio=agora(), fim=None, passo="começando")
     try:
         _falhas_recalcular()
-        _falhas_ciclo_marca(fim=agora(), ok=True, erro=None, rastro=None, ultimo_ok=agora(), duracao_s=round(time.time() - t0))
+        _falhas_ciclo_marca(fim=agora(), ok=True, erro=None, rastro=None, ultimo_ok=agora(), duracao_s=round(time.time() - t0), passo=None)
     except Exception as e:
         print(f"[falhas] ciclo falhou (pacote anterior mantido): {e}")
         _falhas_ciclo_marca(fim=agora(), ok=False, erro=f"{type(e).__name__}: {e}"[:400], rastro=traceback.format_exc()[-2500:],
