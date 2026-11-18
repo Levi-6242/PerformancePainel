@@ -200,6 +200,9 @@ sala_arranjo.json
 sala_arranjo.json.tmp
 falhas_pv_dev.json
 falhas_os_abertas.json
+# o estado do ciclo das falhas (18/11/2026): runtime do worker; os testes que montam o pacote tambem gravam
+falhas_ciclo.json
+falhas_ciclo.json.tmp
 falhas_importar_perdas.json*
 falhas_backfill_sunop.json
 # achado de cada dia fechado da 2C pela API PV (_FALHAS_2C_PATH, 03/10/2026): ~25 consultas da cota histórica por dia
