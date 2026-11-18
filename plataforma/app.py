@@ -15417,6 +15417,7 @@ def _recoleta_plantas(agora=None):
         if v:
             st.update(v=v, t=agora)
         return v
+    velha = st["v"]                                      # a que sai agora, mesmo que a renovação termine antes
     if agora - st["t"] > CACHE_TTL and not st["renovando"]:
         st["renovando"] = True
 
@@ -15430,7 +15431,7 @@ def _recoleta_plantas(agora=None):
             finally:
                 st["renovando"] = False
         threading.Thread(target=_renova, daemon=True, name="recoleta-plantas").start()
-    return st["v"]
+    return velha
 
 
 # ── Recoleta por fonte para a Coletas do Nexus (17/11/2026): um contrato só para todas (recoleta_fontes/comum.py) ────
