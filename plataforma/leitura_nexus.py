@@ -201,6 +201,7 @@ _GET_GESTOR = (
     "/api/painel/falhas",
     "/api/relatorio",                                         # Criador de relatório e Relatório semanal
     "/api/ronda/recorrentes", "/api/ronda/analise", "/api/ronda/book", "/api/ronda/obs",
+    "/api/ronda/mural",                                       # o mural da ronda do App (18/11/2026): só leitura
     "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
     "/api/comentarios",                                       # Comentários (03/11/2026): a lista; responder é gravação
     "/api/tokens",                                            # Chaves das fontes: a validade (e só para admin)

@@ -3148,6 +3148,30 @@ evitáveis nem valorar em R$) e o recorte é **só a 2C** (`QUALIDADE_PLANTAS = 
 desde 29/09/2026 inclui a Ipixuna, pelas Santa Cecilia). Ciclo caiu de 80 s para ~11 s. O nome do inversor vem do
 `PV_INV_NOMES` porque a conta oem@ não pode chamar `/plant_devices`.
 
+## Ronda de trackers: o mural da ronda do App de Campo (`/ronda/monitor`, `templates/ronda_mural.html`, 18/11/2026)
+
+Levi, 17/11/2026: "Refaça a página Ronda de trackers da performance como um mural de acompanhamento da ronda de trackers
+do app de campo"; visto o mockup (`docs/mockups/ronda-trackers-mural/`, só local: tem nome de técnico), "isso tem que ser
+clicável e filtrável; de resto sobe".
+
+- **Para que serve:** ver, por usina, se a ronda do técnico está chegando onde há tracker parado: parados agora × a
+  última ronda com trackers × a devolutiva (apontados → respondidos). Situações, da pior para a melhor: parado e sem
+  ronda de trackers no mês; devolutiva incompleta; última ronda há mais de 7 dias; em dia.
+- **De onde vem (nada novo nas fontes):** `/api/ronda/mural?mes=` junta o livro `rondas_app_campo` (o App regrava de
+  hora em hora; lido pelo `_rel_sem_rondas_linhas`, o mesmo do relatório semanal, a cada 30 min) com as paradas de
+  tracker EM ABERTO do pacote de falhas do mês. A usina casa pelo nome do Fracttal (`disponibilidade.usinas` do
+  pacote), que é como o livro a chama; a que não tem esse nome no cadastro sai em `semPar` e a tela diz. A conta mora
+  em `ronda_mural.py` (pura, com teste); a rota só lê e guarda o resultado até o livro ou o pacote mudarem.
+- **O que NÃO chega:** o veredito por tracker (normalizado ou não, motivo, ação, observação) fica só na tabela `rondas`
+  do App; o livro traz só os totais por ronda. O mural mostra a ronda, não o tracker, e diz isso. Pedir ao chat do App
+  a lista por tracker (coluna nova no livro ou POST) é o próximo passo; em 17/11 o chat não estava aberto.
+- **A tela de antes** (a ronda automática do WhatsApp: chip, envios de cada horário, observações, recorrentes, book de
+  causas) segue inteira em `/ronda/monitor?antiga=1`, que a aba "Envio pelo WhatsApp" do mural embute. Sem rota nova
+  (o mapa do Nexus é cópia assinada).
+- **Cartões clicáveis e filtros:** cada cartão leva à lista já filtrada (Parado e sem ronda → o mural filtrado;
+  Devolutiva incompleta → as rondas incompletas); as listas filtram por situação, cliente, região e "só devolutiva
+  incompleta". **Como provar:** `tests/test_ronda_mural.py`.
+
 ## Strings e trackers no desenho da Sala de controle (`/painel/falhas`, `templates/strings_trackers.html`, 17/11/2026)
 
 **As seções abaixo que falam do `templates/falhas.html` descrevem a tela ANTERIOR (`/painel/falhas?antiga=1`).** O pacote,

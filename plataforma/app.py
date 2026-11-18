@@ -33376,10 +33376,41 @@ def api_ronda_book():
 
 @app.route("/ronda/monitor")
 def page_ronda_monitor():
-    # Monitor da Ronda — o "aplicativo" do Levi p/ acompanhar: chip conectado? ronda de cada
-    # horário saiu? falhou pra qual grupo? Abre no navegador e no celular (túnel) e tem
-    # atalho .bat em janela própria (--app).
-    return render_template("ronda_monitor.html")
+    # O MURAL DA RONDA DE TRACKERS DO APP DE CAMPO (18/11/2026, Levi: "Refaça a página Ronda de trackers da performance
+    # como um mural de acompanhamento da ronda de trackers do app de campo"; mockup em docs/mockups/ronda-trackers-mural).
+    # A tela de antes — a ronda automática do WhatsApp: chip conectado? a ronda de cada horário saiu? falhou pra qual
+    # grupo? — segue inteira com ?antiga=1 (é ela que a aba "Envio pelo WhatsApp" do mural embute), sem rota nova: o mapa
+    # do Nexus é cópia assinada.
+    if flask_request.args.get("antiga") == "1":
+        return render_template("ronda_monitor.html")
+    return render_template("ronda_mural.html", sala_css=_sala_css())
+
+
+import ronda_mural as _rmural  # noqa: E402
+_ronda_mural_memo = {"chave": None, "dados": None}
+
+
+@app.route("/api/ronda/mural")
+def api_ronda_mural():
+    """O mural do mês (?mes=AAAA-MM; padrão o corrente): o livro de rondas do App (relido a cada 30 min, como o relatório
+    semanal) contra as paradas de tracker em aberto do pacote de falhas. Só leitura; a conta mora em ronda_mural.py.
+    Refeito só quando o livro ou o pacote mudam (o pacote são uns 4 MB de JSON)."""
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    mes = (flask_request.args.get("mes") or hoje[:7]).strip()
+    if not re.match(r"^\d{4}-\d{2}$", mes):
+        return jsonify({"ok": False, "motivo": "mes no formato AAAA-MM"}), 400
+    livro, erro, carimbo = _rel_sem_rondas_linhas()
+    if livro is None:
+        return jsonify({"ok": False, "motivo": f"o livro de rondas do App não abriu ({erro or 'sem leitura ainda'})"}), 503
+    try:
+        mt = os.path.getmtime(_falhas_arquivo(mes))
+    except OSError:
+        mt = None
+    chave = (mes, hoje, mt, carimbo)
+    if _ronda_mural_memo["chave"] != chave:
+        _ronda_mural_memo.update(chave=chave, dados=_rmural.montar(livro, _falhas_ler(_falhas_arquivo(mes)) if mt else None, mes, hoje))
+    return jsonify({"ok": True, **_ronda_mural_memo["dados"], "meses": _rmural.meses_do_livro(livro)[-4:],
+                    "livro_em": datetime.fromtimestamp(carimbo).strftime("%H:%M") if carimbo else None, "erro_livro": erro})
 
 
 # ── Observações por usina (ponto 1, Levi 22/07) — o "app" p/ escolher a UFV e escrever a linha que

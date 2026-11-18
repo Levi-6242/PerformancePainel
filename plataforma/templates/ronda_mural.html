@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Ronda de trackers</title>
+<script>
+// O tema do Nexus antes da 1ª pintura (o cookie nexus_tema ou o localStorage nexus.tema), como nas outras telas
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro' || t === 'escuro') raiz.setAttribute('data-tema', t); }
+  try {
+    var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/);
+    aplica(c ? c[1] : localStorage.getItem('nexus.tema'));
+  } catch(e) {}
+  window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* A folha é a DA SALA DE CONTROLE (a rota a tira do sala_controle.html): uma tela só no desenho. Abaixo, só o que o
+   mural acrescenta. */
+{{ sala_css|safe }}
+  .f.aberto>.us{display:block}
+  .lado .uc,.lado .f .u{grid-template-columns:minmax(0,1fr) 44px 74px}
+  .lado .uc>span:not(:first-child),.lado .f .u>span:not(.n){text-align:center}
+  .lado .tri b.cz{color:var(--tinta)}
+  .faixa{display:flex;align-items:flex-start;gap:10px;background:var(--sup);border-radius:10px;padding:9px 14px;margin:14px 0 0;font-size:12.5px;color:var(--mudo)}
+  .faixa b{color:var(--tinta);font-weight:600}.faixa>span:last-child{flex:1;min-width:0}
+  .oc.m6{grid-template-columns:minmax(0,1.5fr) 78px minmax(0,1.5fr) 170px minmax(0,1.1fr)}
+  .oc.r7{grid-template-columns:92px minmax(0,1.4fr) minmax(0,1.1fr) 62px 150px 56px minmax(0,1.2fr)}
+  .oc.t6{grid-template-columns:minmax(0,1.5fr) 80px 150px 90px 100px 90px}
+  .oc>span.d{text-align:right;font-variant-numeric:tabular-nums}
+  .oc .sub{color:var(--fraco);font-size:11.5px;margin-left:6px}
+  .barra{display:inline-block;width:70px;height:6px;border-radius:3px;background:rgba(148,163,184,.18);vertical-align:middle;margin-right:8px;overflow:hidden}
+  .barra i{display:block;height:100%;background:var(--ok)}.barra.s i{background:var(--severo)}.barra.c i{background:var(--critico)}
+  .det{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:18px}
+  .det h4{margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fraco);font-weight:600}
+  .det .li{display:flex;gap:8px;padding:4px 0;border-top:1px solid var(--linha);font-size:12.5px}.det .li>span:first-child{flex:1;min-width:0}
+  .zero{color:var(--fraco)}
+  .kpis button.kn{cursor:pointer;font:inherit;color:inherit;text-align:left}
+  .antiga{width:100%;height:1700px;border:0;border-radius:10px;margin-top:14px;background:var(--sup)}
+  .toastm{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--sup);border:1px solid var(--linha2);border-radius:10px;padding:10px 16px;font-size:12.5px;z-index:60;max-width:min(680px,92vw)}
+</style>
+</head>
+<body>
+{% raw %}
+<div class="tela">
+  <aside class="lado">
+    <div class="lt"><span>Ronda de trackers · App de Campo</span> <span id="fresco1"></span></div>
+    <label class="buscaN"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar usina…" aria-label="Buscar usina"></label>
+    <div id="arvore"></div>
+  </aside>
+  <main class="meio">
+    <div class="topo"><div><div class="sobre">Performance</div>
+      <h1>Ronda de trackers <span id="recorte"></span></h1></div>
+      <div style="display:flex;align-items:center;gap:8px"><select class="campo" id="mes" aria-label="Mês" style="padding:4px 8px"></select></div></div>
+    <div class="frescor" id="frescor"></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="abas" id="abas"></div>
+    <div id="corpo"></div>
+  </main>
+</div>
+<div class="toastm" id="toast" hidden></div>
+<script>
+// ── O mural da ronda de trackers do App de Campo (18/11/2026). Levi: "Refaça a página Ronda de trackers da performance
+//    como um mural de acompanhamento da ronda de trackers do app de campo"; e, sobre os cartões do mockup, "isso tem que
+//    ser clicável e filtrável". O dado vem de /api/ronda/mural (o livro de rondas do App contra as paradas de tracker em
+//    aberto das falhas do mês; a conta mora em ronda_mural.py). A tela de antes (a ronda automática do WhatsApp) fica
+//    inteira na aba "Envio pelo WhatsApp". ──
+let D = null;
+async function pega(url, ms) {
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), ms || 30000);
+  try { const r = await fetch(url, {credentials: "same-origin", headers: {Accept: "application/json"}, signal: c.signal});
+    if (r.status === 401 || r.redirected && /\/login/.test(r.url)) { location.href = "/login?next=" + encodeURIComponent(location.pathname); throw new Error("sessão encerrada"); }
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j) throw new Error((j && (j.motivo || j.erro || j.error)) || "a rota respondeu " + r.status);
+    return j; }
+  finally { clearTimeout(tm); }
+}
+const q = (s, e) => (e || document).querySelector(s), esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const n0 = v => Math.round(v).toLocaleString("pt-BR");
+const dm = s => s ? s.slice(8, 10) + "/" + s.slice(5, 7) : "", pl = (n, s, p) => n + " " + (n === 1 ? s : (p || s + "s"));
+const natural = (a, b) => String(a).localeCompare(String(b), "pt-BR", {numeric: true});
+const dias = d => Math.round((Date.parse(D.hoje) - Date.parse(d)) / 86400000);
+const curto = u => u.replace(/^[^-]+-\s*/, "").replace(/\s*-\s*[A-Z]{2}$/, ""), cliente = u => (u.match(/^([^-]+?)\s*-/) || [, ""])[1];
+const dur = m => m == null ? "—" : m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min";
+let ABA = "m", SIT = null, SEL = null, BUSCA = "", LIM = 80; const ABERTAS = new Set();
+const F = {cli: "", reg: "", inc: false};      // os filtros das listas: cliente, região (das rondas) e só devolutiva incompleta
+
+// a situação de cada usina: o que o gestor precisa ver primeiro
+function sit(u) {
+  const t = u.ultT;
+  if (u.par && !u.nT) return ["c", "sem", "Sem ronda de trackers no mês"];
+  if (t && t.rs < t.ap) return ["s", "inc", "Devolutiva incompleta"];
+  if (u.par && t && dias(t.d) > 7) return ["a", "velha", "Última ronda há " + dias(t.d) + " dias"];
+  if (!u.par && !u.nT) return ["n", "nada", "Sem parado e sem ronda de trackers"];
+  return ["o", "ok", u.par ? "Em dia" : "Sem parado agora"];
+}
+const GRUPOS = [["sem", "Parado agora, sem ronda de trackers no mês", "c"], ["inc", "Devolutiva incompleta", "s"], ["velha", "Última ronda há mais de 7 dias", "a"], ["ok", "Em dia", "o"]];
+let US = [];
+const noRecorte = u => (!SIT || u.s[1] === SIT) && (!SEL || u.u === SEL) && (!F.cli || cliente(u.u) === F.cli);
+const rondaNoFiltro = r => (!SEL || r.u === SEL) && (!F.cli || cliente(r.u) === F.cli) && (!F.reg || r.reg === F.reg) && (!F.inc || r.rs < r.ap);
+let CLIENTES = [], REGIOES = [];
+const sel = (id, rot, l, v) => `<select class="campo" data-f="${id}" aria-label="${rot}" style="padding:4px 8px"><option value="">${rot}: todos</option>${l.map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`;
+const limpar = () => F.cli || F.reg || F.inc || SIT || SEL ? `<button class="btnl" data-limpa="1">Limpar filtros</button>` : "";
+
+function lado() {
+  const f = BUSCA.trim().toLowerCase();
+  q("#arvore").innerHTML = GRUPOS.map(([id, rot, cls]) => {
+    const us = US.filter(u => u.s[1] === id && (!f || u.u.toLowerCase().includes(f))).sort((a, b) => b.par - a.par || natural(a.u, b.u));
+    if (!us.length) return "";
+    const aberto = !!f || SIT === id || (SEL && us.some(u => u.u === SEL)) || (!SIT && !SEL && id === "sem");
+    return `<div class="f ${aberto ? "aberto" : ""}"><div class="g ${SIT === id && !SEL ? "on" : ""}" data-sit="${id}"><div class="l1"><span class="seta">›</span><b>${rot}</b><small>${pl(us.length, "usina")}</small></div>
+      <div class="tri"><div>Parados<b class="${us.some(u => u.par) ? "" : "z"}">${n0(us.reduce((a, u) => a + u.par, 0))}</b><i>agora</i></div><div>Rondas<b class="cz">${us.reduce((a, u) => a + u.nT, 0)}</b><i>c/ trackers</i></div><div>Devol.<b class="cz">${(a => a ? Math.round(us.reduce((x, u) => x + u.rs, 0) / a * 100) + "%" : "—")(us.reduce((x, u) => x + u.ap, 0))}</b></div></div></div>
+      <div class="us"><div class="uc"><span>Usina</span><span title="Trackers parados agora (falhas do mês)">Par.</span><span title="Última ronda com trackers apontados">Última</span></div>
+      ${us.map(u => `<div class="u ${SEL === u.u ? "on" : ""}" data-u="${esc(u.u)}" title="${esc(u.u)}"><span class="n"><span class="pt ${cls === "c" ? "critico" : cls === "s" || cls === "a" ? "atencao" : ""}"></span>${esc(curto(u.u))}</span>
+        <span>${u.par ? `<b>${u.par}</b>` : `<span class="zero">—</span>`}</span><span>${u.ultT ? dm(u.ultT.d) : `<span class="zero">—</span>`}</span></div>`).join("")}</div></div>`; }).join("");
+}
+
+function kpis() {
+  const com = D.rondas, ap = com.reduce((a, r) => a + r.ap, 0), rs = com.reduce((a, r) => a + r.rs, 0), comPar = US.filter(u => u.par), sem = comPar.filter(u => !u.nT);
+  const inc = com.filter(r => r.rs < r.ap), tec = new Set(com.map(r => r.tec)).size;
+  const on = {rondas: ABA === "r" && !F.inc, devol: ABA === "t", sem: ABA === "m" && SIT === "sem", inc: ABA === "r" && F.inc};
+  const k = (id, cls, rot, num, un, sub, dica) => `<button class="kn ${cls}" data-kpi="${id}" aria-pressed="${on[id]}" style="${on[id] ? "outline:1.5px solid var(--verde)" : ""}" title="${esc(dica)}"><small>${rot}</small><div class="num"><b>${num}</b><span>${un}</span></div><div class="sub">${sub}</div></button>`;
+  q("#kpis").innerHTML = k("rondas", "", "Rondas com trackers", com.length, "no mês", `de ${D.nRondas} rondas do App · ${tec} de ${D.nTec} técnicos apontaram tracker`, "Abre as rondas com trackers do mês")
+    + k("devol", rs / ap >= .95 ? "bom" : "acao", "Devolutiva", ap ? Math.round(rs / ap * 100) + "%" : "—", "dos apontados", `${n0(rs)} respondidos de ${n0(ap)} trackers apontados`, "Abre a devolutiva por técnico, da pior para a melhor")
+    + k("sem", sem.length ? "crit" : "bom", "Parado e sem ronda", sem.length, sem.length === 1 ? "usina" : "usinas", `de ${comPar.length} com tracker parado agora · ${n0(sem.reduce((a, u) => a + u.par, 0))} trackers parados nessas usinas`, "Filtra o mural: usinas com tracker parado agora e nenhuma ronda de trackers no mês")
+    + k("inc", inc.length ? "acao" : "bom", "Devolutiva incompleta", inc.length, inc.length === 1 ? "ronda" : "rondas", inc.length ? inc.slice(0, 2).map(r => curto(r.u) + " (" + r.rs + " de " + r.ap + ", " + dm(r.d) + ")").join(" · ") : "todo tracker apontado teve resposta", "Abre só as rondas em que ficou tracker apontado sem resposta");
+}
+
+function topo() {
+  q("#recorte").textContent = SEL ? "· " + curto(SEL) : SIT ? "· " + GRUPOS.find(g => g[0] === SIT)[1].toLowerCase() : "· mural do App de Campo";
+  q("#mes").innerHTML = (D.meses && D.meses.length ? D.meses : [D.mes]).slice().sort().reverse().map(m => `<option value="${m}" ${m === D.mes ? "selected" : ""}>${m.slice(5)}/${m.slice(0, 4)}</option>`).join("");
+  q("#fresco1").textContent = D.livro_em ? "livro das " + D.livro_em : "";
+  q("#frescor").innerHTML = `Rondas do App de Campo lidas às <b>${esc(D.livro_em || "—")}</b> (o App regrava o livro de hora em hora; a plataforma relê a cada 30 min) · trackers parados pelo pacote de falhas ${D.pacote ? "das <b>" + esc(D.pacote.slice(11)) + "</b> de " + dm(D.pacote.slice(0, 10)) : "<b>ainda não publicado neste mês</b>"}${D.erro_livro ? ` · <b style="color:var(--severo)">a última releitura do livro falhou</b> (vale a anterior)` : ""}`;
+  const us = US.filter(noRecorte), rd = D.rondas.filter(rondaNoFiltro), tec = new Set(rd.map(r => r.tec)).size;
+  q("#abas").innerHTML = [["m", "Mural das usinas", us.filter(u => u.s[0] === "c" || u.s[0] === "s").length], ["r", "Rondas", rd.length], ["t", "Técnicos", tec], ["w", "Envio pelo WhatsApp", null]]
+    .map(([a, r, n]) => `<button class="aba ${ABA === a ? "on" : ""}" data-aba="${a}">${r}${n == null ? "" : `<em class="${a === "m" && n ? "s" : ""}">${n}</em>`}</button>`).join("");
+}
+
+const barra = (rs, ap) => ap ? `<span class="barra ${rs < ap ? (rs ? "s" : "c") : ""}"><i style="width:${Math.round(rs / ap * 100)}%"></i></span>${rs} de ${ap}` : `<span class="zero">—</span>`;
+function detalhe(u) {
+  const rd = D.rondas.filter(r => r.u === u.u);
+  return `<div class="ocx"><div class="det"><div><h4>Parados agora (${u.par})</h4>${u.trk.length ? u.trk.map(t => `<div class="li"><span><b>${esc(t[0])}</b>${t[2] ? ` <span class="tag n">crônico</span>` : ""}</span><span>parou em ${dm(t[1])}</span></div>`).join("") + (u.par > u.trk.length ? `<div class="mais">e mais ${u.par - u.trk.length}</div>` : "") : `<div class="mais">Nenhum tracker parado agora pelas falhas do mês.</div>`}</div>
+    <div><h4>Rondas com trackers no mês (${rd.length})</h4>${rd.length ? rd.map(r => `<div class="li"><span>${dm(r.d)} · <b>${esc(r.tec)}</b> · ${esc(r.tipo)}${r.falhas ? ` <span class="sub">${esc(r.falhas)}</span>` : ""}</span><span>${barra(r.rs, r.ap)}</span><span style="width:64px;text-align:right">${dur(r.min)}</span></div>`).join("") : `<div class="mais">Nenhuma ronda com tracker apontado nesta usina neste mês${u.n ? " (" + pl(u.n, "ronda") + " sem tracker apontado)" : ""}.</div>`}
+      <div class="mais" style="margin-top:10px">O que o técnico respondeu em CADA tracker (normalizado ou não, o motivo, a ação e a observação) fica guardado no App e ainda não chega aqui: por isso o mural mostra a ronda, não o tracker.</div></div></div></div>`;
+}
+function corpo() {
+  if (ABA === "w") { if (!q("#corpo iframe.antiga")) q("#corpo").innerHTML = `<iframe class="antiga" src="/ronda/monitor?antiga=1" title="Envio da ronda pelo WhatsApp: o chip, os envios de cada horário, as observações por usina, os recorrentes e o book de causas"></iframe>`; return; }
+  if (ABA === "t") {
+    const m = {}; D.rondas.filter(rondaNoFiltro).forEach(r => { const t = m[r.tec] = m[r.tec] || {tec: r.tec, n: 0, ap: 0, rs: 0, min: [], ult: "", us: new Set()}; t.n++; t.ap += r.ap; t.rs += r.rs; if (r.min != null) t.min.push(r.min); if (r.d > t.ult) t.ult = r.d; t.us.add(r.u); });
+    const l = Object.values(m).sort((a, b) => (a.rs / a.ap) - (b.rs / b.ap) || b.ap - a.ap);
+    q("#corpo").innerHTML = `<div class="ocl" style="margin-top:14px"><div class="oc t6 cab"><span>Técnico</span><span class="d">Rondas</span><span>Devolutiva</span><span class="d">Usinas</span><span class="d">Duração média</span><span class="d">Última</span></div>
+      ${l.map(t => `<div class="oc t6" style="cursor:default"><span><b>${esc(t.tec)}</b></span><span class="d">${t.n}</span><span>${barra(t.rs, t.ap)}</span><span class="d">${t.us.size}</span><span class="d">${t.min.length ? dur(Math.round(t.min.reduce((a, b) => a + b, 0) / t.min.length)) : "—"}</span><span class="d">${dm(t.ult)}</span></div>`).join("")}</div>
+      <div class="mais">Só as rondas em que o técnico apontou tracker. A duração é a da ronda inteira (início e fim que o App grava), não o tempo nos trackers.</div>`; return; }
+  if (ABA === "r") {
+    const l = D.rondas.filter(rondaNoFiltro);
+    q("#corpo").innerHTML = `<div class="diasel barrafix" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="btnl ${F.inc ? "on" : ""}" data-inc="1">Só devolutiva incompleta</button>${sel("cli", "Cliente", CLIENTES, F.cli)}${sel("reg", "Região", REGIOES, F.reg)}
+      <span style="color:var(--mudo);font-size:12.5px;margin-left:6px">${pl(l.length, "ronda")}${SEL ? " em " + esc(curto(SEL)) : ""}</span><span style="flex:1"></span>${limpar()}</div>
+      ${l.length ? "" : `<div class="mais" style="margin-top:14px">Nenhuma ronda com estes filtros.</div>`}<div class="ocl" style="margin-top:8px" ${l.length ? "" : "hidden"}><div class="oc r7 cab"><span>Dia</span><span>Usina</span><span>Técnico</span><span>Tipo</span><span>Apontados → respondidos</span><span class="d">Nota</span><span>Falhas da ronda</span></div>
+      ${l.slice(0, LIM).map(r => `<div class="oc r7 ${r.rs < r.ap ? "ab" : ""}" style="cursor:default"><span>${dm(r.d)} ${esc(r.ini.slice(11))}</span><span title="${esc(r.u)}"><b>${esc(curto(r.u))}</b><span class="sub">${esc(cliente(r.u))}</span></span><span>${esc(r.tec)}</span><span>${esc(r.tipo)}</span><span>${barra(r.rs, r.ap)}</span><span class="d">${r.nota == null ? "—" : r.nota}</span><span title="${esc(r.falhas)}">${r.falhas ? esc(r.falhas) : `<span class="zero">—</span>`}</span></div>`).join("")}</div>
+      ${l.length > LIM ? `<div class="mais"><button class="btnl" data-mais="1">Ver mais</button></div>` : ""}<div class="mais">A hora é a do início da ronda como o App grava (UTC). "Respondido" = o tracker em que o técnico marcou o veredito ou a ação.</div>`; return; }
+  const us = US.filter(noRecorte).sort((a, b) => "csao n".indexOf(a.s[0]) - "csao n".indexOf(b.s[0]) || b.par - a.par || natural(a.u, b.u));
+  const cont = id => US.filter(u => u.s[1] === id && (!F.cli || cliente(u.u) === F.cli)).length;
+  q("#corpo").innerHTML = `<div class="diasel barrafix" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="btnl ${!SIT ? "on" : ""}" data-sitf="">Todas</button>${GRUPOS.map(([id, rot]) => `<button class="btnl ${SIT === id ? "on" : ""}" data-sitf="${id}" title="${esc(rot)}">${id === "sem" ? "Parado e sem ronda" : id === "inc" ? "Devolutiva incompleta" : id === "velha" ? "Ronda há mais de 7 dias" : "Em dia"} (${cont(id)})</button>`).join("")}
+      ${sel("cli", "Cliente", CLIENTES, F.cli)}<span style="color:var(--mudo);font-size:12.5px;margin-left:6px">${pl(us.length, "usina")}</span><span style="flex:1"></span>${limpar()}</div>
+    <div class="faixa"><span class="tag i">O que o App manda hoje</span><span>De cada ronda chegam o técnico, a usina, o início e o fim, a nota e <b>quantos trackers foram apontados e quantos tiveram resposta</b>. O veredito tracker a tracker (normalizado ou não, motivo, ação) ainda fica só no App: com ele, cada tracker parado desta lista ganha a resposta do campo.</span></div>
+    <div class="ocl" style="margin-top:12px"><div class="oc m6 cab"><span>Usina</span><span class="d">Parados agora</span><span>Última ronda com trackers</span><span>Apontados → respondidos (mês)</span><span>Situação</span></div>
+    ${us.slice(0, LIM).map(u => { const t = u.ultT, ab = ABERTAS.has(u.u); return `<div class="oc m6 ${u.s[0] === "c" ? "ab" : ""} ${ab ? "on" : ""}" data-oc="${esc(u.u)}" role="button" tabindex="0" aria-expanded="${ab}">
+      <span title="${esc(u.u)}"><b>${esc(curto(u.u))}</b><span class="sub">${esc(cliente(u.u))}</span></span><span class="d">${u.par ? `<b style="color:var(--severo)">${u.par}</b>` : `<span class="zero">—</span>`}</span>
+      <span>${t ? `${dm(t.d)} · ${esc(t.tec)}<span class="sub">${dur(t.min)}${u.nT > 1 ? " · " + u.nT + " no mês" : ""}</span>` : `<span class="zero">nenhuma no mês</span>${u.n ? `<span class="sub">${pl(u.n, "ronda")} sem tracker apontado</span>` : ""}`}</span>
+      <span>${barra(u.rs, u.ap)}</span><span><span class="tag ${u.s[0]}">${esc(u.s[2])}</span></span></div>${ab ? detalhe(u) : ""}`; }).join("")}</div>
+    ${us.length > LIM ? `<div class="mais"><button class="btnl" data-mais="1">Ver mais</button></div>` : ""}
+    ${D.semPar.length ? `<div class="mais">Fora deste mural por não ter o nome do Fracttal no cadastro (o livro da ronda usa o nome de lá): ${esc(D.semPar.slice(0, 8).join(", "))}${D.semPar.length > 8 ? " e mais " + (D.semPar.length - 8) : ""}.</div>` : ""}`;
+}
+function tudo() { if (!D) return; lado(); topo(); kpis(); corpo(); }
+document.addEventListener("click", ev => { const c = s => ev.target.closest(s); let x;
+  if ((x = c("[data-mais]"))) { LIM += 80; corpo(); return; }
+  if ((x = c("[data-kpi]"))) { const k = x.dataset.kpi; SEL = null; LIM = 80;
+    if (k === "sem") { const ja = ABA === "m" && SIT === "sem"; ABA = "m"; SIT = ja ? null : "sem"; }
+    else if (k === "inc") { const ja = ABA === "r" && F.inc; ABA = "r"; F.inc = !ja; SIT = null; }
+    else if (k === "rondas") { ABA = "r"; F.inc = false; SIT = null; }
+    else { ABA = "t"; F.inc = false; SIT = null; }
+    tudo(); const a = document.querySelector(".abas"); if (a) a.scrollIntoView({block: "start"}); return; }
+  if ((x = c("[data-sitf]"))) { SIT = x.dataset.sitf || null; SEL = null; LIM = 80; tudo(); return; }
+  if (c("[data-inc]")) { F.inc = !F.inc; LIM = 80; kpis(); topo(); corpo(); return; }
+  if (c("[data-limpa]")) { F.cli = F.reg = ""; F.inc = false; SIT = null; SEL = null; LIM = 80; tudo(); return; }
+  if ((x = c("[data-aba]"))) { ABA = x.dataset.aba; LIM = 80; topo(); corpo(); return; }
+  if (c(".ocx")) return;
+  if ((x = c("[data-oc]"))) { const k = x.dataset.oc; ABERTAS.has(k) ? ABERTAS.delete(k) : ABERTAS.add(k); corpo(); return; }
+  if ((x = c(".u[data-u]"))) { SEL = SEL === x.dataset.u ? null : x.dataset.u; if (SEL) { ABERTAS.add(SEL); ABA = "m"; SIT = null; } tudo(); return; }
+  if ((x = c(".g[data-sit]"))) { const s = x.dataset.sit; SEL = null; SIT = SIT === s ? null : s; ABA = "m"; tudo(); return; } });
+document.addEventListener("change", ev => { const t = ev.target; if (t.matches && t.matches("[data-f]")) { F[t.dataset.f] = t.value; LIM = 80; tudo(); }
+  if (t.id === "mes" && t.value !== MES) { MES = t.value; ABERTAS.clear(); SEL = null; SIT = null; carregar(); } });
+q("#q").addEventListener("input", e => { BUSCA = e.target.value; if (D) lado(); });
+// a carga: o mural do mês; relê de 10 em 10 min sem piscar (o livro muda de hora em hora, o pacote de 30 em 30 min)
+let MES = "", tR = null;
+async function carregar(calada) {
+  clearTimeout(tR);
+  if (!calada) q("#frescor").textContent = "Lendo o livro de rondas do App e as falhas do mês…";
+  try { const d = await pega("/api/ronda/mural" + (MES ? "?mes=" + encodeURIComponent(MES) : ""), 120000);
+    D = d; MES = d.mes; US = D.usinas.filter(u => u.par || u.nT).map(u => Object.assign(u, {s: sit(u)}));
+    CLIENTES = [...new Set(US.map(u => cliente(u.u)).concat(D.rondas.map(r => cliente(r.u))).filter(Boolean))].sort(natural);
+    REGIOES = [...new Set(D.rondas.map(r => r.reg).filter(Boolean))].sort(natural);
+    if (SEL && !US.some(u => u.u === SEL)) SEL = null;
+    if (ABA === "w") { lado(); topo(); kpis(); } else tudo();
+    tR = setTimeout(() => carregar(true), 10 * 60 * 1000); }
+  catch (e) { if (!D) q("#frescor").innerHTML = `<b>Não consegui ler agora</b>: ${esc(String(e && e.message || e))}. Tento de novo em 30 s.`;
+    tR = setTimeout(() => carregar(true), 30000); }
+}
+carregar();
+</script>
+{% endraw %}
+</body>
+</html>
