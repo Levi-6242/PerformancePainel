@@ -3160,7 +3160,11 @@ clicável e filtrável; de resto sobe".
 - **De onde vem (nada novo nas fontes):** `/api/ronda/mural?mes=` junta o livro `rondas_app_campo` (o App regrava de
   hora em hora; lido pelo `_rel_sem_rondas_linhas`, o mesmo do relatório semanal, a cada 30 min) com as paradas de
   tracker EM ABERTO do pacote de falhas do mês. A usina casa pelo nome do Fracttal (`disponibilidade.usinas` do
-  pacote), que é como o livro a chama; a que não tem esse nome no cadastro sai em `semPar` e a tela diz. A conta mora
+  pacote), que é como o livro a chama; a que não tem esse nome no cadastro sai em `semPar` e a tela diz. **A usina
+  que o Fracttal junta com a vizinha** (`nome_no_livro`, Levi, 18/11: "se existir Coração no Fracttal com duas cabines
+  pode contar como Coração 2"): o livro tem "Thopen - Coração 1 e 2 - SC", o cadastro tem a 1 como "... Coração 1 ..." e
+  a 2 sem nome; as duas caem na linha do livro (mesmo cliente, mesma usina-base, o número dentro do "1 e 2"; com dois
+  candidatos não adivinha). A conta mora
   em `ronda_mural.py` (pura, com teste); a rota só lê e guarda o resultado até o livro ou o pacote mudarem.
 - **O que NÃO chega:** o veredito por tracker (normalizado ou não, motivo, ação, observação) fica só na tabela `rondas`
   do App; o livro traz só os totais por ronda. O mural mostra a ronda, não o tracker, e diz isso. Pedir ao chat do App

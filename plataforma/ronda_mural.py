@@ -40,6 +40,49 @@ def _minutos(ini, fim):
     return round(d) if 0 < d < 24 * 60 else None
 
 
+_RX_NUMS = re.compile(r"^(.*?)\s+((?:\d+|[ivx]+)(?:\s+e\s+(?:\d+|[ivx]+))*)$")
+_ROMANO = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
+
+
+def _base_e_numeros(nome):
+    """"Coração 1 e 2" → ("coracao", {1, 2}); "Coração 2" → ("coracao", {2}); "Rio do Peixe I e II" → ("rio do peixe",
+    {1, 2}); sem número no fim → (nome, set())."""
+    n = _norm(nome)
+    m = _RX_NUMS.match(n)
+    if not m:
+        return n, set()
+    nums = {int(x) if x.isdigit() else _ROMANO.get(x) for x in m.group(2).split(" e ")}
+    return (m.group(1), nums) if None not in nums else (n, set())
+
+
+def _miolo(fracttal):
+    """"Thopen - Coração 1 e 2 - SC" → ("thopen", "Coração 1 e 2"); fora do formato → ("", nome)."""
+    p = [x.strip() for x in str(fracttal or "").split(" - ")]
+    return (_norm(p[0]), " - ".join(p[1:-1])) if len(p) >= 3 else ("", str(fracttal or ""))
+
+
+def nome_no_livro(usina, fracttal, cliente, nomes_do_livro) -> str:
+    """Como o LIVRO de rondas chama a usina. O cadastro manda quando o nome dele está no livro. Senão, a usina que o
+    Fracttal junta com a vizinha (Levi, 18/11/2026: "se existir Coração no Fracttal com duas cabines pode contar como
+    Coração 2"): o livro tem "Thopen - Coração 1 e 2 - SC", o cadastro tem a Coração 1 como "Thopen - Coração 1 - SC" e a
+    Coração 2 sem nome. Vale o nome do livro do MESMO cliente e da mesma usina-base cujos números incluem o desta; com
+    mais de um candidato não adivinha. Sem achar, fica o nome do cadastro (ou "" se ele não tem)."""
+    fracttal = str(fracttal or "").strip()
+    if fracttal and fracttal in nomes_do_livro:
+        return fracttal
+    cli = _miolo(fracttal)[0] if fracttal else _norm(cliente)
+    base, nums = _base_e_numeros(_miolo(fracttal)[1] if fracttal else usina)
+    if not cli or not nums:
+        return fracttal
+    cand = []
+    for n in nomes_do_livro:
+        c2, miolo = _miolo(n)
+        b2, n2 = _base_e_numeros(miolo)
+        if c2 == cli and b2 == base and len(n2) > 1 and nums <= n2:
+            cand.append(n)
+    return cand[0] if len(cand) == 1 else fracttal
+
+
 def meses_do_livro(livro) -> list:
     return sorted({str(l.get("Data") or "")[:7] for l in livro or [] if re.match(r"^\d{4}-\d{2}", str(l.get("Data") or ""))})
 
@@ -48,7 +91,12 @@ def montar(livro, pacote, mes, hoje) -> dict:
     """livro = as linhas do `rondas_app_campo` (dicts pelo cabeçalho); pacote = o pacote de falhas de `mes` (ou None);
     hoje = AAAA-MM-DD. → o que a tela mostra."""
     pacote = pacote or {}
-    frac = {_norm(u.get("usina")): u.get("fracttal") for u in (pacote.get("disponibilidade") or {}).get("usinas") or [] if u.get("fracttal")}
+    nomes = {l.get("Usina") for l in livro or [] if l.get("Usina")}          # o livro inteiro (90 dias), não só o mês
+    frac = {}
+    for u in (pacote.get("disponibilidade") or {}).get("usinas") or []:
+        f = nome_no_livro(u.get("usina"), u.get("fracttal"), u.get("cliente"), nomes)
+        if f:
+            frac[_norm(u.get("usina"))] = f
     parados, sem_par = {}, {}
     for r in (pacote.get("trackers") or {}).get("rows") or []:
         if r.get("fim"):

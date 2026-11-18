@@ -33,6 +33,27 @@ PACOTE = {"gerado_em": "2026-11-17 14:32",
                                 {"usina": "Usina Sem Nome", "cliente": "Thopen", "fonte": "pv", "tracker": "TRK1", "inicio": "2026-11-09 08:00", "fim": None}]}}
 
 
+def test_a_usina_que_o_fracttal_junta_com_a_vizinha():
+    """Levi, 18/11/2026: "SE EXISTIR CORAÇÃO NO FRACTTAL COM DUAS CABINES PODE CONTAR COMO CORAÇÃO 2". O livro chama de
+    "Thopen - Coração 1 e 2 - SC"; o cadastro tem a 1 como "Thopen - Coração 1 - SC" e a 2 sem nome do Fracttal."""
+    livro = {"Thopen - Coração 1 e 2 - SC", "Thopen - Usina A - SP", "2C - Tupi Paulista 1 e 2 - SP", "Apolo - Rio do Peixe I e II - PB",
+             "Thopen - Guatambu 1 e 2 - SP", "Thopen - Guatambu 1 e 2 e 3 - SP"}
+    assert rm.nome_no_livro("Coração 1", "Thopen - Coração 1 - SC", "Thopen", livro) == "Thopen - Coração 1 e 2 - SC"
+    assert rm.nome_no_livro("Coração 2", "", "Thopen", livro) == "Thopen - Coração 1 e 2 - SC"
+    assert rm.nome_no_livro("Usina A", "Thopen - Usina A - SP", "Thopen", livro) == "Thopen - Usina A - SP"       # o cadastro manda quando está no livro
+    assert rm.nome_no_livro("Rio do Peixe II", "", "Apolo", livro) == "Apolo - Rio do Peixe I e II - PB"         # romano também
+    assert rm.nome_no_livro("Coração 3", "", "Thopen", livro) == ""                                              # o 3 não está no "1 e 2"
+    assert rm.nome_no_livro("Coração 2", "", "Athon", livro) == ""                                               # outro cliente não casa
+    assert rm.nome_no_livro("Guatambu 1", "", "Thopen", livro) == ""                                             # dois candidatos: não adivinha
+    assert rm.nome_no_livro("Usina Nova", "Thopen - Usina Nova - SP", "Thopen", livro) == "Thopen - Usina Nova - SP"   # sem ronda no livro: o do cadastro
+    # no mural: os parados da Coração 1 e da 2 e a ronda caem na MESMA linha, e a 2 deixa de ficar de fora
+    pac = {"disponibilidade": {"usinas": [{"usina": "Coração 1", "fracttal": "Thopen - Coração 1 - SC", "cliente": "Thopen"}, {"usina": "Coração 2", "fracttal": "", "cliente": "Thopen"}]},
+           "trackers": {"rows": [{"usina": "Coração 1", "cliente": "Thopen", "fonte": "pv", "tracker": "TRK1", "inicio": "2026-11-10 08:00", "fim": None},
+                                 {"usina": "Coração 2", "cliente": "Thopen", "fonte": "pv", "tracker": "TRK9", "inicio": "2026-11-11 08:00", "fim": None}]}}
+    m = rm.montar([_linha("2026-11-12", "Thopen - Coração 1 e 2 - SC", "Ana", 2, 2)], pac, "2026-11", "2026-11-18")
+    assert [(u["u"], u["par"], u["nT"], u["ap"], u["rs"]) for u in m["usinas"]] == [("Thopen - Coração 1 e 2 - SC", 2, 1, 2, 2)] and m["semPar"] == []
+
+
 def test_a_conta_do_mural():
     m = rm.montar(LIVRO, PACOTE, "2026-11", "2026-11-18")
     us = {u["u"]: u for u in m["usinas"]}
