@@ -1315,3 +1315,43 @@ def test_as_falhas_do_mes_dentro_da_sala():
     assert 'f.contentWindow.postMessage({gc: "st-recorte", g, pid}, location.origin)' in html     # trocar o recorte não recarrega o quadro
     assert 'if (ev.source !== f.contentWindow) return;' in html                                   # só o quadro das falhas manda na altura, no aviso e na OS
     assert 'if (d.gc === "st-criar-os") abreJanela(' in html and '!["gp", "dp", "fal"].includes(ABA)' in html
+
+
+def test_a_usina_com_logger_no_cos_mostra_as_strings_sem_esperar_a_api_pv():
+    """Levi, 18/11/2026, a Taguaí: "ali na lateral tá dizendo que está lendo do COS; esperei 1 min e nada de carrega, fui
+    lá em monitoramento no COS e carregou quase que instantaneamente, onde está o gargalo?". A rota da usina na API PV
+    levou 60 s (504) e 59 s, e o COS só era consultado depois dela. A leitura do logger sai junto e a aba Strings a mostra
+    enquanto a fonte não responde: com os nomes do logger, sem cor de defeito. A regra roda de verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    junto = 'if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => { if (SEL.u === u.u && ABA === "str" && !D.drill[u.u]) redesenhar(); });'
+    assert html.count(junto) == 1 and html.index(junto) < html.index("try { pl = await pega(urlPl, 90000); }")     # ANTES da fonte
+    assert 'const prov = ABA === "str" ? cosProv(u) : "";' in html and "</div>`) + prov; return; }" in html          # embaixo do "lendo" e do erro
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const chaveInv = n =>"):html.index("// A CURVA DE STRINGS PELO LOGGER DO COS")]
+    cosi = {"cartoes": [{"pid": 7, "inversores": [
+        {"id": "tag1:1", "nome": "INVERSOR02", "modbus_id": 1, "kw": 98.4, "ss": [[2, 4.49], [1, 4.06], [10, 0.0], [3, None]]},
+        {"id": "tag1:2", "nome": "INVERSOR01", "modbus_id": 2, "kw": 101.2, "ss": []}]}]}
+    script = ("const natural = (a, b) => String(a).localeCompare(String(b), 'pt-BR', {numeric: true}), esc = s => String(s), nf = (v, d) => Number(v).toFixed(d || 0).replace('.', ','), horaSP = () => '12:14';\n"
+              "const SKEY = {g1: 'pv', g2: 'pg'}, NOME = {g1: 'Thopen · API PV'}, COSU = {'g1|Taguaí': 1, 'g2|Outra': 1}, ehApiPv = sk => sk === 'pv', SEL = {}, D = {drill: {}};\n"
+              "const cosDe = () => [{id: 7, nome: 'Taguai 1', fonte: 'SCADA Grid'}]; let COS = {usinas: []}, COSI = " + json.dumps(cosi) + ", COSI_EM = 0, ABA = 'str', pedidos = 0;\n"
+              "function lerCosInv() { pedidos++; return new Promise(() => {}); }\n" + js +
+              "\nconst h = cosProv({u: 'Taguaí', g: 'g1', pid: 1}), fora = cosProv({u: 'Sem logger', g: 'g1', pid: 2}), outraApi = cosProv({u: 'Outra', g: 'g2', pid: 3});\n"
+              "COSI = null; const lendo = cosProv({u: 'Taguaí', g: 'g1', pid: 1}); COSI = {erro: 'fora'}; const erro = cosProv({u: 'Taguaí', g: 'g1', pid: 1});\n"
+              "console.log(JSON.stringify({h, fora, outraApi, lendo, erro, pedidos}));")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    o = json.loads(r.stdout)
+    h = o["h"]
+    assert "Strings pelo logger do COS · lido às 12:14" in h and "<th>Taguai 1</th>" in h
+    assert h.index("INVERSOR01") < h.index("INVERSOR02")                                    # na ordem do NOME (o modbus diz o contrário)
+    assert "101,2 kW" in h and "2 de 4" in h                                                # 4,49 e 4,06 com corrente; a 0,00 e a sem leitura, não
+    assert h.index("Entrada 1 do logger: 4,06 A") < h.index("Entrada 2 do logger: 4,49 A") < h.index("Entrada 10 do logger: 0,00 A")   # as entradas na ordem do índice
+    assert h.count('class="st inativa"') == 2 and "sem_corrente" not in h and "baixa_perf" not in h   # cinza, nunca cor de defeito
+    assert "data-st=" not in h and "data-inv=" not in h                                      # nada clicável como se fosse o inversor da fonte
+    assert "o logger não trouxe as entradas deste inversor" in h                             # o INVERSOR01, sem `ss`
+    assert o["fora"] == "" and o["outraApi"] == "" and o["erro"] == ""                       # sem logger, de outra API que não a PV, ou o COS fora: nada
+    assert "Lendo os inversores no logger do COS" in o["lendo"] and o["pedidos"] == 1        # sem a leitura ainda: pede e avisa

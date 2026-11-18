@@ -2772,6 +2772,18 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     duas forças** (`zer`): com string parada igual nas duas leituras a numeração das strings está provada; com todas
     ligadas dos dois lados o inversor está certo pelo nome, mas a numeração não tem como ser conferida naquele momento
     (a nota da curva diz qual das duas). "Sem corrente" no logger é até 0,1 A.
+  - **As strings pelo logger do COS enquanto a API PV não responde (18/11, a Taguaí; `cosProv`, `invsCos`).** Levi: "ali
+    na lateral tá dizendo que está lendo do COS; esperei 1 min e nada de carrega, fui lá em monitoramento no COS e
+    carregou quase que instantaneamente, onde está o gargalo?". Medido às 12:14: `/api/plant/18749261?tabela=1` deu 504
+    aos 60 s e, de novo, 200 aos 59 s. O gargalo é a API PV: com o `PV_DET_CICLO` desligado, o `?tabela=1` cai na
+    leitura ao vivo (o `day_inverter`, o dia inteiro de leituras) a cada abertura, e o COS só era consultado DEPOIS
+    dela. Agora o `lerUsina` pede o `/cos/inversores` JUNTO com a fonte e a aba Strings mostra o quadro do logger
+    enquanto a fonte não responde (ou embaixo do erro, se ela falhar): nomes e numeração DO LOGGER (não se liga a
+    inversor da fonte sem a leitura dela), entrada sem corrente em cinza (o logger não sabe o que está sem cabo), sem
+    esperadas, trancadas, OS nem a conta de strings fora, que são da leitura da fonte. Chegou a fonte, o quadro some e
+    entra a aba de sempre. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
+    a fonte até o detalhe do ciclo voltar (`PV_DET_CICLO`, montado só com cache). Prova: abrir uma usina da API PV com
+    a marca COS e ver o quadro antes de a lista de inversores chegar.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no
     eixo e na dica; o "lado a lado" da tarde virou uma coluna Y por dia e foi desfeito); a curva das fontes do SCADA
     da Grid e da SunOp vai **em fila** (`EM_FILA`, `FILA_CURVA`: a Corrente das strings pedia todos os inversores juntos
