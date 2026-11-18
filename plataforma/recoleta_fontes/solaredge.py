@@ -27,6 +27,7 @@ Nada é gravado: a Coletas monta a planilha e a pessoa cola.
 """
 import datetime as dt
 import threading
+import time
 import types
 
 try:
@@ -69,6 +70,7 @@ def contexto(app):
     corpo do `se_irradiance` do coletor), a sessão HTTP (`_http`) e os cabeçalhos com o login Cognito automático
     (`_se_headers` -> `_get_se_cookie` -> `_se_login`, credencial do `se_credentials.txt`). Nenhum token colado."""
     return types.SimpleNamespace(mapa=app._recoleta_mapa(), sites=app.se_sites, devices=app.se_devices,
+                                 tabela=lambda: (app._se_cache.get("payload") or {}).get("rows") or [],
                                  dev_falha=app._se_dev_falha, render_mes=app._se_render_month, http=app._http,
                                  headers=app._se_headers, base=app.SE_BASE)
 
@@ -82,10 +84,23 @@ def _memo(ctx):
     return m
 
 
+# A lista de sites muda quase nunca e o `se_sites` vai à SolarEdge a cada chamada (login Cognito + searchSites): a 1ª
+# leitura das usinas na Coletas do Nexus levou 44 s (Levi, 18/11/2026: "a leitura de usinas da fonte demora muito").
+# Fica guardada 6 h (só lista não vazia); sem ela, a lista sai da tabela do tempo real que o worker já montou.
+_SITES = {"t": 0.0, "v": None}
+SITES_TTL_S = 6 * 3600
+
+
+def _sites_guardados():
+    return _SITES["v"] if _SITES["v"] and time.time() - _SITES["t"] < SITES_TTL_S else None
+
+
 def _sites(ctx):
     m = _memo(ctx)
     if m.get("sites") is None:
-        m["sites"] = list(ctx.sites() or [])
+        m["sites"] = _sites_guardados() or list(ctx.sites() or [])
+        if m["sites"] and m["sites"] is not _SITES["v"]:
+            _SITES.update(v=m["sites"], t=time.time())
     if not m["sites"]:
         # o `se_sites` devolve [] quando a SolarEdge cai, o login falha ou ela responde vazio por limite: dizer isso,
         # e não "planta que esta fonte não conhece" (o validar recusaria todo id com a lista vazia)
@@ -107,7 +122,23 @@ def _devs(ctx, sid):
     return m[int(sid)], None
 
 
+def _plantas_da_tabela(ctx):
+    """A lista pela tabela do tempo real (as linhas têm `plant_id` e a usina pelo nome de exibição, que é a aba): na
+    hora, sem ir à SolarEdge. Só entra a linha cuja usina é aba do cadastro."""
+    tabela = getattr(ctx, "tabela", None)
+    abas = set(getattr(ctx.mapa, "inv_por_usina", {}) or {})
+    out = []
+    for r in (tabela() if tabela else []) or []:
+        if r.get("plant_id") is not None and r.get("usina") in abas:
+            out.append({"id": str(r["plant_id"]), "usina": r["usina"], "destino": "BD_Performance", "planta": None})
+    return sorted(out, key=lambda p: p["usina"])
+
+
 def plantas(ctx):
+    if not _sites_guardados():
+        rapido = _plantas_da_tabela(ctx)
+        if rapido:
+            return rapido
     out = []
     for s in _sites(ctx):
         aba = ctx.mapa.usina_de(s.get("nome") or "")

@@ -89,6 +89,7 @@ def irr_serie(pontos, nome="Global Irradiance"):
 
 
 def ctx_de(responder=None, render=None, devs=None, falha=None, sites=None):
+    se._SITES.update(v=None, t=0.0)          # cada contexto é uma SolarEdge nova: nada dos sites guardado (6 h no módulo)
     sessao = Sessao(responder or (lambda url, corpo: Resp(500)))
     renders = []
 
@@ -321,3 +322,30 @@ def test_rota_generica_com_a_solaredge(monkeypatch):
     # Xavantina 2 não tem a estação e a Xavantina 1 não está na conta dublada: aviso, nenhum IPOA inventado
     assert j["escalares"] == [] and any("Xavantina 1" in a for a in j["avisos"])
     assert j["consultas"] == 0 and j["teto"] is None and j["cota_restante"] is None and j["dias_fora"] == []
+
+
+def test_lista_rapida_pela_tabela_e_sites_guardados(monkeypatch):
+    """18/11/2026 (Levi: "a leitura de usinas da fonte demora muito"): a 1ª lista levou 44 s indo à SolarEdge. Sem os
+    sites guardados, a lista sai da tabela do tempo real; depois de uma leitura boa, os sites ficam 6 h guardados."""
+    import types as _t
+    from recoleta_fontes import comum as _c, solaredge as se
+    monkeypatch.setattr(se, "_SITES", {"t": 0.0, "v": None})
+    mapa = _c.Mapa([{"Usina Supervisório": "UFV Nobres", "Equipamento Supervisório": "Inverter 1", "Usina": "Nobres",
+                     "Equipamento": "Inversor 1"}])
+    chamou = []
+    ctx = _t.SimpleNamespace(mapa=mapa, sites=lambda: chamou.append(1) or [{"id": 4425866, "nome": "UFV Nobres"}],
+                             tabela=lambda: [{"plant_id": 4425866, "usina": "Nobres"}, {"plant_id": 9, "usina": "Outra"}])
+    assert se.plantas(ctx) == [{"id": "4425866", "usina": "Nobres", "destino": "BD_Performance", "planta": None}]
+    assert chamou == []                                                    # não foi à SolarEdge
+    ctx2 = _t.SimpleNamespace(mapa=mapa, sites=ctx.sites, tabela=lambda: [])
+    assert [p["usina"] for p in se.plantas(ctx2)] == ["Nobres"] and chamou == [1]
+    ctx3 = _t.SimpleNamespace(mapa=mapa, sites=ctx.sites, tabela=lambda: [])
+    se.plantas(ctx3)
+    assert chamou == [1]                                                   # guardado: a 2ª lista não vai à fonte
+
+
+@pytest.fixture(autouse=True)
+def _sites_sem_cache(monkeypatch):
+    """Os sites ficam guardados no módulo (6 h): cada teste começa sem nada guardado."""
+    from recoleta_fontes import solaredge as _se
+    monkeypatch.setattr(_se, "_SITES", {"t": 0.0, "v": None})
