@@ -101,6 +101,8 @@ function sit(u) {
 }
 const GRUPOS = [["sem", "Parado agora, sem ronda de trackers no mês", "c"], ["inc", "Devolutiva incompleta", "s"], ["velha", "Última ronda há mais de 7 dias", "a"], ["ok", "Em dia", "o"]];
 let US = [];
+// mês passado não tem "agora": o tracker que ficou sem voltar está "em aberto no fim do mês"
+const ag = (agora, fim) => !D || D.mes === D.hoje.slice(0, 7) ? agora : fim;
 const noRecorte = u => (!SIT || u.s[1] === SIT) && (!SEL || u.u === SEL) && (!F.cli || cliente(u.u) === F.cli);
 const rondaNoFiltro = r => (!SEL || r.u === SEL) && (!F.cli || cliente(r.u) === F.cli) && (!F.reg || r.reg === F.reg) && (!F.inc || r.rs < r.ap);
 let CLIENTES = [], REGIOES = [];
@@ -114,7 +116,7 @@ function lado() {
     if (!us.length) return "";
     const aberto = !!f || SIT === id || (SEL && us.some(u => u.u === SEL)) || (!SIT && !SEL && id === "sem");
     return `<div class="f ${aberto ? "aberto" : ""}"><div class="g ${SIT === id && !SEL ? "on" : ""}" data-sit="${id}"><div class="l1"><span class="seta">›</span><b>${rot}</b><small>${pl(us.length, "usina")}</small></div>
-      <div class="tri"><div>Parados<b class="${us.some(u => u.par) ? "" : "z"}">${n0(us.reduce((a, u) => a + u.par, 0))}</b><i>agora</i></div><div>Rondas<b class="cz">${us.reduce((a, u) => a + u.nT, 0)}</b><i>c/ trackers</i></div><div>Devol.<b class="cz">${(a => a ? Math.round(us.reduce((x, u) => x + u.rs, 0) / a * 100) + "%" : "—")(us.reduce((x, u) => x + u.ap, 0))}</b></div></div></div>
+      <div class="tri"><div>Parados<b class="${us.some(u => u.par) ? "" : "z"}">${n0(us.reduce((a, u) => a + u.par, 0))}</b><i>${ag("agora", "em aberto")}</i></div><div>Rondas<b class="cz">${us.reduce((a, u) => a + u.nT, 0)}</b><i>c/ trackers</i></div><div>Devol.<b class="cz">${(a => a ? Math.round(us.reduce((x, u) => x + u.rs, 0) / a * 100) + "%" : "—")(us.reduce((x, u) => x + u.ap, 0))}</b></div></div></div>
       <div class="us"><div class="uc"><span>Usina</span><span title="Trackers parados agora (falhas do mês)">Par.</span><span title="Última ronda com trackers apontados">Última</span></div>
       ${us.map(u => `<div class="u ${SEL === u.u ? "on" : ""}" data-u="${esc(u.u)}" title="${esc(u.u)}"><span class="n"><span class="pt ${cls === "c" ? "critico" : cls === "s" || cls === "a" ? "atencao" : ""}"></span>${esc(curto(u.u))}</span>
         <span>${u.par ? `<b>${u.par}</b>` : `<span class="zero">—</span>`}</span><span>${u.ultT ? dm(u.ultT.d) : `<span class="zero">—</span>`}</span></div>`).join("")}</div></div>`; }).join("");
@@ -127,7 +129,7 @@ function kpis() {
   const k = (id, cls, rot, num, un, sub, dica) => `<button class="kn ${cls}" data-kpi="${id}" aria-pressed="${on[id]}" style="${on[id] ? "outline:1.5px solid var(--verde)" : ""}" title="${esc(dica)}"><small>${rot}</small><div class="num"><b>${num}</b><span>${un}</span></div><div class="sub">${sub}</div></button>`;
   q("#kpis").innerHTML = k("rondas", "", "Rondas com trackers", com.length, "no mês", `de ${D.nRondas} rondas do App · ${tec} de ${D.nTec} técnicos apontaram tracker`, "Abre as rondas com trackers do mês")
     + k("devol", rs / ap >= .95 ? "bom" : "acao", "Devolutiva", ap ? Math.round(rs / ap * 100) + "%" : "—", "dos apontados", `${n0(rs)} respondidos de ${n0(ap)} trackers apontados`, "Abre a devolutiva por técnico, da pior para a melhor")
-    + k("sem", sem.length ? "crit" : "bom", "Parado e sem ronda", sem.length, sem.length === 1 ? "usina" : "usinas", `de ${comPar.length} com tracker parado agora · ${n0(sem.reduce((a, u) => a + u.par, 0))} trackers parados nessas usinas`, "Filtra o mural: usinas com tracker parado agora e nenhuma ronda de trackers no mês")
+    + k("sem", sem.length ? "crit" : "bom", "Parado e sem ronda", sem.length, sem.length === 1 ? "usina" : "usinas", `de ${comPar.length} com tracker ${ag("parado agora", "em aberto no fim do mês")} · ${n0(sem.reduce((a, u) => a + u.par, 0))} trackers parados nessas usinas`, "Filtra o mural: usinas com tracker parado agora e nenhuma ronda de trackers no mês")
     + k("inc", inc.length ? "acao" : "bom", "Devolutiva incompleta", inc.length, inc.length === 1 ? "ronda" : "rondas", inc.length ? inc.slice(0, 2).map(r => curto(r.u) + " (" + r.rs + " de " + r.ap + ", " + dm(r.d) + ")").join(" · ") : "todo tracker apontado teve resposta", "Abre só as rondas em que ficou tracker apontado sem resposta");
 }
 
@@ -144,7 +146,7 @@ function topo() {
 const barra = (rs, ap) => ap ? `<span class="barra ${rs < ap ? (rs ? "s" : "c") : ""}"><i style="width:${Math.round(rs / ap * 100)}%"></i></span>${rs} de ${ap}` : `<span class="zero">—</span>`;
 function detalhe(u) {
   const rd = D.rondas.filter(r => r.u === u.u);
-  return `<div class="ocx"><div class="det"><div><h4>Parados agora (${u.par})</h4>${u.trk.length ? u.trk.map(t => `<div class="li"><span><b>${esc(t[0])}</b>${t[2] ? ` <span class="tag n">crônico</span>` : ""}</span><span>parou em ${dm(t[1])}</span></div>`).join("") + (u.par > u.trk.length ? `<div class="mais">e mais ${u.par - u.trk.length}</div>` : "") : `<div class="mais">Nenhum tracker parado agora pelas falhas do mês.</div>`}</div>
+  return `<div class="ocx"><div class="det"><div><h4>${ag("Parados agora", "Em aberto no fim do mês")} (${u.par})</h4>${u.trk.length ? u.trk.map(t => `<div class="li"><span><b>${esc(t[0])}</b>${t[2] ? ` <span class="tag n">crônico</span>` : ""}</span><span>parou em ${dm(t[1])}</span></div>`).join("") + (u.par > u.trk.length ? `<div class="mais">e mais ${u.par - u.trk.length}</div>` : "") : `<div class="mais">Nenhum tracker ${ag("parado agora", "em aberto no fim do mês")} pelas falhas do mês.</div>`}</div>
     <div><h4>Rondas com trackers no mês (${rd.length})</h4>${rd.length ? rd.map(r => `<div class="li"><span>${dm(r.d)} · <b>${esc(r.tec)}</b> · ${esc(r.tipo)}${r.falhas ? ` <span class="sub">${esc(r.falhas)}</span>` : ""}</span><span>${barra(r.rs, r.ap)}</span><span style="width:64px;text-align:right">${dur(r.min)}</span></div>`).join("") : `<div class="mais">Nenhuma ronda com tracker apontado nesta usina neste mês${u.n ? " (" + pl(u.n, "ronda") + " sem tracker apontado)" : ""}.</div>`}
       <div class="mais" style="margin-top:10px">O que o técnico respondeu em CADA tracker (normalizado ou não, o motivo, a ação e a observação) fica guardado no App e ainda não chega aqui: por isso o mural mostra a ronda, não o tracker.</div></div></div></div>`;
 }
@@ -168,7 +170,7 @@ function corpo() {
   q("#corpo").innerHTML = `<div class="diasel barrafix" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="btnl ${!SIT ? "on" : ""}" data-sitf="">Todas</button>${GRUPOS.map(([id, rot]) => `<button class="btnl ${SIT === id ? "on" : ""}" data-sitf="${id}" title="${esc(rot)}">${id === "sem" ? "Parado e sem ronda" : id === "inc" ? "Devolutiva incompleta" : id === "velha" ? "Ronda há mais de 7 dias" : "Em dia"} (${cont(id)})</button>`).join("")}
       ${sel("cli", "Cliente", CLIENTES, F.cli)}<span style="color:var(--mudo);font-size:12.5px;margin-left:6px">${pl(us.length, "usina")}</span><span style="flex:1"></span>${limpar()}</div>
     <div class="faixa"><span class="tag i">O que o App manda hoje</span><span>De cada ronda chegam o técnico, a usina, o início e o fim, a nota e <b>quantos trackers foram apontados e quantos tiveram resposta</b>. O veredito tracker a tracker (normalizado ou não, motivo, ação) ainda fica só no App: com ele, cada tracker parado desta lista ganha a resposta do campo.</span></div>
-    <div class="ocl" style="margin-top:12px"><div class="oc m6 cab"><span>Usina</span><span class="d">Parados agora</span><span>Última ronda com trackers</span><span>Apontados → respondidos (mês)</span><span>Situação</span></div>
+    <div class="ocl" style="margin-top:12px"><div class="oc m6 cab"><span>Usina</span><span class="d">${ag("Parados agora", "Em aberto")}</span><span>Última ronda com trackers</span><span>Apontados → respondidos (mês)</span><span>Situação</span></div>
     ${us.slice(0, LIM).map(u => { const t = u.ultT, ab = ABERTAS.has(u.u); return `<div class="oc m6 ${u.s[0] === "c" ? "ab" : ""} ${ab ? "on" : ""}" data-oc="${esc(u.u)}" role="button" tabindex="0" aria-expanded="${ab}">
       <span title="${esc(u.u)}"><b>${esc(curto(u.u))}</b><span class="sub">${esc(cliente(u.u))}</span></span><span class="d">${u.par ? `<b style="color:var(--severo)">${u.par}</b>` : `<span class="zero">—</span>`}</span>
       <span>${t ? `${dm(t.d)} · ${esc(t.tec)}<span class="sub">${dur(t.min)}${u.nT > 1 ? " · " + u.nT + " no mês" : ""}</span>` : `<span class="zero">nenhuma no mês</span>${u.n ? `<span class="sub">${pl(u.n, "ronda")} sem tracker apontado</span>` : ""}`}</span>
