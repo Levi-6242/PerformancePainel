@@ -3065,6 +3065,10 @@ Acessos; a chave daqui é uma só). Uma rota por fonte, o MESMO contrato, nada g
   o coletor não gravou de 06 a 16/11: conferir com chamada real antes de confiar; a Tupi Paulista por inversor no
   `energy` só entra no 400 "grande demais" e nunca foi testada na API de verdade; a comparação valor a valor do porte do
   pg com o SQL do coletor ficou para o servidor.
+- **A lista de usinas sai na hora** (Levi, 18/11/2026: "está demorando muito para aparecer a lista de usinas, lamentável";
+  medido: apipv/chuva 37,6 s quando os 5 min do `get_plants` venciam, SolarEdge 44 s na 1ª): apipv e chuva servem a
+  última lista boa (`_RECOLETA_PLANTAS`) e renovam em fundo; a SolarEdge guarda os sites 6 h e, sem eles, monta a
+  lista da tabela do tempo real (`_se_cache`, "planta" vem null nesse caminho). O POST continua indo à fonte.
 - Testes: `tests/test_recoleta_fontes.py` (comum, apipv, chuva, rota, chave do Nexus) e um por fonte
   (`test_recoleta_pg/scada/solaredge/oem/sunop.py`), todos com a fonte dublada.
 
