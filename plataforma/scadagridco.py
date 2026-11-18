@@ -45,7 +45,7 @@ LIMITE = 5000                    # registros por página (a doc pede 5.000 a 20.
 # dia de cada equipamento contra o kWh diário da aba de 27 a 30/09/2026: na Irecê 2 a ordem NÃO é a do cadastro (o 4 é
 # o Inversor 1.8, o 7 é o 1.4); o 7 bateu em 3 dos 4 dias ao centésimo, e no 29/09 o contador dele amanheceu com o
 # valor da véspera. A Demerval Lobão tem só a UG 01 no scadaGridco (12 de 20 inversores, 3.246 de 5.410 kWp): o 1 a 12
-# batem com o Inversor 1.1 a 1.12, e a UG 02 fica fora da conta da usina (como a União na 2C).
+# batem com o Inversor 1.1 a 1.12. Desde 04/11/2026 a UG 02 também vem (ver `apelidos`, abaixo).
 # Sal Energia: `None` = pela ORDEM do cadastro (slave 1 = o 1º inversor). PROVISÓRIO: sem uma leitura sequer não há
 # como fechar por valor — confirmar quando o supervisório voltar a ler os inversores.
 FONTES = {
@@ -53,13 +53,25 @@ FONTES = {
         "rotulo": "GreenYellow",
         "via": "mqtt",
         "usinas": [
+            # O SUPERVISÓRIO RENOMEOU os inversores de "N" para "inversor-NN" (Demerval em 04/11/2026, Irecê 2 em 05/11) e
+            # o de-para, que esperava "N", não casava com nenhum: as duas saíam com ZERO inversor no tempo real (Levi,
+            # 17/11/2026: "As strings de demerval e irece 2 não estão aparecendo?"). `apelidos` = {nome no supervisório:
+            # a chave do equipamento AQUI}: a chave continua "N" de propósito, porque é por ela que estão guardadas as
+            # strings trancadas, o acompanhamento e o de-para decidido na tela. Na mesma troca a UG 02 da Demerval
+            # passou a vir ("inversor-NN-12", 8 inversores): entra PELA ORDEM (= Inversor 2.N), como o coletor e a
+            # recoleta já fazem desde 17/11 (Levi: "pode botar agora"), sem histórico para fechar pelo valor.
             {"id": "dermeval_lobao", "usina": "Demerval Lobao",
-             "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 13)}},
+             "inversores": {**{str(i): f"Inversor 1.{i}" for i in range(1, 13)},
+                            **{f"inversor-{i:02d}-12": f"Inversor 2.{i}" for i in range(1, 9)}},
+             "apelidos": {f"inversor-{i:02d}": str(i) for i in range(1, 13)}, "apelidos_desde": "2026-11-04",
+             "provisorio": "Demerval Lobão: a UG 02 (inversor-NN-12 = Inversor 2.N) entra pela ordem, sem histórico "
+                           "para fechar pelo valor"},
             # Irecê 2: ORDEM NATURAL desde 01/10/2026 (10/10 por valor em 01, 05 e 09/10, contra o que a equipe digitou).
             # O de-para de 27-30/09 (4 = 1.8, 7 = 1.4...) só batia em setembro: em outubro a aba segue a ordem natural, e
             # é ela que o coletor da GreenYellow grava desde 13/10 (coleta API PV/src/coletar_greenyellow.py).
             {"id": "irece_2", "usina": "Irece 2",
-             "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
+             "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)},
+             "apelidos": {f"inversor-{i:02d}": str(i) for i in range(1, 11)}, "apelidos_desde": "2026-11-05"},
             # Macaíba (10/11/2026, Levi: "Em greenyellow também temos macaíba"). A descoberta não a achava: o supervisório
             # a chama "Macaíba" e o cadastro "Macaiba 1". 15 equipamentos inversor ("1" a "15", 24 entradas string_N_current,
             # 14 com corrente cada) contra 15 no cadastro (1.1 a 1.8 na UG 01, 2.1 a 2.7 na UG 02, 14 strings todos).
@@ -167,6 +179,20 @@ def scada_id(fonte, pid):
 def via(fonte, pid):
     cfg = usina_cfg(fonte, pid) or {}
     return cfg.get("via") or FONTES[fonte]["via"]
+
+
+def _apelidos(fonte, pid) -> dict:
+    return (usina_cfg(fonte, pid) or {}).get("apelidos") or {}
+
+
+def equip_interno(fonte, pid, nome) -> str:
+    """O nome do equipamento no supervisório → a chave dele aqui (a mesma, menos na usina com `apelidos`)."""
+    return _apelidos(fonte, pid).get(str(nome), str(nome))
+
+
+def equip_no_supervisorio(fonte, pid, equip) -> str:
+    """A chave do equipamento aqui → o nome que o supervisório usa HOJE (o que vai na pergunta à API)."""
+    return next((n for n, e in _apelidos(fonte, pid).items() if e == str(equip)), str(equip))
 
 
 _RX_EQUIP = re.compile(r"^\D*?(\d+)(?:\D+(\d+))?\s*$")
@@ -332,7 +358,11 @@ def leituras(fonte, pid) -> list:
     sid = scada_id(fonte, pid)
     if via(fonte, pid) == "mqtt":
         d = get(f"/api/mqtt/{sid}")
-        return [leitura_mqtt(e) for e in (d.get("equipamentos") or []) if e.get("tipo") == "inverter"]
+        ap = _apelidos(fonte, pid)
+        out = [leitura_mqtt(e) for e in (d.get("equipamentos") or []) if e.get("tipo") == "inverter"]
+        for x in out:
+            x["equip"] = ap.get(x["equip"], x["equip"])      # o nome novo do supervisório → a chave de sempre
+        return out
     d = get(f"/api/inversores/{sid}")
     return [leitura_modbus(u) for u in (d.get("units") or [])]
 
@@ -598,9 +628,18 @@ def curva_inversor(fonte, pid, equip, dia, apos_ts=None, getter=None) -> dict:
     if via(fonte, pid) == "mqtt":
         # pelo NOME do equipamento: o `indice` só filtra quem tem nome numérico ("1"); na Cedro, "inversor-01" com
         # indice=1 voltava vazio (11/10/2026). Na Demerval e na Irecê os dois dão o mesmo (1.433 e 1.430 registros)
-        regs = _paginas("/api/telemetria", {"usina": sid, "desde": dia, "ate": dia, "tipo": "inverter",
-                                            "equipamento": str(equip), "apos_ts": apos_ts}, getter)
-        return curva_mqtt([r for r in regs if str(r.get("equipamento")) == str(equip)])
+        def busca(nome):
+            regs = _paginas("/api/telemetria", {"usina": sid, "desde": dia, "ate": dia, "tipo": "inverter",
+                                                "equipamento": nome, "apos_ts": apos_ts}, getter)
+            return curva_mqtt([r for r in regs if str(r.get("equipamento")) == nome])
+        # o nome na pergunta vai pela DATA da troca (`apelidos_desde`): o registro de antes dela está gravado com o
+        # nome antigo, o de depois com o novo, e o dia da troca tem um pedaço de cada
+        nome, desde = equip_no_supervisorio(fonte, pid, equip), (usina_cfg(fonte, pid) or {}).get("apelidos_desde")
+        if nome == str(equip) or not desde or dia > desde:
+            return busca(nome)
+        if dia < desde:
+            return busca(str(equip))
+        return junta(busca(str(equip)), busca(nome)) if apos_ts is None else busca(nome)
     regs = _paginas(f"/api/dados/string", {"usina": sid, "desde": dia, "ate": dia, "slave_id": int(equip),
                                            "apos_ts": apos_ts}, getter)
     return curva_modbus([r for r in regs if str(r.get("slave_id")) == str(equip)])

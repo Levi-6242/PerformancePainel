@@ -55,7 +55,9 @@ def test_de_para_da_irece_2_segue_a_ordem_natural_desde_outubro():
     assert sg.nome_inversor(cfg, "4") == "Inversor 1.4" and sg.nome_inversor(cfg, "7") == "Inversor 1.7"
     assert sorted(cfg["inversores"].values(), key=sg.ordem_par) == [f"Inversor 1.{i}" for i in range(1, 11)]
     dem = sg.usina_cfg("greenyellow", "dermeval_lobao")
-    assert len(dem["inversores"]) == 12 and sg.nome_inversor(dem, "12") == "Inversor 1.12"   # só a UG 01
+    assert sg.nome_inversor(dem, "12") == "Inversor 1.12"
+    # a UG 02 veio com a troca de nome do supervisório (04/11/2026): 12 + 8, pela ordem
+    assert len(dem["inversores"]) == 20 and sg.nome_inversor(dem, "inversor-03-12") == "Inversor 2.3"
 
 
 def test_sal_energia_vai_pela_ordem_do_cadastro_ate_confirmar():
@@ -239,3 +241,44 @@ def test_rio_do_peixe_sem_a_ncu_unica_de_29_10():
     """Desde 03/11/2026 o supervisório manda os 96 trackers do campo: a NCU única ("1" = "NCU") saiu da configuração."""
     assert "trackers" not in sg.usina_cfg("apolo", "rio_do_peixe_1_2")
     assert not hasattr(sg, "curva_ncu") and set(sg.TIPOS_TRACKER) == {"tracker", "tracker_ncu", "tcu", "rsu"}
+
+
+def test_o_nome_novo_do_supervisorio_vira_a_chave_de_sempre(monkeypatch):
+    """Levi, 17/11/2026: "As strings de demerval e irece 2 não estão aparecendo?". O supervisório passou a chamar o
+    equipamento "4" de "inversor-04" (Demerval em 04/11, Irecê 2 em 05/11) e as duas saíam com ZERO inversor. A chave
+    aqui continua "4" (as trancadas e o acompanhamento estão guardados por ela); a pergunta à API vai com o nome novo,
+    e o dia de antes da troca, que não responde por ele, é pedido de novo pelo antigo."""
+    assert sg.equip_interno("greenyellow", "irece_2", "inversor-04") == "4" and sg.equip_interno("greenyellow", "irece_2", "4") == "4"
+    assert sg.equip_no_supervisorio("greenyellow", "irece_2", "4") == "inversor-04"
+    assert sg.equip_interno("greenyellow", "dermeval_lobao", "inversor-12") == "12"
+    assert sg.equip_interno("greenyellow", "dermeval_lobao", "inversor-03-12") == "inversor-03-12"       # a UG 02 não tem chave antiga
+    assert sg.equip_interno("greenyellow", "macaiba", "7") == "7"                                       # usina sem apelido: igual
+
+    def eq(nome):
+        return {"equipamento": nome, "tipo": "inverter", "communication_fault": 192, "ts": 1.0,
+                "measurements": {"active_power": 50.0, "string_1_current": 8.0}}
+    monkeypatch.setattr(sg, "get", lambda rota, params=None, timeout=None: {"equipamentos": [eq("inversor-01-12"), eq("inversor-01"), eq("inversor-12")]})
+    leit = sg.leituras("greenyellow", "dermeval_lobao")
+    assert [x["equip"] for x in leit] == ["inversor-01-12", "1", "12"]
+    cfg = sg.usina_cfg("greenyellow", "dermeval_lobao")
+    assert [sg.nome_inversor(cfg, x["equip"]) for x in leit] == ["Inversor 2.1", "Inversor 1.1", "Inversor 1.12"]
+
+    pedidos = []
+
+    def getter(rota, params=None):
+        pedidos.append(params["equipamento"])
+        if params["equipamento"] == "4":                     # o dia antigo só existe pelo nome antigo
+            return {"registros": [{"equipamento": "4", "ts": 10.0, "communication_fault": 192, "data_hora": "2026-10-20 12:00:00",
+                                   "pontos": {"active_power": 40.0, "string_1_current": 7.5}}]}
+        return {"registros": []}
+    c = sg.curva_inversor("greenyellow", "irece_2", "4", "2026-10-20", getter=getter)
+    assert pedidos == ["4"] and c["pot"] == [("12:00", 40.0)]                     # antes da troca (05/11): o nome antigo
+    del pedidos[:]
+    sg.curva_inversor("greenyellow", "irece_2", "4", "2026-11-17", getter=getter)
+    assert pedidos == ["inversor-04"]                                              # depois: o novo
+    del pedidos[:]
+    sg.curva_inversor("greenyellow", "irece_2", "4", "2026-11-05", getter=getter)
+    assert pedidos == ["4", "inversor-04"]                                         # o dia da troca tem um pedaço de cada
+    del pedidos[:]
+    sg.curva_inversor("greenyellow", "dermeval_lobao", "inversor-02-12", "2026-11-17", getter=getter)
+    assert pedidos == ["inversor-02-12"]                                           # a UG 02 só tem o nome novo

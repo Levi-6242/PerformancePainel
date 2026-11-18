@@ -1914,7 +1914,15 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   Esperança do Sul (`string_NN_i`, `active_power_w`, `daily_energy_kwh`).
 - **De-para dos inversores POR VALOR** (`scadagridco.FONTES`): energia do dia do scadaGridco × kWh diário da aba do
   BD_Performance, 27 a 30/09. **Irecê 2: ordem natural desde 01/10** (1 a 10 = 1.1 a 1.10, 10/10 em 01, 05 e 09/10; o de-para de 27 a 30/09, 4 = 1.8 e 7 = 1.4, só batia em setembro). A
-  Demerval Lobão tem só a UG 01 (12 de 20, 1 a 12 = 1.1 a 1.12): a linha conta as esperadas dos 12, não as 280. **Sal
+  Demerval Lobão tinha só a UG 01 (12 de 20, 1 a 12 = 1.1 a 1.12). **O supervisório renomeou os inversores da
+  Demerval (04/11) e da Irecê 2 (05/11) de "N" para "inversor-NN"** e as duas ficaram com ZERO inversor no tempo real
+  até 17/11 (Levi: "As strings de demerval e irece 2 não estão aparecendo?"). O conserto é o `apelidos` do
+  `scadagridco.FONTES` ({nome no supervisório: chave aqui}): a chave do equipamento continua "N" (é por ela que estão
+  guardadas as trancadas, o acompanhamento e o de-para decidido na tela), a pergunta à API vai com o nome novo
+  (`equip_no_supervisorio`) a partir da data da troca (`apelidos_desde`); o dia de antes é pedido pelo nome
+  antigo e o dia da troca pelos dois. Na mesma troca a UG 02 da
+  Demerval passou a vir ("inversor-NN-12" = Inversor 2.N, pela ordem, provisório): a linha conta os inversores que a
+  fonte lê, agora os 20. Renomeou de novo? Uma leitura de `/api/mqtt/<usina>` mostra os nomes de hoje. **Sal
   Energia vai pela ORDEM do cadastro, provisório** — fechar por valor quando o supervisório voltar a ler.
 - **Esperadas pelo nome de exibição** (`ESPERADO_INV_DISP`, no `load_equipamentos`): essas usinas não têm "Equipamento
   Supervisório" no cadastro, e o `ESPERADO_INV` é por ele. 14 strings por inversor nas duas da GreenYellow; o Huawei manda
