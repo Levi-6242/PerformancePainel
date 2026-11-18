@@ -1166,3 +1166,60 @@ def test_o_cos_liga_o_inversor_pelo_nome_e_so_vale_com_as_strings_conferidas():
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout) == ["1.3", None, "1.2", "1.3", "2.10", "2.3", "1.3", None, True, 1, False, False, False]      # zer = 1: a Ipv3 parada nas duas (a trancada não entra)
+
+
+def test_sem_o_historico_do_supervisorio_a_curva_do_dia_e_a_que_a_plataforma_juntou(monkeypatch):
+    """Levi, 17/11/2026: "Castelo do piaui e demerval ficaram sem leitura de trackers?". O /historico do supervisório não
+    responde para as duas (128 e 126 trackers) e cada tracker ficava com UM ponto. O worker junta o agora de cada ciclo
+    (05h às 19h) e essa é a curva do dia; o web lê o que o worker publicou e não espera pela mesma falha."""
+    from datetime import datetime as _dt
+    cfg = {"id": "usina_t", "usina": "Usina T"}
+    hora = {"h": 9, "m": 0}
+
+    def ts():
+        return _dt(2026, 11, 17, hora["h"], hora["m"], tzinfo=app._sg.TZ).timestamp()
+    monkeypatch.setattr(app._sg, "hoje", lambda: "2026-11-17")
+    monkeypatch.setattr(app._sg, "trackers_agora", lambda fonte, pid, getter=None: [
+        {"equip": "t1", "atual": 10.0 + hora["m"], "alvo": 11.0 + hora["m"], "sem_comunicacao": False, "alarmes": [], "ts": ts()},
+        {"equip": "t2", "atual": 5.0, "alvo": 11.0 + hora["m"], "sem_comunicacao": True, "alarmes": [], "ts": ts()}])
+    monkeypatch.setattr(app._sg, "scada_id", lambda fonte, pid: "usina_t")
+    pedidos = []
+
+    def falha(*a, **k):
+        pedidos.append(1)
+        raise RuntimeError("Read timed out")
+    monkeypatch.setattr(app._sg_trk_hist, "curvas", falha)
+    monkeypatch.setattr(app, "_MODO_WEB", False)
+    app._sg_trk_sem_hist.clear()
+    app._sg_trk_acum_cache.update({"ts": 0.0, "payload": None})
+    for m in (0, 5, 10):                                     # três ciclos do worker
+        hora["m"] = m
+        curvas, _agora = app._sg_trk_curvas_dia("greenyellow", cfg, "2026-11-17")
+    assert pedidos == [1]                                    # o histórico pesado é pedido uma vez; depois, a pausa
+    assert [(p[0].strftime("%H:%M"), p[1]) for p in curvas["t1"]["atual"]] == [("09:00", 10.0), ("09:05", 15.0), ("09:10", 20.0)]
+    assert [p[1] for p in curvas["t1"]["alvo"]] == [11.0, 16.0, 21.0]
+    assert curvas["t2"]["atual"] == []                       # o que não fala não ganha ponto
+    u = app._sg_trk_acum_cache["payload"]["usinas"]["greenyellow|usina_t"]
+    assert u["falhou"] and u["t"]["t1"] == [["09:00", 10.0], ["09:05", 15.0], ["09:10", 20.0]]
+    a = app._sg_trackers_analise("greenyellow", cfg)
+    assert a["sem_historico"] is True and a["curva_propria_desde"] == "09:00"
+    # de noite não junta (a régua olha das 06h às 18h)
+    hora.update(h=22, m=30)
+    app._sg_trk_curvas_dia("greenyellow", cfg, "2026-11-17")
+    assert len(app._sg_trk_acum_cache["payload"]["usinas"]["greenyellow|usina_t"]["t"]["t1"]) == 3
+    # o WEB lê o que o worker publicou: não grava e não pede o histórico que já falhou hoje
+    monkeypatch.setattr(app, "_MODO_WEB", True)
+    app._sg_trk_sem_hist.clear()
+    del pedidos[:]
+    hora.update(h=9, m=20)
+    curvas, _agora = app._sg_trk_curvas_dia("greenyellow", cfg, "2026-11-17")
+    assert pedidos == [] and len(curvas["t1"]["atual"]) == 4                                     # os 3 do worker + o agora
+    assert len(app._sg_trk_acum_cache["payload"]["usinas"]["greenyellow|usina_t"]["t"]["t1"]) == 3   # o web não gravou
+    # virou o dia: a curva própria começa de novo
+    monkeypatch.setattr(app, "_MODO_WEB", False)
+    app._sg_trk_acum_soma(("greenyellow", "usina_t"), "2026-11-18", [], True)
+    assert app._sg_trk_acum_cache["payload"]["dia"] == "2026-11-18" and app._sg_trk_acum_curvas(("greenyellow", "usina_t"), "2026-11-17") is None
+    assert "sg_trk_acum" in app._persist_registry()
+    assert "propDesde: tk.curva_propria_desde" in _html()
+    app._sg_trk_sem_hist.clear()
+    app._sg_trk_acum_cache.update({"ts": 0.0, "payload": None})

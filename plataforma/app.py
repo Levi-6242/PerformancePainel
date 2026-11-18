@@ -16751,10 +16751,63 @@ _sg_trk_sem_hist = {}      # (fonte, usina no supervisório) -> {"motivo", "ts"}
 SG_TRK_HIST_PAUSA_S = 30 * 60   # depois de uma falha, o histórico daquela usina só é pedido de novo meia hora depois
 
 
+# A CURVA PRÓPRIA (17/11/2026). Levi: "Castelo do piaui e demerval ficaram sem leitura de trackers?". Medido às 22:40: o
+# /historico do supervisório não responde para as duas (Castelo, 128 trackers: 90 s sem resposta; a Demerval ganhou 126
+# trackers na troca de nomes de 04/11) e, só com o agora, cada tracker tinha UM ponto: aba sem curva e régua sem o que
+# julgar (os 126 e os 128 saíam "parado" herdado do último dia classificado, `_trk_parados_antes`). Quando o histórico
+# falha, o worker passa a guardar o agora de cada ciclo (das 05h às 19h, o que a régua olha) e a curva do dia é essa:
+# a mesma leitura que o balde do histórico guardaria, só que juntada aqui. Vai no snapshot (`sg_trk_acum`): o web lê e
+# ela atravessa o reinício do dia. Quem já tem a curva própria de hoje segue juntando mesmo com o histórico de volta.
+_sg_trk_acum_cache = {"ts": 0.0, "payload": None}   # {"dia", "usinas": {"fonte|usina": {"falhou", "alvo": [[HH:MM, °]], "t": {tracker: [[HH:MM, °]]}}}}
+_sg_trk_acum_lock = threading.Lock()
+SG_TRK_ACUM_HORAS = (5, 19)
+
+
+def _sg_trk_acum_usina(chave, dia):
+    pl = _sg_trk_acum_cache.get("payload") or {}
+    return (pl.get("usinas") or {}).get("|".join(chave)) if pl.get("dia") == dia else None
+
+
+def _sg_trk_acum_curvas(chave, dia):
+    """A curva que a plataforma juntou hoje para a usina, no formato das curvas do histórico; None se não juntou."""
+    u = _sg_trk_acum_usina(chave, dia)
+    if not u:
+        return None
+    pts = lambda l: [(datetime.strptime(f"{dia} {h}", "%Y-%m-%d %H:%M"), v) for h, v in (l or [])]   # noqa: E731
+    alvo = pts(u.get("alvo"))
+    return {t: {"atual": pts(l), "alvo": list(alvo)} for t, l in (u.get("t") or {}).items()}
+
+
+def _sg_trk_acum_soma(chave, dia, agora, falhou=None):
+    """Junta a leitura de agora à curva própria de hoje da usina (só o worker grava). `falhou` = True/False marca se o
+    histórico do supervisório está respondendo; None não mexe na marca."""
+    with _sg_trk_acum_lock:
+        pl = _sg_trk_acum_cache.get("payload") or {}
+        if pl.get("dia") != dia:
+            pl = {"dia": dia, "usinas": {}}                  # virou o dia: começa de novo
+        u = pl["usinas"].setdefault("|".join(chave), {"falhou": 0, "alvo": [], "t": {}})
+        if falhou is not None:
+            u["falhou"] = time.time() if falhou else 0
+        for t in agora or []:
+            l = u["t"].setdefault(str(t["equip"]), [])
+            if t.get("sem_comunicacao") or t.get("ts") is None or t.get("atual") is None:
+                continue                                     # o que não fala não ganha ponto (o ângulo dele é velho)
+            q = _sg._dt_local(t["ts"])
+            if q.strftime("%Y-%m-%d") != dia or not (SG_TRK_ACUM_HORAS[0] <= q.hour < SG_TRK_ACUM_HORAS[1]):
+                continue
+            h = q.strftime("%H:%M")
+            if not l or h > l[-1][0]:
+                l.append([h, t["atual"]])
+            if t.get("alvo") is not None and (not u["alvo"] or h > u["alvo"][-1][0]):
+                u["alvo"].append([h, t["alvo"]])             # o alvo é o da usina, o mesmo em todos (como no histórico)
+        _sg_trk_acum_cache["payload"], _sg_trk_acum_cache["ts"] = pl, time.time()
+    _persist_mark()
+
+
 def _sg_trk_curvas_dia(fonte, cfg, dia):
     """(curvas {tracker: {"atual", "alvo"}}, agora {tracker: leitura}) da usina num dia. Hoje: o agora primeiro (usina
     sem tracker para aí, sem pedir o histórico), depois o histórico guardado + o ponto do agora; dia passado: só o
-    histórico."""
+    histórico. Com o histórico de hoje sem responder, a curva é a PRÓPRIA (`_sg_trk_acum_*`)."""
     agora = []
     if dia >= _sg.hoje():
         agora = _sg.trackers_agora(fonte, cfg["id"])
@@ -16762,26 +16815,38 @@ def _sg_trk_curvas_dia(fonte, cfg, dia):
             return {}, {}
     chave = (fonte, _sg.scada_id(fonte, cfg["id"]))
     marca = _sg_trk_sem_hist.get(chave)
+    por_eq = {t["equip"]: t for t in agora}
+
+    def propria(falhou=None):
+        if not _MODO_WEB:                            # só o worker (ou o processo único) grava; o web lê o que ele publicou
+            _sg_trk_acum_soma(chave, dia, agora, falhou)
+        return _sg.junta_agora(_sg_trk_acum_curvas(chave, dia) or {}, agora)
     if agora and marca and time.time() - marca["ts"] < SG_TRK_HIST_PAUSA_S:
         # falhou há pouco: não pede de novo a cada volta. O /historico pesado que não responde ocupa o supervisório por
         # quase um minuto e as chamadas SEGUINTES também falham (medido em 16/11/2026, à mão e no pacote das 17:25, em
-        # que a Irecê 2, a Macaíba e a Cedro caíram junto com a Castelo). Até a pausa vencer, vale o agora.
-        return _sg.junta_agora({}, agora), {t["equip"]: t for t in agora}
+        # que a Irecê 2, a Macaíba e a Cedro caíram junto com a Castelo). Até a pausa vencer, vale a curva própria.
+        return propria(), por_eq
+    if agora and _MODO_WEB and (_sg_trk_acum_usina(chave, dia) or {}).get("falhou"):
+        # o worker já viu o histórico de hoje falhar: o web não faz ninguém esperar um minuto pela mesma falha
+        _sg_trk_sem_hist[chave] = {"motivo": "o histórico do supervisório não respondeu ao worker", "ts": time.time()}
+        return propria(), por_eq
     try:
         curvas = _sg_trk_hist.curvas(fonte, cfg["id"], dia)
         _sg_trk_sem_hist.pop(chave, None)
+        if agora and _sg_trk_acum_usina(chave, dia) is not None:
+            propria(False)                           # voltou: a curva própria segue juntando, para a próxima falha
     except _sg.SemAcesso:
         raise
     except Exception as e:                           # noqa: BLE001
         # O histórico do dia não respondeu e o AGORA sim (16/11/2026: o /historico da Castelo do Piauí, 128 trackers,
         # devolvia 502 depois de 57 s, e a usina sumia inteira da aba; a Rio do Peixe, igual). A usina aparece com a
-        # leitura de agora, sem a curva do dia (a régua não marca "parado" em curva de um ponto), e a tela diz.
+        # curva que a plataforma juntou hoje (no 1º ciclo, só o ponto de agora), e a tela diz.
         if not agora:
             raise
-        print(f"[scadaGridco] histórico de trackers de {chave[1]} não respondeu ({type(e).__name__}): só o agora")
+        print(f"[scadaGridco] histórico de trackers de {chave[1]} não respondeu ({type(e).__name__}): a curva própria")
         _sg_trk_sem_hist[chave] = {"motivo": f"{type(e).__name__}: {str(e)[:120]}", "ts": time.time()}
-        curvas = {}
-    return _sg.junta_agora(curvas, agora), {t["equip"]: t for t in agora}
+        return propria(True), por_eq
+    return _sg.junta_agora(curvas, agora), por_eq
 
 
 def _sg_trackers_analise(fonte, cfg, date=None) -> dict:
@@ -16795,7 +16860,10 @@ def _sg_trackers_analise(fonte, cfg, date=None) -> dict:
     base["tem_trackers"] = True
     out = _trk_analise_curvas(base, trks, pid, date, rotulo=lambda n: n)
     if dia >= _sg.hoje() and (fonte, _sg.scada_id(fonte, pid)) in _sg_trk_sem_hist:
-        out["sem_historico"] = True                  # só a leitura de agora: sem a curva do dia, ninguém sai "parado"
+        out["sem_historico"] = True                  # o histórico do supervisório não veio: a curva é a própria
+        ini = [c["atual"][0][0] for c in (_sg_trk_acum_curvas((fonte, _sg.scada_id(fonte, pid)), dia) or {}).values() if c["atual"]]
+        if ini:
+            out["curva_propria_desde"] = min(ini).strftime("%H:%M")
     for t in out.get("trackers") or []:
         a = agora.get(t["id"]) or {}
         if not trks.get(t["id"], {}).get("atual") or a.get("sem_comunicacao"):
@@ -26477,6 +26545,7 @@ def _persist_registry():
         "semp_etm":      _semp_etm_cache,
         "semp_analise":  _semp_etm_analise_cache,
         "pv_det":        _pv_det_cache,       # o detalhe por inversor que o ciclo monta (17/11/2026, _pv_det_guarda)
+        "sg_trk_acum":   _sg_trk_acum_cache,  # a curva de trackers que a plataforma junta quando o /historico falha (17/11/2026)
     }
 
 

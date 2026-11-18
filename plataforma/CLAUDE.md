@@ -2736,6 +2736,15 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     zero. A ligação era "pela ordem" (o 1.3 com o SKID 1 · INV02) e a numeração das strings do logger não é a da API PV.
     Só religa com o de-para de inversor E de string entre as duas fontes conferido. As strings passaram a sair em ordem
     numérica (vinham 1, 10, 11, ..., 2, 20).
+  - **Trackers do scadaGridco sem o histórico do supervisório: a curva própria (17/11, noite).** O
+    `/api/trackers/<usina>/historico` não responde para a Castelo do Piauí (128 trackers, 90 s sem resposta em 17/11
+    22:40) nem para a Demerval Lobão (126 trackers desde a troca de 04/11), e cada tracker ficava com UM ponto: aba sem
+    curva e os 128 e 126 "parados" herdados do último dia classificado (Levi: "Castelo do piaui e demerval ficaram sem
+    leitura de trackers?"). Quando o histórico falha, o worker guarda o agora de cada ciclo (05h às 19h) em
+    `_sg_trk_acum_cache` (snapshot `sg_trk_acum`, atravessa o reinício do dia) e essa é a curva do dia
+    (`_sg_trk_curvas_dia`); o web lê o que o worker publicou e não pede o histórico que já falhou. A análise leva
+    `sem_historico` e `curva_propria_desde`, e a Sala diz desde que hora a curva existe. A Irecê 2 não tem tracker no
+    supervisório (nenhum equipamento `tracker`).
   - **A curva pelo logger do COS RELIGADA do jeito certo (17/11, 17h; `COS_CURVA_LIGADA = true`; "ponto 7, pode
     sim"):** o inversor liga pelo NOME (`chaveInv`/`chaveCos`: "SKID 1 - INV03" = "Inversor 1.3"; "INVERSOR03" do logger
     "Guatambú 2" = "Inversor 2.3"), nunca pela ordem, e a curva só vem do logger depois de `confereCos` (as strings com
