@@ -222,3 +222,18 @@ def test_lista_da_api_pv_sai_da_ultima_boa_e_renova_em_fundo(monkeypatch):
             break
         _t.sleep(0.02)
     assert len(chamadas) == 2 and app._RECOLETA_PLANTAS["v"] == {1: ("A", "A"), 2: ("B", "B")}  # renovou em fundo
+
+
+def test_de_para_da_recoleta_nao_rele_a_aba_no_pedido(monkeypatch):
+    """18/11/2026, 15:17: as sete listas da recoleta em 41-47 s juntas: o de-para relia a aba Equipamentos com pandas a
+    cada 10 min, dentro do pedido. Agora ele sai da carga do cadastro; o pedido só lê o pronto."""
+    pronto = comum.Mapa(EQUIP)
+    monkeypatch.setattr(app, "_RECOLETA_MAPA", {"t": 0.0, "m": pronto})
+    monkeypatch.setattr(app, "_equipamentos_df", lambda *a, **k: pytest.fail("releu a aba dentro do pedido"))
+    assert app._recoleta_mapa() is pronto
+    lidas = []
+    import pandas as pd
+    monkeypatch.setattr(app, "_RECOLETA_MAPA", {"t": 0.0, "m": None})
+    monkeypatch.setattr(app, "_equipamentos_df", lambda *a, **k: lidas.append(1) or pd.DataFrame(EQUIP))
+    m1, m2 = app._recoleta_mapa(), app._recoleta_mapa()
+    assert m1 is m2 and lidas == [1]                                  # sem mapa: monta uma vez só

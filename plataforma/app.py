@@ -2915,6 +2915,15 @@ def load_equipamentos():
     try:
         path = _bd_perf_path()
         df = _equipamentos_df(registrar=True)        # a aba, com as chaves que o Nexus pôs no lugar dela (fase 2)
+        # O de-para da recoleta (recoleta_fontes) sai DESTA leitura: refeito à parte, dentro do pedido, ele relia a aba
+        # com pandas a cada 10 min e, com os pedidos chegando juntos, segurava o web inteiro (18/11/2026, 15:17: as sete
+        # listas da recoleta em 41-47 s ao mesmo tempo).
+        try:
+            from recoleta_fontes import comum as _rcc_eq
+            globals().setdefault("_RECOLETA_MAPA", {"t": 0.0, "m": None}).update(m=_rcc_eq.mapa_do_df(df),
+                                                                                  t=time.time())
+        except Exception as _e_rc:                   # o cadastro do tempo real não pode cair por causa da recoleta
+            print(f"[recoleta] de-para não montado na carga do cadastro: {type(_e_rc).__name__}: {_e_rc}")
         # ABA SEM CABEÇALHO PRECISA FALHAR ALTO. Estes cinco usavam `next()` SEM default, e um
         # `StopIteration` tem str() VAZIA: o except lá embaixo imprimia "não carregado: " e mais
         # nada, com o cadastro INTEIRO ficando vazio em silêncio. Foi o que aconteceu entre 25 e
@@ -15438,14 +15447,19 @@ def _recoleta_plantas(agora=None):
 # Levi: "quero formas de coletar os dados novamente pelas nossas fontes de dados e gerar uma planilha para colar nos
 # BDs"; "Sim, todas". Cada fonte é um módulo de recoleta_fontes/ que usa os clientes que a plataforma já tem. A rota da
 # apipv acima (formato cru, a do Conversor 1.0.14) fica; o formato do contrato sai nela com ?formato=bd.
-_RECOLETA_MAPA = {"t": 0.0, "m": None}
+_RECOLETA_MAPA = globals().get("_RECOLETA_MAPA") or {"t": 0.0, "m": None}   # o load_equipamentos já pode ter montado
+_RECOLETA_MAPA_LOCK = threading.Lock()
 
 
 def _recoleta_mapa():
-    """O de-para da aba Equipamentos (com o Nexus por cima), refeito a cada 10 min."""
-    from recoleta_fontes import comum as _rcc
-    if _RECOLETA_MAPA["m"] is None or time.time() - _RECOLETA_MAPA["t"] > 600:
-        _RECOLETA_MAPA.update(m=_rcc.mapa_do_df(_equipamentos_df()), t=time.time())
+    """O de-para da aba Equipamentos (com o Nexus por cima), montado pelo `load_equipamentos` a cada carga do cadastro
+    (no boot e quando o BD muda). Só se ainda não existir, monta aqui, uma vez só (trava: pedidos simultâneos esperam o
+    primeiro em vez de cada um reler a aba)."""
+    if _RECOLETA_MAPA["m"] is None:
+        with _RECOLETA_MAPA_LOCK:
+            if _RECOLETA_MAPA["m"] is None:
+                from recoleta_fontes import comum as _rcc
+                _RECOLETA_MAPA.update(m=_rcc.mapa_do_df(_equipamentos_df()), t=time.time())
     return _RECOLETA_MAPA["m"]
 
 
