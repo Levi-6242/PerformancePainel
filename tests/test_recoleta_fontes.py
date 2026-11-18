@@ -201,3 +201,24 @@ def test_rotear_como_o_coletor():
     m = comum.Mapa([{"Usina Supervisório": "OB", "Equipamento Supervisório": e, "Usina": "Ouro Branco",
                      "Equipamento": e} for e in ("Inversor 1.1", "Inversor 2.1")])
     assert comum.abas_de("Ouro Branco", m) == ["Ouro Branco 1", "Ouro Branco 2"]
+
+
+def test_lista_da_api_pv_sai_da_ultima_boa_e_renova_em_fundo(monkeypatch):
+    """18/11/2026: a lista de usinas da apipv/chuva levava 37,6 s cada vez que os 5 min do get_plants venciam. Agora sai
+    da última lista boa na hora e renova em fundo; só a 1ª leitura do processo espera a API PV."""
+    import time as _t
+    chamadas = []
+
+    def ler():
+        chamadas.append(1)
+        return {1: ("A", "A")} if len(chamadas) == 1 else {1: ("A", "A"), 2: ("B", "B")}
+    monkeypatch.setattr(app, "_recoleta_plantas_ler", ler)
+    monkeypatch.setattr(app, "_RECOLETA_PLANTAS", {"t": 0.0, "v": None, "renovando": False})
+    assert app._recoleta_plantas(agora=1000.0) == {1: ("A", "A")} and len(chamadas) == 1     # 1ª: espera a fonte
+    assert app._recoleta_plantas(agora=1100.0) == {1: ("A", "A")} and len(chamadas) == 1     # dentro dos 5 min
+    assert app._recoleta_plantas(agora=1000.0 + app.CACHE_TTL + 1) == {1: ("A", "A")}       # vencida: a velha, na hora
+    for _ in range(100):
+        if not app._RECOLETA_PLANTAS["renovando"]:
+            break
+        _t.sleep(0.02)
+    assert len(chamadas) == 2 and app._RECOLETA_PLANTAS["v"] == {1: ("A", "A"), 2: ("B", "B")}  # renovou em fundo

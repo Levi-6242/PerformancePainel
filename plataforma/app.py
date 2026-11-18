@@ -15388,8 +15388,9 @@ def _recoleta_post(caminho, corpo):
         return r.json()
 
 
-def _recoleta_plantas():
-    """{id: nome cru da API} da conta principal (as da conta oem@ ficam fora: o coletor também não as busca)."""
+def _recoleta_plantas_ler():
+    """{id: (nome cru da API, nome do cadastro)} da conta principal (as da conta oem@ ficam fora: o coletor também não
+    as busca). Vai à API PV quando a lista do `get_plants` passou dos 5 min."""
     out = {}
     for p in get_plants(get_token()) or []:
         try:
@@ -15399,6 +15400,37 @@ def _recoleta_plantas():
         if not _pv_is_oem(pid):
             out[pid] = (p.get("nome_api") or p.get("nome") or "").strip(), (p.get("nome") or "").strip()
     return out
+
+
+# A lista de usinas da recoleta (apipv e chuva) sai da ÚLTIMA leitura boa, mesmo vencida, e é renovada em fundo
+# (Levi, 18/11/2026: "está demorando muito para aparecer a lista de usinas, lamentável"; medido às 15:06: 37,6 s nas
+# duas, a cada vez que os 5 min da lista do `get_plants` venciam, com a API PV lenta). Só a 1ª leitura do processo
+# espera a API PV. A lista de usinas muda quase nunca; o dado da recoleta (o POST) continua indo à fonte na hora.
+_RECOLETA_PLANTAS = {"t": 0.0, "v": None, "renovando": False}
+
+
+def _recoleta_plantas(agora=None):
+    st = _RECOLETA_PLANTAS
+    agora = agora or time.time()
+    if st["v"] is None:
+        v = _recoleta_plantas_ler()
+        if v:
+            st.update(v=v, t=agora)
+        return v
+    if agora - st["t"] > CACHE_TTL and not st["renovando"]:
+        st["renovando"] = True
+
+        def _renova():
+            try:
+                v = _recoleta_plantas_ler()
+                if v:
+                    st.update(v=v, t=time.time())
+            except Exception as e:                       # API PV fora: fica a lista boa que já existe
+                print(f"[recoleta] a lista de usinas da API PV não renovou ({type(e).__name__}); segue a anterior")
+            finally:
+                st["renovando"] = False
+        threading.Thread(target=_renova, daemon=True, name="recoleta-plantas").start()
+    return st["v"]
 
 
 # ── Recoleta por fonte para a Coletas do Nexus (17/11/2026): um contrato só para todas (recoleta_fontes/comum.py) ────
