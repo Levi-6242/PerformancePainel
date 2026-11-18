@@ -15416,16 +15416,48 @@ def _recoleta_plantas_ler():
 # duas, a cada vez que os 5 min da lista do `get_plants` venciam, com a API PV lenta). Só a 1ª leitura do processo
 # espera a API PV. A lista de usinas muda quase nunca; o dado da recoleta (o POST) continua indo à fonte na hora.
 _RECOLETA_PLANTAS = {"t": 0.0, "v": None, "renovando": False}
+_RECOLETA_PLANTAS_LOCK = threading.Lock()
+# A última lista boa também fica em disco (18/11/2026, 18:11, medido logo depois do deploy d6b7f2c): o processo novo
+# nasce sem ela, e a 1ª lista da apipv esperou a API PV 40 s; a da chuva, pedida junto, deu 502 (o /plants passou dos
+# 30 s). Com o arquivo, o processo novo responde na hora com a de antes do reinício e renova em fundo.
+_RECOLETA_PLANTAS_PATH = _p_cache("recoleta_plantas.json")
+
+
+def _recoleta_plantas_disco_ler():
+    try:
+        with open(_RECOLETA_PLANTAS_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+        v = {int(i): (str(a), str(b)) for i, a, b in d["plantas"]}
+        return (v, float(d["t"])) if v else (None, 0.0)
+    except Exception:                                    # sem arquivo, ou arquivo ruim: como se não houvesse
+        return None, 0.0
+
+
+def _recoleta_plantas_guardar(v, t):
+    try:
+        tmp = _RECOLETA_PLANTAS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"t": t, "plantas": [[i, a, b] for i, (a, b) in sorted(v.items())]}, f, ensure_ascii=False)
+        os.replace(tmp, _RECOLETA_PLANTAS_PATH)
+    except Exception as e:                               # não guardar só custa a espera no próximo boot
+        print(f"[recoleta] não guardei a lista de usinas em disco ({type(e).__name__}: {e})")
 
 
 def _recoleta_plantas(agora=None):
     st = _RECOLETA_PLANTAS
     agora = agora or time.time()
     if st["v"] is None:
-        v = _recoleta_plantas_ler()
-        if v:
-            st.update(v=v, t=agora)
-        return v
+        with _RECOLETA_PLANTAS_LOCK:                     # pedidos juntos no processo novo: um só vai à fonte
+            if st["v"] is None:
+                v, t = _recoleta_plantas_disco_ler()
+                if v:
+                    st.update(v=v, t=t)                  # a de antes do reinício; vencida, renova em fundo abaixo
+                else:
+                    v = _recoleta_plantas_ler()
+                    if v:
+                        st.update(v=v, t=agora)
+                        _recoleta_plantas_guardar(v, agora)
+                    return v
     velha = st["v"]                                      # a que sai agora, mesmo que a renovação termine antes
     if agora - st["t"] > CACHE_TTL and not st["renovando"]:
         st["renovando"] = True
@@ -15434,7 +15466,9 @@ def _recoleta_plantas(agora=None):
             try:
                 v = _recoleta_plantas_ler()
                 if v:
-                    st.update(v=v, t=time.time())
+                    t = time.time()
+                    st.update(v=v, t=t)
+                    _recoleta_plantas_guardar(v, t)
             except Exception as e:                       # API PV fora: fica a lista boa que já existe
                 print(f"[recoleta] a lista de usinas da API PV não renovou ({type(e).__name__}); segue a anterior")
             finally:
@@ -36412,6 +36446,7 @@ if __name__ == "__main__":
         threading.Thread(target=_tranc_watch_loop, daemon=True).start()
         threading.Thread(target=_cadastro_watch_loop, daemon=True).start()   # cadastro/tickets mudaram → relê sem clique
         threading.Thread(target=_memoria_web_loop, daemon=True).start()      # o relatório de memória (Raio-X do Nexus)
+        threading.Thread(target=_recoleta_plantas, daemon=True, name="recoleta-plantas-boot").start()  # Coletas na hora
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")

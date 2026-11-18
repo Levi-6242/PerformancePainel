@@ -161,6 +161,8 @@ ARQUIVOS_DE_ESTADO = (
     # o Modo de-para (20/10/2026): as cópias da dimensão de equipamento, do Registro mestre e das árvores do Fracttal; e
     # o de-para do Nexus (22/10/2026, a reserva da potência da disponibilidade)
     "_DPF_FOTO_PATH", "_DPF_REGISTRO_PATH", "_DPF_CLIENTES_PATH", "_DPF_ARVORES_PATH", "_DPF_DE_PARA_PATH",
+    # a última lista boa de usinas da recoleta da API PV (18/11/2026)
+    "_RECOLETA_PLANTAS_PATH",
     # gravados direto em plataforma/
     "_TOKENS_RT_PATH", "_ENTRADA_TRK_ULTIMO", "_SUNOP_PLANTS_ARQ", "_TUNNEL_URL_FILE", "_WHATS_SENT_PATH",
     "_WHATS_LOG_PATH", "_WHATS_WD_PATH",

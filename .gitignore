@@ -41,6 +41,9 @@ cache_snapshot.json.tmp
 # a última leitura boa da estrutura do Nexus no lugar da aba Equipamentos (estrutura_nexus.py, 13/10/2026)
 estrutura_nexus.json
 estrutura_nexus.json.tmp
+# a última lista boa de usinas da recoleta da API PV (app._recoleta_plantas, 18/11/2026)
+recoleta_plantas.json
+recoleta_plantas.json.tmp
 trk_eventos.json
 trk_eventos.json.tmp
 trk_eventos.json.bak*

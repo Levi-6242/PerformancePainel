@@ -3069,6 +3069,11 @@ Acessos; a chave daqui é uma só). Uma rota por fonte, o MESMO contrato, nada g
   medido: apipv/chuva 37,6 s quando os 5 min do `get_plants` venciam, SolarEdge 44 s na 1ª): apipv e chuva servem a
   última lista boa (`_RECOLETA_PLANTAS`) e renovam em fundo; a SolarEdge guarda os sites 6 h e, sem eles, monta a
   lista da tabela do tempo real (`_se_cache`, "planta" vem null nesse caminho). O POST continua indo à fonte.
+  A lista boa da apipv/chuva também fica em `recoleta_plantas.json` (`_p_cache`, fora do git) e o processo web a
+  aquece no boot: medido às 18:11 de 18/11, logo depois do deploy d6b7f2c, a 1ª lista da apipv esperou a API PV 40 s e
+  a da chuva, pedida junto, deu 502 (o `/plants` passou dos 30 s). Com o arquivo, o processo novo responde na hora com a
+  de antes do reinício; sem ele, pedidos juntos esperam uma ida só à fonte (`_RECOLETA_PLANTAS_LOCK`). Prova: as 7
+  `/plantas` em paralelo logo depois de um deploy, todas 200 e abaixo de 2 s.
 - Testes: `tests/test_recoleta_fontes.py` (comum, apipv, chuva, rota, chave do Nexus) e um por fonte
   (`test_recoleta_pg/scada/solaredge/oem/sunop.py`), todos com a fonte dublada.
 

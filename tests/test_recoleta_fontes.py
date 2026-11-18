@@ -3,6 +3,7 @@
 fontes de dados e gerar uma planilha para colar nos BDs"). A base comum, a apipv e a chuva no formato do contrato e a
 rota genérica. As fontes não são chamadas: tudo dublado."""
 import datetime as dt
+import os
 import types
 
 import pytest
@@ -222,6 +223,45 @@ def test_lista_da_api_pv_sai_da_ultima_boa_e_renova_em_fundo(monkeypatch):
             break
         _t.sleep(0.02)
     assert len(chamadas) == 2 and app._RECOLETA_PLANTAS["v"] == {1: ("A", "A"), 2: ("B", "B")}  # renovou em fundo
+
+
+def test_processo_novo_responde_com_a_lista_do_disco_e_renova_em_fundo(monkeypatch):
+    """18/11/2026, 18:11, logo depois do deploy d6b7f2c: o processo novo nasce sem a lista, a 1ª da apipv esperou a API
+    PV 40 s e a da chuva, pedida junto, deu 502. A última lista boa fica em disco: o processo novo responde com ela na
+    hora e renova em fundo; sem arquivo, pedidos juntos vão uma vez só à fonte."""
+    import threading as _th
+    import time as _t
+    chamadas = []
+
+    def ler():
+        chamadas.append(1)
+        _t.sleep(0.2)
+        return {1: ("A", "A"), 2: ("B", "B")}
+    monkeypatch.setattr(app, "_recoleta_plantas_ler", ler)
+    monkeypatch.setattr(app, "_RECOLETA_PLANTAS", {"t": 0.0, "v": None, "renovando": False})
+    assert not os.path.exists(app._RECOLETA_PLANTAS_PATH)              # o conftest isola o arquivo
+    saidas = []
+    ths = [_th.Thread(target=lambda: saidas.append(app._recoleta_plantas(agora=1000.0))) for _ in range(3)]
+    [x.start() for x in ths]
+    [x.join() for x in ths]
+    assert len(chamadas) == 1 and saidas == [{1: ("A", "A"), 2: ("B", "B")}] * 3   # uma ida à fonte para os três
+    assert os.path.exists(app._RECOLETA_PLANTAS_PATH)                  # e guardou a lista boa
+    # o "reinício": memória vazia, a fonte caída; sai a do disco na hora, e a renovação em fundo não apaga nada
+    monkeypatch.setattr(app, "_RECOLETA_PLANTAS", {"t": 0.0, "v": None, "renovando": False})
+
+    def caida():
+        chamadas.append(1)
+        raise RuntimeError("API PV fora")
+    monkeypatch.setattr(app, "_recoleta_plantas_ler", caida)
+    assert app._recoleta_plantas(agora=1000.0 + app.CACHE_TTL + 1) == {1: ("A", "A"), 2: ("B", "B")}
+    for _ in range(100):
+        if not app._RECOLETA_PLANTAS["renovando"]:
+            break
+        _t.sleep(0.02)
+    assert len(chamadas) == 2 and app._RECOLETA_PLANTAS["v"] == {1: ("A", "A"), 2: ("B", "B")}
+    with open(app._RECOLETA_PLANTAS_PATH, "w", encoding="utf-8") as f:   # arquivo estragado: vai à fonte, não quebra
+        f.write("{")
+    assert app._recoleta_plantas_disco_ler() == (None, 0.0)
 
 
 def test_de_para_da_recoleta_nao_rele_a_aba_no_pedido(monkeypatch):
