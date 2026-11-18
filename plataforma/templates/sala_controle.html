@@ -704,6 +704,52 @@ async function lerPr(u) {
 // Um pedido por dia (o servidor guarda cada dia e deixa um pedido no ar por usina e dia), e o POA/GHI do dia quando a
 // fonte entrega (hoje, o da estação; no banco da Thopen, qualquer dia).
 const POT = {ini: null, fim: null, corr: false};
+// O HISTÓRICO DA ESTAÇÃO (Levi, 18/11/2026: "Nas ETMs tem que ser possível puxar histórico de dias de até 4 dias de uma
+// vez!"). A curva da estação de um dia, pela rota de cada fonte; as da API PV só entregam o dia de hoje (a fonte não
+// guarda a estação dos outros dias) e a tela diz. Um pedido por dia, e nas fontes do SCADA da Grid e da SunOp um por vez.
+const ETMH = {ini: null, fim: null}, ETMD = {usina: null, dias: {}}, ETM_DIAS_MAX = 4;
+const etmUrl = (sk, pid, dia) => ehApiPv(sk, pid) ? "/api/etm/chart?plant_id=" + encodeURIComponent(pid) + "&date=" + dia
+  : sk === "pg" ? "/api/pg/etm/chart?plant_id=" + encodeURIComponent(pid) + "&date=" + dia
+  : ["sunop", "axis", "greenyellow", "apolo"].includes(sk) ? "/api/" + sk + "/etm/chart?plant=" + encodeURIComponent(pid) + "&date=" + dia : null;
+async function lerEtmDia(u, dia) {
+  if (ETMD.usina !== u.u || ETMD.dias[dia] !== undefined) return;
+  ETMD.dias[dia] = null;
+  const sk = SKEY[u.g], url = etmUrl(sk, u.pid, dia), pedir = () => pega(url, 120000);
+  let r;
+  try { const j = await (EM_FILA.includes(sk) ? (FILA_CURVA = FILA_CURVA.then(pedir, pedir)) : pedir());
+    r = j.sem_historico ? {sem: true} : {x: (j.labels || []).map(mm), poa: j.poa || [], ghi: j.ghi || []}; }
+  catch (e) { r = {erro: String(e && e.message || e)}; }
+  if (ETMD.usina !== u.u) return;
+  ETMD.dias[dia] = r;
+  if (SEL.u === u.u && ABA === "etm") desenhar();
+}
+// o gráfico da aba ETM: hoje sai da leitura que a aba já tem (`e`); outro dia, ou vários, das rotas acima
+function etmGrafico(u, e) {
+  const sk = SKEY[u.g];
+  if (!ETMH.ini) ETMH.ini = ETMH.fim = HOJE;
+  const dias = []; for (let k = 0, d0 = ETMH.ini; k < ETM_DIAS_MAX && d0 <= ETMH.fim; k++, d0 = addDia(d0, 1)) dias.push(d0);
+  const campo = (k, v) => `<input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-etmh="${k}" value="${v}" min="${addDia(HOJE, -45)}" max="${HOJE}" aria-label="${k === "ini" ? "De" : "Até"}">`;
+  const umDia = dias.length === 1, janela = SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440};
+  let h = `<div class="diasel" style="margin-top:10px;gap:8px"><span>De</span>${campo("ini", ETMH.ini)}<span>Até</span>${campo("fim", ETMH.fim)}<span>até ${ETM_DIAS_MAX} dias</span><span style="flex:1"></span>
+    ${umDia ? `<button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button>` : ""}</div>`;
+  const leg = '<div class="lin"><span><i style="background:var(--c-poa)"></i>POA</span><span><i style="background:var(--c-ghi)"></i>GHI</span></div>';
+  if (umDia && dias[0] === HOJE && e)
+    return h + linhas([{nome: "POA", x: (e.x || []).map(mm), y: e.poa || [], cor: "var(--c-poa)", forte: true}, {nome: "GHI", x: (e.x || []).map(mm), y: e.ghi || [], cor: "var(--c-ghi)", forte: true}].filter(s => s.y.length), "Irradiância do dia", "W/m²", janela) + leg;
+  if (!etmUrl(sk, u.pid, HOJE)) return h + '<div class="aviso">Esta fonte não tem a curva da estação por dia.</div>';
+  if (ETMD.usina !== u.u) { ETMD.usina = u.u; ETMD.dias = {}; }
+  dias.forEach(d => lerEtmDia(u, d));
+  const lendo = dias.filter(d => ETMD.dias[d] == null).length;
+  if (lendo) return h + `<div class="carrega" style="padding:18px 0">Lendo a estação em ${lendo === 1 ? "1 dia" : lendo + " dias"}…</div>`;
+  const sem = dias.filter(d => ETMD.dias[d].sem), err = dias.filter(d => ETMD.dias[d].erro);
+  const junta = c => { const xs = [], ys = []; dias.forEach((d, k) => { const r = ETMD.dias[d], v = r && r[c]; if (!v || !v.length) { if (xs.length) { xs.push(k * 1440); ys.push(null); } return; } r.x.forEach((m, i) => { if (m === m) { xs.push((umDia ? 0 : k * 1440) + m); ys.push(v[i]); } }); }); return [xs, ys]; };
+  const [xp, yp] = junta("poa"), [xg, yg] = junta("ghi");
+  const ser = [{nome: "POA", x: xp, y: yp, cor: "var(--c-poa)", forte: true}, {nome: "GHI", x: xg, y: yg, cor: "var(--c-ghi)", forte: true}].filter(s => s.y.some(v => v != null));
+  h += ser.length ? linhas(ser, umDia ? "Irradiância de " + dm(dias[0]) : "Irradiância de " + dm(dias[0]) + " a " + dm(dias[dias.length - 1]), "W/m²", umDia ? janela : {x0: 0, x1: dias.length * 1440, dias}) + leg
+    : `<div class="zero" style="padding:20px 0">Sem leitura da estação ${umDia ? "neste dia" : "nestes dias"}.</div>`;
+  if (sem.length) h += `<div class="mais">Sem a curva de ${sem.map(dm).join(", ")}: a API PV só entrega a estação do dia de hoje.</div>`;
+  if (err.length) h += `<div class="mais">Não consegui ler ${err.map(dm).join(", ")}: ${esc(ETMD.dias[err[0]].erro)} <button class="btnl" data-etmdenovo="1" style="margin-left:6px">Tentar de novo</button></div>`;
+  return h;
+}
 // A Athon voltou ao histórico de potência em 17/11/2026 (Levi: "pode ligar a Athon na potência"): 1 pedido da cota da SunOp
 // por usina e dia. A Axis segue fora (decisão de 13/10/2026), e a tela diz isso em vez de "a fonte não guarda".
 const POT_FORA = {axis: "A Axis está fora do histórico de potência por inversor desde 13/10/2026 (decisão de custo da época). Não é falta de dado na fonte."};
@@ -1101,9 +1147,9 @@ async function lerTrk(u, dia) {
   if (D.trkc.usina !== u.u) D.trkc = {usina: u.u, dias: {}};
   if (!EPT[sk] || D.trkc.dias[dia] !== undefined) return;
   D.trkc.dias[dia] = null;
-  const min = x => { const s = String(x); return s.includes("T") ? +s.slice(11, 13) * 60 + +s.slice(14, 16) : +s.slice(0, 2) * 60 + +s.slice(3, 5); };
+  const min = mm;      // a hora em qualquer formato das fontes (ver `mm`)
   try { const j = await pega(EPT[sk] + "/" + encodeURIComponent(u.pid) + "/chart?ini=" + dia + "&fim=" + dia, 90000), t = {};
-    (j.trackers || []).forEach(k => { t[k.id] = {st: k.sem_comunicacao ? "sem_comunicacao" : (k.status || "normal"), p: (k.x || []).map((x, i) => [min(x), k.y[i]]).filter(p => p[1] != null)}; });
+    (j.trackers || []).forEach(k => { t[k.id] = {st: k.sem_comunicacao ? "sem_comunicacao" : (k.status || "normal"), p: (k.x || []).map((x, i) => [min(x), k.y[i]]).filter(p => p[1] != null && p[0] === p[0])}; });
     const al = j.alvo && j.alvo.x ? j.alvo.x.map((x, i) => [min(x), j.alvo.y[i]]).filter(p => p[1] != null) : [];
     D.trkc.dias[dia] = {alvo: al, t}; }
   catch (e) { D.trkc.dias[dia] = {alvo: [], t: {}, erro: String(e && e.message || e)}; }
@@ -1159,7 +1205,10 @@ const addDia = (iso, n) => { const x = new Date(Date.UTC(+iso.slice(0, 4), +iso.
 const TRANCA = {}, VISTO = new Set(), FECHADAS = new Set();
 // a quantidade em acompanhamento vale na hora na lateral e nos números (a Entrada só relê em 5 min): sem acompanhamento = fora - acompanhadas
 const poeAcomp = (u, v) => { D.estado.acomp[u.u] = v; D.grupos.forEach(g => g.usinas.forEach(x => { if (g.id === u.g && x.u === u.u) { x.sa = v; x.sn = Math.max(0, x.sf - v); } })); };
-const mm = s => { s = String(s); return s.includes("T") ? +s.slice(11, 13) * 60 + +s.slice(14, 16) : +s.slice(0, 2) * 60 + +s.slice(3, 5); }, dm = d => d.slice(8) + "/" + d.slice(5, 7), hm = m => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+// A HORA EM QUALQUER FORMATO (18/11/2026). A Tucano 2 dizia "Sem leitura neste dia" com 111 pontos por tracker: a API PV
+// manda "2026-11-18 06:10" (com ESPAÇO) e a conta só entendia "2026-11-18T06:10" e "06:10"; do "2026-11-18 06:10" ela
+// tirava "20" e "6-" e todo ponto virava minuto inválido. Vale o primeiro HH:MM do texto, venha como vier.
+const mm = s => { const m = /(\d{1,2}):(\d{2})/.exec(String(s)); return m ? +m[1] * 60 + +m[2] : NaN; }, dm = d => d.slice(8) + "/" + d.slice(5, 7), hm = m => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
 const novasS = (u, i) => D.novas.s.filter(x => (!u || x.u === u) && (!i || x.i === i) && !VISTO.has(x.k));
 const novasT = u => D.novas.t.filter(x => (!u || x.u === u) && !VISTO.has(x.k));
 const nNovas = l => l.reduce((a, u) => a + novasS(u.u).length + novasT(u.u).length, 0);
@@ -1766,15 +1815,13 @@ function detalhe(u, bx) {
       <p>O que a irradiação gravada no mês diz da estação desta usina: é daqui que sai o alarme da lateral e da Entrada. Em vermelho, o que alarma.</p>
       <div>${u.etmL.map(x => `<span class="tag ${u.etmA.includes(x) ? "c" : "a"}" style="margin:0 6px 6px 0">${esc(x)}</span>`).join("")}</div>
       ${e ? "" : `<div class="diasel" style="margin-top:12px">${PODE ? '<button class="btnl" data-etmos="1">Abrir OS da estação</button>' : ""}<button class="btnl" data-etmhist="0">OSs da estação</button></div>`}</div>`;
-    if (!e) h += dr.etmLendo ? '<div class="carrega" style="padding:18px 0">Lendo a estação desta usina…</div>' : `<div class="aviso">A fonte desta usina no Tempo real não traz a leitura de agora da estação${u.etmL.length ? " (os sinais acima são do mês gravado)" : ""}.</div>` + scadaBloco(u, "etm");
+    if (!e) h += dr.etmLendo ? '<div class="carrega" style="padding:18px 0">Lendo a estação desta usina…</div>' : `<div class="aviso">A fonte desta usina no Tempo real não traz a leitura de agora da estação${u.etmL.length ? " (os sinais acima são do mês gravado)" : ""}.</div>` + (etmUrl(SKEY[u.g], u.pid, HOJE) ? `<div class="painel"><h3>Histórico da estação</h3><p>A curva gravada de até ${ETM_DIAS_MAX} dias.</p>${etmGrafico(u, null)}</div>` : "") + scadaBloco(u, "etm");
     else { const tp = {crit: "c", warn: "a", info: "i", nota: "n"}, sn = {poa: "POA", ghi: "GHI", poari: "POA-RI"}, crit = e.flags.filter(f => f.tipo === "crit").length, av = e.flags.filter(f => f.tipo === "warn").length;
       h += `<div class="painel" style="border-left:3px solid ${crit ? "var(--critico)" : av ? "var(--alerta)" : "var(--ok)"}"><h3>Estação solarimétrica · ${crit ? "com alarme" : av ? "com aviso" : "sem alarme"}</h3>
         <p>Só IPOA (POA) e GHI em zero com sol alarmam; o resto é aviso. Sem comunicação sai em violeta.</p>
         <div class="sens">${Object.entries(e.sens).map(([k, v]) => `<div><small>${sn[k] || k}</small><b>${v.status === "ok" ? nf(v.pico, 0) + " W/m²" : "—"}</b> <span class="tag ${v.status === "ok" ? "o" : "n"}">${v.status === "ok" ? "pico de hoje" : "sem leitura"}</span></div>`).join("")}</div>
         <div>${e.flags.map(f => `<span class="tag ${f.sensor === "COM" ? "" : (tp[f.tipo] || "n")}" style="margin:0 6px 6px 0${f.sensor === "COM" ? ";background:rgba(180,151,255,.16);color:var(--violeta)" : ""}">${esc(f.sensor)} · ${esc(f.t)}${f.info ? " (" + esc(f.info) + ")" : ""}</span>`).join("") || '<span class="tag o">Nenhum sinal</span>'}</div>
-        <div class="diasel" style="margin-top:10px"><span style="flex:1"></span><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button></div>
-        ${linhas([{nome: "POA", x: (e.x || []).map(mm), y: e.poa || [], cor: "var(--c-poa)", forte: true}, {nome: "GHI", x: (e.x || []).map(mm), y: e.ghi || [], cor: "var(--c-ghi)", forte: true}].filter(s => s.y.length), "Irradiância do dia", "W/m²", SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440})}
-        <div class="lin"><span><i style="background:var(--c-poa)"></i>POA</span><span><i style="background:var(--c-ghi)"></i>GHI</span></div>
+        ${etmGrafico(u, e)}
         <div class="diasel" style="margin-top:12px">${PODE ? '<button class="btnl" data-etmos="1">Abrir OS da estação</button>' : ""}<button class="btnl" data-etmhist="0">OSs da estação</button></div></div>`; }
   } else if (ABA === "gp") {
     const G = D.ger;
@@ -1939,7 +1986,7 @@ const verT = u => { const l = D.novas.t.filter(x => x.u === u && !VISTO.has(x.k)
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
   const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
   return [eu ? "visto por <b>você</b> em " + q(eu) : "", ou.length ? "visto por <b>" + esc(lst(ou)) + "</b>" : ""].filter(Boolean).join(" · "); };
-const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; };
+const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };
 
 function desenhar() {
   if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(() => { if (IR_NOVO && SEL.u === IR_NOVO) irAoNovo(); }, 0);
@@ -1967,6 +2014,8 @@ document.addEventListener("change", e => { const x = e.target;
     grava("/api/state/tracking", {key: VKEY[u.g] + ":" + u.pid, value: v || null}).then(() => toast("Em acompanhamento: " + v + " de " + u.sf + " fora"))
       .catch(e => { poeAcomp(u, ant); desenhar(); toast("Não gravou o acompanhamento: " + e.message); }); }
   if (x.dataset.sdiaCampo && x.value) { DIA = x.value === HOJE ? null : x.value; desenhar(); }
+  if (x.dataset.etmh === "ini" && x.value) { ETMH.ini = x.value; if (ETMH.fim < x.value) ETMH.fim = x.value; if (addDia(ETMH.ini, ETM_DIAS_MAX - 1) < ETMH.fim) ETMH.fim = addDia(ETMH.ini, ETM_DIAS_MAX - 1); desenhar(); }
+  if (x.dataset.etmh === "fim" && x.value) { ETMH.fim = x.value; if (x.value < ETMH.ini) ETMH.ini = x.value; if (addDia(ETMH.fim, -(ETM_DIAS_MAX - 1)) > ETMH.ini) ETMH.ini = addDia(ETMH.fim, -(ETM_DIAS_MAX - 1)); desenhar(); }
   if (x.dataset.pot === "ini" && x.value) { POT.ini = x.value; if (POT.fim < x.value) POT.fim = x.value; if (addDia(POT.ini, 4) < POT.fim) POT.fim = addDia(POT.ini, 4); desenhar(); }
   if (x.dataset.pot === "fim" && x.value) { POT.fim = x.value; if (x.value < POT.ini) POT.ini = x.value; if (addDia(POT.fim, -4) > POT.ini) POT.ini = addDia(POT.fim, -4); desenhar(); }
   if (x.dataset.tk === "ini" && x.value) { TRK.ini = x.value; if (TRK.fim < x.value) TRK.fim = x.value; if (addDia(TRK.ini, 4) < TRK.fim) TRK.fim = addDia(TRK.ini, 4); desenhar(); }
@@ -2082,6 +2131,7 @@ document.addEventListener("click", e => {
   if ((x = q("[data-denovo]"))) { delete FALHOU[SEL.u]; desenhar(); return; }
   if ((x = q("tr[data-bx]"))) { if (!SEL.u && x.dataset.bg === "?") { toast("A " + x.dataset.bu + " não está no Tempo real com este nome: não há usina para abrir"); return; }
     if (!SEL.u) { abrirUsina(x.dataset.bg === "?" ? SEL.g : x.dataset.bg, x.dataset.bu); ABA = "bx"; BXA = x.dataset.bx; scrollTo(0, 0); } else BXA = BXA === x.dataset.bx ? null : x.dataset.bx; desenhar(); return; }
+  if (q("[data-etmdenovo]")) { Object.keys(ETMD.dias).forEach(d => { if (ETMD.dias[d] && ETMD.dias[d].erro) delete ETMD.dias[d]; }); desenhar(); return; }
   if ((x = q(".aba"))) { const pulsava = x.classList.contains("pulsa"); ABA = x.dataset.aba; IR_NOVO = null; if (ABA === "trk") verT(SEL.u); if (ABA === "etm") CLICADAS.add("e|" + SEL.u);
     desenhar(); if (pulsava) irAoNovo(); return; }
   if ((x = q("[data-expi]"))) { const n = x.dataset.expi, u = usinas()[0], dr = D.drill[u.u];

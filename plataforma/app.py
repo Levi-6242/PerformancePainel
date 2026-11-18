@@ -16612,6 +16612,50 @@ _apo_etm_cache = {"payload": None, "ts": 0.0, "_ttl": 900}
 _SG_ETM_CACHE  = {"greenyellow": _gy_etm_cache, "salenergia": _sal_etm_cache, "apolo": _apo_etm_cache}
 
 
+# A curva da estação de UMA usina do scadaGridco num dia (18/11/2026, Levi: "Nas ETMs tem que ser possível puxar histórico
+# de dias de até 4 dias de uma vez!"). As outras fontes já tinham a rota do dia (/api/etm/chart, /api/pg/etm/chart,
+# /api/sunop/etm/chart); a GreenYellow e a Apolo só tinham a análise de hoje. A série é a do `_sg.etm_do_dia` (a mesma da
+# análise), de 5 em 5 min (o supervisório grava de 1 em 1), da estação com mais leitura no dia. Guardada: hoje por 10
+# min, dia passado por 6 h (a consulta são as páginas de um dia inteiro de telemetria).
+_sg_etm_dia_memo = {}
+SG_ETM_DIA_PASSO_MIN = 5
+
+
+@app.route("/api/greenyellow/etm/chart")
+@app.route("/api/apolo/etm/chart")
+def api_sg_etm_chart():
+    fonte = flask_request.path.split("/")[2]
+    pid = (flask_request.args.get("plant") or "").strip()
+    dia = (flask_request.args.get("date") or _sg.hoje()).strip()
+    cfg = _sg.usina_cfg(fonte, pid)
+    if not cfg or not re.match(r"^\d{4}-\d{2}-\d{2}$", dia):
+        return jsonify({"error": "plant (a chave da usina no supervisório) e date (AAAA-MM-DD)"}), 400
+    chave = (fonte, _sg.scada_id(fonte, pid), dia)
+    ent = _sg_etm_dia_memo.get(chave)
+    if ent and time.time() - ent[0] < (600 if dia >= _sg.hoje() else 6 * 3600):
+        return jsonify(ent[1])
+    try:
+        ests = _sg.etm_do_dia(fonte, pid, dia)
+    except _sg.SemAcesso as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:                               # noqa: BLE001 — o supervisório não respondeu: diz, não inventa
+        return jsonify({"error": f"o scadaGridco não respondeu ({type(e).__name__}: {str(e)[:120]})"}), 502
+    melhor = max((e for e in ests or [] if e.get("serie")), key=lambda e: len(e["serie"]), default=None)
+    labels, poa, ghi, ult = [], [], [], None
+    for h, p, g in (melhor["serie"] if melhor else []):
+        m = h.hour * 60 + h.minute
+        if ult is not None and m - ult < SG_ETM_DIA_PASSO_MIN:
+            continue
+        ult = m
+        labels.append(h.strftime("%H:%M")); poa.append(p); ghi.append(g)
+    payload = {"plant": pid, "date": dia, "estacao": melhor.get("estacao") if melhor else None, "estacoes": len(ests or []),
+               "labels": labels, "poa": poa, "ghi": ghi}
+    _sg_etm_dia_memo[chave] = (time.time(), payload)
+    for k in [k for k, v in _sg_etm_dia_memo.items() if time.time() - v[0] > 6 * 3600]:
+        _sg_etm_dia_memo.pop(k, None)
+    return jsonify(payload)
+
+
 def _sg_etm_build(fonte: str) -> dict:
     rows, por_scada = [], {}
     for cfg in _sg.usinas(fonte):

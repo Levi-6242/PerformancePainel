@@ -2736,6 +2736,16 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     zero. A ligação era "pela ordem" (o 1.3 com o SKID 1 · INV02) e a numeração das strings do logger não é a da API PV.
     Só religa com o de-para de inversor E de string entre as duas fontes conferido. As strings passaram a sair em ordem
     numérica (vinham 1, 10, 11, ..., 2, 20).
+  - **A hora do ponto em qualquer formato (18/11).** A Tucano 2 dizia "Sem leitura neste dia" com 111 pontos por tracker
+    (Levi: "como não tem leitura de trackers e diz que tem um tracker parado?"): a API PV manda "2026-11-18 06:10", com
+    espaço, e a conta só entendia "...T06:10" e "06:10". O `mm` passa a valer o primeiro HH:MM do texto, e é ele que os
+    gráficos de tracker usam (`min = mm`). O TRK60 estava mesmo parado desde 17/11 10:30 (−37,0° o dia todo).
+  - **Histórico da ETM de até 4 dias (18/11).** Levi: "Nas ETMs tem que ser possível puxar histórico de dias de até 4
+    dias de uma vez!". A aba ETM tem De/Até (`ETMH`, `ETM_DIAS_MAX`); hoje sai da leitura que a aba já tem, outro dia
+    ou vários saem de `etmUrl` (um pedido por dia; SCADA da Grid e SunOp em fila), num gráfico contínuo. A API PV só
+    entrega a estação do dia de hoje (`sem_historico`) e a tela diz. Rota nova para o scadaGridco:
+    `/api/greenyellow/etm/chart` e `/api/apolo/etm/chart` (`?plant=&date=`; a série do `_sg.etm_do_dia` de 5 em 5 min,
+    guardada 10 min hoje e 6 h dia passado). Usina sem leitura de agora da estação ganha o bloco "Histórico da estação".
   - **O pulso segue até o problema (17/11, noite).** Levi: "se for inversor então já carrega as strings e fica
     pulsando o inversor, se for tracker ou ETM pulsa a parte de trackers ou ETM até eu clicar e ser levado para o
     problema". O inversor com ocorrência nova vem com as strings abertas e a linha pulsando (`.il.pulsa`); o clique abre

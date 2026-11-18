@@ -781,7 +781,7 @@ def test_a_potencia_por_dia_com_ate_cinco_dias_as_cores_e_a_correlacao():
     assert "CORES[" not in pot                                                                                     # sem a paleta de doze cores por inversor
     assert 'data-potcorr="1"' in pot and "if (POT.corr && temTrk) dias.forEach(d0 => lerTrk(u, d0));" in pot
     assert "--c-ger:#5aa9f5;--c-poa:#f59a4a;--c-ghi:#e6c84f" in html and "--c-ger:#1f6fd0;--c-poa:#c8640f;--c-ghi:#a8860a" in html
-    etm = html[html.index('} else if (ABA === "etm") {'):html.index('} else if (ABA === "gp") {')]
+    etm = html[html.index("function etmGrafico(u, e) {"):html.index("// a curva dos trackers de um dia")] if "// a curva dos trackers de um dia" in html[html.index("function etmGrafico(u, e) {"):] else html[html.index("function etmGrafico(u, e) {"):]      # o gráfico da ETM mora no etmGrafico desde 18/11 (o histórico de até 4 dias)
     assert 'cor: "var(--c-poa)", forte: true}' in etm and 'cor: "var(--c-ghi)", forte: true}' in etm and 'data-solar="1"' in etm
     assert "POT_FORA[u.g] ||" in html and "pega(\"/api/pg/etm/chart?plant_id=\"" in html
     assert 'athon: "sunop"' in html and "const POT_FORA = {axis:" in html                                          # a Athon ligada (17/11); a Axis, fora
@@ -1244,3 +1244,60 @@ def test_o_pulso_segue_ate_o_problema():
     # abrir a usina que pulsava por string nova desce até o inversor, mesmo com a leitura chegando depois
     assert 'IR_NOVO = novasS(x.dataset.u).length ? x.dataset.u : null;' in html
     assert 'if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(' in html
+
+
+def test_a_hora_do_ponto_em_qualquer_formato_das_fontes():
+    """Levi, 18/11/2026 (Tucano 2): "Como não tem leitura de trackers e diz que tem um tracker parado, qual o sentido?".
+    Tinha leitura (111 pontos por tracker); a API PV manda a hora como "2026-11-18 06:10", com ESPAÇO, e a Sala só
+    entendia "2026-11-18T06:10" e "06:10": todo ponto virava minuto inválido e o gráfico dizia "Sem leitura neste dia"."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert "const min = mm;" in html and 'filter(p => p[1] != null && p[0] === p[0])' in html
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    i = html.index("const mm = s => {")
+    js = html[i:html.index(",", html.index("NaN; }", i))] + ";"
+    r = subprocess.run(["node", "-e", js + "console.log(JSON.stringify(['2026-11-18 06:10', '2026-11-18T06:10:00', '06:10', '18/11/2026 17:05', 'Sat, 12 Jul 2026 09:30:00 GMT', 'sem hora'].map(mm)))"],
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == [370, 370, 370, 1025, 570, None]              # NaN vira null no JSON
+
+
+def test_o_historico_da_etm_de_ate_4_dias(monkeypatch):
+    """Levi, 18/11/2026: "Nas ETMs tem que ser possível puxar histórico de dias de até 4 dias de uma vez!"."""
+    from datetime import datetime as _dt
+    html = _html()
+    assert "ETM_DIAS_MAX = 4" in html and 'data-etmh="${k}"' in html and "<span>até ${ETM_DIAS_MAX} dias</span>" in html
+    assert "{x0: 0, x1: dias.length * 1440, dias}" in html                       # vários dias: um gráfico só, contínuo
+    assert '"/api/pg/etm/chart?plant_id="' in html and '"/api/etm/chart?plant_id="' in html and '"/etm/chart?plant="' in html
+    assert "a API PV só entrega a estação do dia de hoje" in html                # o que a fonte não guarda é dito, não inventado
+    assert "ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };" in html
+    # a rota que faltava: a estação do scadaGridco num dia, de 5 em 5 min, da estação com mais leitura
+    pedidos = []
+
+    def etm(fonte, pid, dia=None, getter=None):
+        pedidos.append((fonte, pid, dia))
+        s = [(_dt(2026, 11, 16, 6, m), 100.0 + m, 90.0 + m) for m in range(0, 12)]
+        return [{"estacao": "estacao", "serie": s, "poari": [], "chuva": False}, {"estacao": "vazia", "serie": [], "poari": [], "chuva": False}]
+    monkeypatch.setattr(app._sg, "etm_do_dia", etm)
+    monkeypatch.setattr(app._sg, "usina_cfg", lambda fonte, pid: {"id": pid, "usina": "Usina X"} if pid == "usina_x" else None)
+    monkeypatch.setattr(app._sg, "scada_id", lambda fonte, pid: pid)
+    monkeypatch.setattr(app._sg, "hoje", lambda: "2026-11-18")
+    app._sg_etm_dia_memo.clear()
+    app.app.config["TESTING"] = True
+    with app.app.test_client() as c:
+        j = c.get("/api/greenyellow/etm/chart?plant=usina_x&date=2026-11-16").get_json()
+        assert j["labels"] == ["06:00", "06:05", "06:10"] and j["poa"] == [100.0, 105.0, 110.0] and j["ghi"] == [90.0, 95.0, 100.0] and j["estacao"] == "estacao"
+        c.get("/api/greenyellow/etm/chart?plant=usina_x&date=2026-11-16")
+        assert pedidos == [("greenyellow", "usina_x", "2026-11-16")]             # dia passado guardado: um pedido só
+        assert c.get("/api/apolo/etm/chart?plant=nao_existe&date=2026-11-16").status_code == 400
+        assert c.get("/api/greenyellow/etm/chart?plant=usina_x&date=16/11").status_code == 400
+
+        def falha(*a, **k):
+            raise RuntimeError("502 Server Error")
+        monkeypatch.setattr(app._sg, "etm_do_dia", falha)
+        r = c.get("/api/apolo/etm/chart?plant=usina_x&date=2026-11-15")
+        assert r.status_code == 502 and "não respondeu" in r.get_json()["error"]
+    app._sg_etm_dia_memo.clear()
