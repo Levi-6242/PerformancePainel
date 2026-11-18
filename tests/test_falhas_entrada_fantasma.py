@@ -101,5 +101,5 @@ def test_aba_lista_a_entrada_que_o_inversor_nao_manda(monkeypatch):
     monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
     app.app.config["TESTING"] = True
     with app.app.test_client() as c:
-        html = c.get("/painel/falhas").get_data(as_text=True)
+        html = c.get("/painel/falhas?antiga=1").get_data(as_text=True)
     assert "D.strings.entradas_inexistentes" in html and "entrada que o inversor não manda: fora" in html

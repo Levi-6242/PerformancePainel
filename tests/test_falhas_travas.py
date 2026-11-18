@@ -122,7 +122,7 @@ def test_aba_mostra_entradas_vazias_trancadas_com_os_e_as_fontes_novas(monkeypat
     monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
     app.app.config["TESTING"] = True
     with app.app.test_client() as c:
-        html = c.get("/painel/falhas").get_data(as_text=True)
+        html = c.get("/painel/falhas?antiga=1").get_data(as_text=True)
     assert 'id="t-vaz"' in html and 'id="t-trv"' in html
     assert "D.strings.entradas_vazias" in html and "D.strings.travas_com_os" in html
     assert "pvsb:" in html and "solaredge:" in html

@@ -31291,11 +31291,33 @@ def _falhas_bytes(mes):
     return ent["bytes"]
 
 
+_SALA_CSS_MEMO = {"mtime": None, "css": ""}
+
+
+def _sala_css() -> str:
+    """A folha de estilo da Sala de controle, tirada do template dela: a tela de Strings e trackers usa A MESMA, sem
+    cópia para envelhecer (relida só quando o arquivo muda)."""
+    p = os.path.join(_AQUI, "templates", "sala_controle.html")
+    mt = os.path.getmtime(p)
+    if _SALA_CSS_MEMO["mtime"] != mt:
+        with open(p, encoding="utf-8-sig") as f:
+            t = f.read()
+        _SALA_CSS_MEMO.update(mtime=mt, css=t[t.index("<style>") + 7:t.index("</style>")])
+    return _SALA_CSS_MEMO["css"]
+
+
 @app.route("/painel/falhas")
 def painel_falhas():
     # debaixo do /painel de propósito: o Caddy de app.gridco.com.br tem rota própria para alguns primeiros
     # segmentos (ver a nota da rota /monitor) e o /painel já passa por ele
-    return render_template("falhas.html")
+    # STRINGS E TRACKERS NO DESENHO DA SALA DE CONTROLE (17/11/2026, Levi: "deixe ao estilo sala de controle"; aprovado
+    # pelo mockup de docs/mockups/strings-trackers-sala com "Sobe o strings e trackers"). O endereço é o mesmo (é o da
+    # tela no mapa do Nexus, `porta_nexus.MAPA`). A tela de 20/10/2026 (tabela única, Vincular OS, a gaveta e os filtros
+    # dela) segue aqui mesmo com ?antiga=1, como o ?antigo=1 do Diagnóstico: rota nova pediria lugar no mapa, que é cópia
+    # assinada do mapa do Nexus.
+    if flask_request.args.get("antiga") == "1":
+        return render_template("falhas.html")
+    return render_template("strings_trackers.html", sala_css=_sala_css())
 
 
 @app.route("/painel/sala-de-controle")

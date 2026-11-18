@@ -56,7 +56,7 @@ def test_aba_deixa_desmarcar_o_que_marcou_e_tem_a_duracao_por_inversor_e_dia(cli
     # das contas, desmarcar devolve, e a caixa não trava; "em strings por inversor e dia quero uma coluna para a duração".
     # 20/10/2026: a visão por inversor e dia virou o acompanhamento diário (o drill) da ocorrência, e a duração do dia foi
     # junto ("Duração no dia")
-    html = cli.get("/painel/falhas").get_data(as_text=True)
+    html = cli.get("/painel/falhas?antiga=1").get_data(as_text=True)
     assert "DESC_VIS" in html and "desmarque para voltar" in html
     assert "c.disabled = true" not in html
     assert "['dur_h', 'Duração no dia'" in html

@@ -3148,6 +3148,41 @@ evitáveis nem valorar em R$) e o recorte é **só a 2C** (`QUALIDADE_PLANTAS = 
 desde 29/09/2026 inclui a Ipixuna, pelas Santa Cecilia). Ciclo caiu de 80 s para ~11 s. O nome do inversor vem do
 `PV_INV_NOMES` porque a conta oem@ não pode chamar `/plant_devices`.
 
+## Strings e trackers no desenho da Sala de controle (`/painel/falhas`, `templates/strings_trackers.html`, 17/11/2026)
+
+**As seções abaixo que falam do `templates/falhas.html` descrevem a tela ANTERIOR (`/painel/falhas?antiga=1`).** O pacote,
+a régua e as rotas de gravação são os mesmos nas duas.
+
+Levi, 17/11/2026: "A parte de string e trackers vai passar por um rework indo para todas as fontes da sala de controle,
+quero que avalie como está e deixe ao estilo sala de controle"; aprovado pelo mockup com dado real
+(`docs/mockups/strings-trackers-sala/index.html`) com "Sobe o strings e trackers". **O endereço não mudou** (é o da
+tela `performance/strings-trackers` no mapa do Nexus); **a tela de 20/10 segue no mesmo endereço com `?antiga=1`** (o
+link "Tela anterior"; sem rota nova, porque o mapa do Nexus é cópia assinada), com o que a nova ainda não tem: Vincular OS, o dia a dia da ocorrência, a sombra e os filtros dela.
+
+- **Para que serve:** o mês de falhas de string e de tracker com a navegação da Sala: fontes e usinas na lateral
+  (strings paradas agora, trackers parados agora, perda do mês), a ocorrência numa linha e a curva dela abrindo ali.
+- **De onde vem o dado (nada novo no servidor):** `/api/entrada/tempo-real` (as fontes e as usinas, como a Sala) e
+  `/api/painel/falhas?mes=` (o pacote que o worker publica de 30 em 30 min). O `montar()` do template pendura as falhas
+  em cada usina pela mesma conta de grupo da Sala (a Thopen se divide em banco e API PV), casando pelo id da usina e,
+  sem ele, pelo nome. **Fecha com o pacote:** em 17/11 a tela somou 1.318 episódios, 4.204 paradas de tracker e a mesma
+  perda (206,0 e 724,8 MWh) do pacote. Usina que está nas falhas e saiu do tempo real aparece, marcada.
+- **A folha de estilo é a da Sala**, tirada do `sala_controle.html` pela rota (`_sala_css()`): mudou a Sala, mudou
+  aqui. O template só acrescenta o que é dele.
+- **"Fora da conta"** = o que o tempo real lê e as falhas do mês não registram. Achado de 17/11: nas strings, as 5 da
+  Sal Energia e 8 da Thopen · API PV (Segredo, as duas; Cambé; Aruanã; Nova Iguaçu; Pharma II, III e IV), que não estão
+  na `cobertura` do pacote; nos trackers, GreenYellow, Apolo e Axis (`TRK_SO_NA_SALA`: a Sala lê e o
+  `_TRK_FONTE_LABEL` não tem). A tela diz; registrar é trabalho do `falhas_job`, ainda não feito.
+- **A curva e o ângulo, só no clique**, pelas rotas da Sala: `/api/spv/usina/<id>?full=1` (API PV, fonte paga),
+  `/api/pg/curva/<id>` (a usina inteira), `/api/<fonte>/curva/<id>?inv=` (as outras; o id do inversor sai do detalhe da
+  usina) e `/api/<fonte>/trackers/<id>/chart`. O dia é hoje para o que segue parado e o dia em que parou para o que
+  voltou; o campo Dia troca.
+- **Gravações (as rotas de antes):** Tirar da conta e devolver (`/api/painel/falhas/desconsiderar`; a ocorrência de
+  string leva todas as chaves dela em `chaves`), o Excel do que está na lista (`/api/painel/falhas/exportar`) e Criar
+  OS (o `/os/performance/criar` numa janela, como a Sala: a frase, o ativo e o texto "Strings 5, 6 e 8 com corrente
+  nula, verificar e normalizar"; uma usina por vez). Quem só lê (gestor) não vê os botões (`window.gcEu.grava`).
+- **Como provar:** `tests/test_strings_trackers_tela.py` (a rota, a folha da Sala e o `montar()` rodando no node com
+  um pacote pequeno). Na mão: a soma da lateral contra `strings.episodios` e `trackers.rows` do pacote.
+
 ## Falhas de strings e trackers (aba do Diagnóstico, 24/09/2026)
 
 **A tela redesenhada do zero (20/10/2026**, Levi: "mantenha os pilares mas quero que fique mais fácil de entender e o

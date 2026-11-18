@@ -181,6 +181,6 @@ def test_aba_mostra_os_trackers_sem_comunicacao_e_quem_comecou_no_periodo(monkey
     monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
     app.app.config["TESTING"] = True
     with app.app.test_client() as c:
-        html = c.get("/painel/falhas").get_data(as_text=True)
+        html = c.get("/painel/falhas?antiga=1").get_data(as_text=True)
     assert 'id="t-sc"' in html and "D.trackers.sem_comunicacao" in html
     assert "começaram no período" in html and "já vinham parados" in html

@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Strings e trackers</title>
+<script>
+// O tema do Nexus antes da 1ª pintura (o cookie nexus_tema ou o localStorage nexus.tema), como nas outras telas
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro' || t === 'escuro') raiz.setAttribute('data-tema', t); }
+  try {
+    var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/);
+    aplica(c ? c[1] : localStorage.getItem('nexus.tema'));
+  } catch(e) {}
+  window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* A folha é a DA SALA DE CONTROLE (a rota a tira do sala_controle.html a cada mudança dele): uma tela só no desenho, sem
+   cópia para envelhecer. Abaixo, só o que esta tela acrescenta. */
+{{ sala_css|safe }}
+  .f.aberto>.us{display:block}
+  .lado .uc,.lado .f .u{grid-template-columns:minmax(0,1fr) 40px 46px 66px}
+  .lado .uc>span:not(:first-child),.lado .f .u>span:not(.n){text-align:center}
+  .lado .f .u .fr{color:var(--fraco);font-size:11.5px}
+  .lado .tri b.cz{color:var(--tinta)}
+  .faixa{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--sup);border-radius:10px;padding:9px 14px;margin:0 0 14px;font-size:12.5px;color:var(--mudo)}
+  .faixa b{color:var(--tinta);font-weight:600}
+  .faixa.av{flex-wrap:nowrap;align-items:flex-start}.faixa.av>span:last-child{flex:1;min-width:0}
+  .oc.s8{grid-template-columns:22px 104px minmax(0,1fr) minmax(0,1.5fr) minmax(0,1.2fr) 74px 88px 236px}
+  .oc.s8.sem{grid-template-columns:22px 104px minmax(0,1.6fr) minmax(0,1.4fr) 74px 88px 236px}
+  .oc.s8>span.d{text-align:right;font-variant-numeric:tabular-nums}
+  .oc.s8>span.ac{display:flex;gap:6px;justify-content:flex-end;overflow:visible}
+  .oc.fora{opacity:.5}
+  .oc .sub{color:var(--fraco);font-size:11.5px;margin-left:6px}
+  .ocx svg{display:block;width:100%;height:auto}
+  .ocx .ln{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;color:var(--mudo)}
+  .cobt td,.cobt th{padding:7px 12px}
+  .zero{color:var(--fraco)}
+  .toastm{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--sup);border:1px solid var(--linha2);border-radius:10px;padding:10px 16px;font-size:12.5px;z-index:60;max-width:min(680px,92vw)}
+  .toastm.erro{border-color:var(--critico)}
+  .janos{position:fixed;inset:0;background:rgba(4,7,14,.72);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
+  .janos>div{position:relative;width:min(1520px,100%);height:min(900px,100%);background:var(--sup);border-radius:12px;overflow:hidden}
+  .janos iframe{width:100%;height:100%;border:0;background:var(--fundo)}
+  .janos .x{position:absolute;top:8px;right:10px;width:30px;height:30px;border-radius:50%;border:1px solid var(--linha2);background:var(--fundo);color:var(--tinta);cursor:pointer;font-size:18px;line-height:1}
+</style>
+</head>
+<body>
+{% raw %}
+<div class="tela">
+  <aside class="lado">
+    <div class="lt"><span>Fontes · falhas do mês</span> <span id="fresco1"></span></div>
+    <label class="buscaN"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar usina ou fonte…" aria-label="Buscar usina ou fonte"></label>
+    <div id="arvore"><div class="mais" style="padding:10px">Lendo as fontes e as falhas do mês…</div></div>
+  </aside>
+  <main class="meio">
+    <div class="topo"><div><div class="sobre">Performance</div>
+      <h1>Strings e trackers <span id="recorte"></span></h1></div>
+      <div style="display:flex;align-items:center;gap:8px"><a class="btnl" style="text-decoration:none" href="/painel/falhas?antiga=1" title="A tela de antes, com o vínculo de OS e os filtros dela">Tela anterior</a>
+        <select class="campo" id="mes" aria-label="Mês" style="padding:4px 8px"></select></div></div>
+    <div class="frescor" id="frescor"></div>
+    <div class="kpis" id="kpis"></div>
+    <div id="cabu"></div>
+    <div class="abas" id="abas"></div>
+    <div id="corpo"></div>
+  </main>
+</div>
+<div id="modal"></div>
+<div class="toastm" id="toast" hidden></div>
+<script>
+// ── Strings e trackers no desenho da Sala de controle (17/11/2026). Levi: "A parte de string e trackers vai passar por um
+//    rework indo para todas as fontes da sala de controle, quero que avalie como está e deixe ao estilo sala de controle";
+//    aprovado pelo mockup (docs/mockups/strings-trackers-sala) com "Sobe o strings e trackers". Lê o que já existia: a
+//    Entrada do tempo real (as fontes e as usinas, como a Sala) e o pacote de falhas do mês (/api/painel/falhas, que o
+//    worker publica de 30 em 30 min); a curva e o ângulo saem das mesmas rotas da Sala, só no clique. ──
+const NOME = {"thopen-pv":"Thopen · API PV","thopen-db":"Thopen · Banco de dados","athon":"Athon · SunOp","axis":"Axis · scadaGridco",
+  "renogrid":"RenoGrid · SolarEdge","2c":"2C · API PV","semp":"SEMP · API PV","alveslima":"Alves Lima · API PV",
+  "greenyellow":"GreenYellow · scadaGridco","salenergia":"Sal Energia · scadaGridco","apolo":"Apolo · scadaGridco"};
+const SKEY = {"thopen-pv":"pv","thopen-db":"pg","athon":"sunop","axis":"axis","renogrid":"solaredge","2c":"owen","semp":"semp","alveslima":"alveslima","2capi":"2capi","greenyellow":"greenyellow","salenergia":"salenergia","apolo":"apolo"};
+const VKEY = {"thopen-pv":"pv","thopen-db":"pg","athon":"so","axis":"ax","renogrid":"se","2c":"owen","semp":"semp","alveslima":"al","2capi":"c2","greenyellow":"gy","salenergia":"sal","apolo":"apo"};
+const PLANT = {pv:"/api/plant/",pg:"/api/pg/plant/",sunop:"/api/sunop/plant/",axis:"/api/axis/plant/",solaredge:"/api/solaredge/plant/",owen:"/api/owen/strings/plant/",semp:"/api/plant/",alveslima:"/api/plant/","2capi":"/api/plant/",greenyellow:"/api/greenyellow/plant/",salenergia:"/api/salenergia/plant/",apolo:"/api/apolo/plant/"};
+const EPT = {pv:"/api/pv/trackers",pg:"/api/pg/trackers",sunop:"/api/sunop/trackers",axis:"/api/axis/trackers",owen:"/api/owen/trackers",semp:"/api/pv/trackers","2capi":"/api/2capi/trackers",greenyellow:"/api/greenyellow/trackers",apolo:"/api/apolo/trackers"};
+const CLI = {"2C": "2c", "SEMP": "semp", "Alves Lima": "alveslima", "Sal Energia": "salenergia", "Axis": "axis", "Athon": "athon", "Renogrid": "renogrid", "RenoGrid": "renogrid", "Apolo": "apolo", "Greenyellow": "greenyellow", "GreenYellow": "greenyellow"};
+const ehApiPv = (sk, pid) => sk === "pv" || sk === "semp" || sk === "alveslima" || sk === "2capi" || (sk === "owen" && /^\d+$/.test(String(pid)));
+// "Fora da conta" de trackers = a fonte que a Sala LÊ no tempo real e que as falhas do mês não registram. A Sal Energia não
+// tem leitura de tracker em lugar nenhum, e nas outras fontes a usina sem registro pode simplesmente ser fixa.
+const TRK_SO_NA_SALA = ["greenyellow", "apolo", "axis"];
+const EU = window.gcEu || {}, PODE = !!EU.grava;
+
+const q = (s, e) => (e || document).querySelector(s), $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const n0 = v => Math.round(v).toLocaleString("pt-BR"), n1 = v => (+v).toLocaleString("pt-BR", {minimumFractionDigits: 1, maximumFractionDigits: 1});
+const kwh = v => v >= 1000 ? n1(v / 1000) + " MWh" : n0(v) + " kWh";
+const dh = s => s ? s.slice(8, 10) + "/" + s.slice(5, 7) + (s.length > 10 ? " " + s.slice(11, 16) : "") : "";
+const natural = (a, b) => String(a).localeCompare(String(b), "pt-BR", {numeric: true});
+const pl = (n, s) => n + " " + s + (n === 1 ? "" : "s");
+const lista = l => l.length < 2 ? l.join("") : l.slice(0, -1).join(", ") + " e " + l[l.length - 1];
+const norm = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+// mês passado não tem "agora": o que ficou sem voltar está "em aberto no fim do mês"
+const mesAtual = () => !D || D.mes === hojeIso().slice(0, 7), ag = (agora, fim) => mesAtual() ? agora : fim;
+const hojeIso = () => { const d = new Date(Date.now() - 3 * 3600 * 1000); return d.toISOString().slice(0, 10); };      // o dia em Brasília (UTC−3)
+
+async function pega(url, ms) {
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), ms || 30000);
+  try { const r = await fetch(url, {credentials: "same-origin", headers: {Accept: "application/json"}, signal: c.signal});
+    if (r.status === 401 || r.redirected && /\/login/.test(r.url)) { location.href = "/login?next=" + encodeURIComponent(location.pathname); throw new Error("sessão encerrada"); }
+    if (!r.ok) { const j = await r.json().catch(() => null); throw new Error((j && (j.motivo || j.erro || j.error)) || "a rota respondeu " + r.status); }
+    return await r.json(); }
+  finally { clearTimeout(tm); }
+}
+
+let D = null, US = {};
+const SEL = {g: null, k: null}; let ABA = "s", SO_AB = true, SEM_CRON = false, LIM = 60, BUSCA = "", MES = "", GAVETA = false;
+const ABERTAS = new Set(), MARC = new Set(), FECH = new Set(), DIAD = {};      // DIAD: o dia escolhido no detalhe de cada ocorrência
+const CURVAS = {}, TRKC = {}, INVS = {};                                     // o que já foi lido das rotas da Sala, por chave
+const idS = o => "s|" + o.k + "|" + o.inv + "|" + o.ini, idT = o => "t|" + o.k + "|" + o.trk + "|" + o.ini;
+
+// ── O modelo: as usinas da Entrada (como a Sala) com as falhas do mês penduradas em cada uma ──
+function montar(ent, fal) {
+  const grupos = (ent.grupos || []).filter(g => NOME[g.fonte_id]).map(g => ({id: g.fonte_id, nome: NOME[g.fonte_id], usinas: (g.usinas || []).map(u => ({
+    g: g.fonte_id, k: g.fonte_id + "|" + u.plant_id, u: u.usina, pid: String(u.plant_id), trkAgora: +u.trk_parados || 0, naEntrada: true,
+    sAb: 0, tAb: 0, nS: 0, nT: 0, perdaS: 0, perdaT: 0, ds: null, dt: null, dc: null, naConta: false}))}));
+  const us = {}, porNome = {}, dono = {}, db = new Set();
+  grupos.forEach(g => g.usinas.forEach(u => { us[u.k] = u; (porNome[g.id + "|" + norm(u.u)] = porNome[g.id + "|" + norm(u.u)] || []).push(u);
+    if (!(u.u in dono)) dono[u.u] = g.id; if (g.id === "thopen-db") db.add(u.u); }));
+  // a fonte da linha do pacote → o grupo da Entrada: a mesma conta da Sala (a Thopen se divide em banco e API PV)
+  const grupoDe = r => r.cliente === "Thopen" ? (r.fonte === "pg" && db.has(r.usina) ? "thopen-db" : (dono[r.usina] === "thopen-db" ? "thopen-pv" : (dono[r.usina] || "thopen-pv"))) : (CLI[r.cliente] || dono[r.usina] || "?");
+  const usinaDe = r => { const g = grupoDe(r); if (!NOME[g]) return null;
+    let u = us[g + "|" + r.plant_id] || (porNome[g + "|" + norm(r.usina)] || [])[0];
+    if (!u) {                                               // está nas falhas do mês e não está mais no tempo real: aparece, marcada
+      u = us[g + "|" + r.plant_id] = {g, k: g + "|" + r.plant_id, u: r.usina, pid: String(r.plant_id), trkAgora: null, naEntrada: false, sAb: 0, tAb: 0, nS: 0, nT: 0, perdaS: 0, perdaT: 0, ds: null, dt: null, dc: null, naConta: false};
+      let gg = grupos.find(x => x.id === g); if (!gg) grupos.push(gg = {id: g, nome: NOME[g], usinas: []}); gg.usinas.push(u); }
+    return u; };
+  (fal.cobertura || []).forEach(c => { const u = usinaDe(c); if (!u) return; u.naConta = true;
+    u.ds = Math.max(u.ds || 0, c.dias_strings || 0); u.dt = Math.max(u.dt || 0, c.dias_trackers || 0) || null; u.dc = Math.max(u.dc || 0, c.dias_comunicou || 0); });
+  const osDe = {}; (fal.strings_os || []).forEach(o => { const k = String(o.plant_id) + "|" + norm(o.inversor); (osDe[k] = osDe[k] || []).push(o); });
+  const S = [], T = [], gs = new Map();
+  const epS = (e, fora) => { const u = usinaDe(e); if (!u) return; const kk = u.k + "|" + e.inversor + "|" + e.inicio + "|" + (e.fim || "") + "|" + (fora ? 1 : 0);
+    let o = gs.get(kk); if (!o) { o = {k: u.k, inv: e.inversor, strs: [], chaves: [], ini: e.inicio, fim: e.fim || null, dias: 0, h: 0, perda: 0, flags: [], os: null, fora: !!fora, pidF: String(e.plant_id), cliente: e.cliente || ""}; gs.set(kk, o); S.push(o); }
+    o.strs.push(e.string); o.chaves.push(e.chave); o.dias = Math.max(o.dias, +e.dias || 0); o.h = Math.max(o.h, +e.h_sol || 0); o.perda += +e.perda_kwh || 0;
+    (e.flags || []).forEach(f => { if (!o.flags.includes(f)) o.flags.push(f); }); };
+  ((fal.strings || {}).episodios || []).forEach(e => epS(e, false));
+  ((fal.strings || {}).desconsideradas || []).forEach(e => { if (e && e.inversor && e.string) epS(e, true); });
+  S.forEach(o => { const l = osDe[o.pidF + "|" + norm(o.inv)] || [], d = l.filter(x => String(x.data_evento || "") >= o.ini.slice(0, 10)), x = (d.length ? d : l).slice(-1)[0];
+    if (x) o.os = [String(x.os), x.status || ""]; });
+  const linT = (e, fora) => { const u = usinaDe(e); if (!u) return;
+    T.push({k: u.k, trk: String(e.tracker), chave: e.chave, ini: e.inicio, fim: e.fim || null, h: +e.h_sol || 0, desvio: e.desvio_pico, perda: +e.perda_kwh || 0, cron: !!e.cronico, semCom: e.sem_com_desde || null,
+      flags: (e.flags || []).filter(f => !/^kWp:/.test(f) && f !== "em aberto"), dias: (e.dias || []).length, fora: !!fora, cliente: e.cliente || "", inversor: e.inversor || ""}); };
+  ((fal.trackers || {}).rows || []).forEach(e => linT(e, false));
+  ((fal.trackers || {}).desconsideradas || []).forEach(e => linT(e, true));
+  S.forEach(o => { if (o.fora) return; const u = us[o.k]; u.nS++; u.perdaS += o.perda; if (!o.fim) u.sAb += o.strs.length; });
+  T.forEach(o => { if (o.fora) return; const u = us[o.k]; u.nT++; u.perdaT += o.perda; if (!o.fim) u.tAb++; });
+  US = us;
+  return {mes: fal.mes || MES, meses: fal.meses || [], gerado: fal.gerado_em || "", regua: fal.regua || {}, lido: (ent.cache_ts || ""), fontes: grupos.filter(g => g.usinas.length), s: S, t: T,
+    qual: {s: (fal.strings || {}).qualidade || {}, t: (fal.trackers || {}).qualidade || {}}};
+}
+
+function noRecorte(k) { return SEL.k ? k === SEL.k : SEL.g ? US[k].g === SEL.g : true; }
+function usinasDoRecorte() { return Object.values(US).filter(u => noRecorte(u.k)); }
+const semStr = u => !u.naConta, semTrk = u => !u.dt && TRK_SO_NA_SALA.includes(u.g), nuncaTrk = u => !u.dt && !semTrk(u);
+
+function lado() {
+  const f = BUSCA.trim().toLowerCase();
+  $("arvore").innerHTML = D.fontes.map(g => {
+    const us = g.usinas.filter(u => !f || u.u.toLowerCase().includes(f) || g.nome.toLowerCase().includes(f))
+      .sort((a, b) => (b.sAb + b.tAb) - (a.sAb + a.tAb) || (b.perdaS + b.perdaT) - (a.perdaS + a.perdaT) || natural(a.u, b.u));
+    if (!us.length) return "";
+    const s = us.reduce((t, u) => t + u.sAb, 0), t = us.reduce((x, u) => x + u.tAb, 0), p = us.reduce((x, u) => x + u.perdaS + u.perdaT, 0);
+    const nTrk = us.filter(u => u.dt).length, nStr = us.filter(u => !semStr(u)).length, agora = us.reduce((x, u) => x + (u.trkAgora || 0), 0);
+    const aberto = FECH.has(g.id) ? false : !!(f || SEL.g === g.id || (SEL.k && US[SEL.k].g === g.id));
+    return `<div class="f ${aberto ? "aberto" : ""}"><div class="g ${SEL.g === g.id && !SEL.k ? "on" : ""}" data-g="${g.id}"><div class="l1"><span class="seta">›</span><b>${esc(g.nome)}</b><small>${us.length} usinas</small></div>
+      <div class="tri"><div title="Strings paradas agora, pelas falhas do mês">Strings<b class="${s ? "" : "z"}">${nStr ? s : "—"}</b><i>${nStr ? ag("agora", "em aberto") : "fora"}</i></div>
+        <div title="${nTrk ? "Trackers parados agora, pelas falhas do mês" : us.some(semTrk) ? "A Sala lê os trackers desta fonte no tempo real; as falhas do mês não registram" + (agora ? ": " + agora + " parados agora" : "") : "Sem registro de tracker nesta fonte"}">Trackers<b class="${nTrk && t ? "" : "z"}">${nTrk ? t : "—"}</b><i>${nTrk ? ag("agora", "em aberto") : us.some(semTrk) ? "fora" : "sem leitura"}</i></div>
+        <div title="Perda estimada no mês, strings e trackers">Perda<b class="${p ? "cz" : "z"}">${p ? n1(p / 1000) : "—"}</b><i>MWh</i></div></div></div>
+      <div class="us"><div class="uc"><span>Usina</span><span title="Strings paradas agora">Str.</span><span title="Trackers parados agora">Trk.</span><span title="Perda estimada no mês, strings e trackers">Perda</span></div>
+      ${us.map(u => `<div class="u ${SEL.k === u.k ? "on" : ""}" data-u="${esc(u.k)}" title="${esc(u.u)}${u.naEntrada ? "" : " · não está mais no tempo real"}"><span class="n"><span class="pt ${semStr(u) || !u.naEntrada ? "desligada" : u.sAb + u.tAb ? "critico" : ""}"></span>${esc(u.u)}</span>
+        <span>${semStr(u) ? `<span class="fr" title="As strings desta usina não entram nas falhas do mês">fora</span>` : u.sAb ? `<b>${u.sAb}</b>` : `<span class="zero">—</span>`}</span>
+        <span>${nuncaTrk(u) ? `<span class="zero" title="Sem registro de tracker no mês: usina sem tracker ou fonte sem leitura de tracker">—</span>` : semTrk(u) ? (u.trkAgora ? `<span class="fr" title="O tempo real lê ${u.trkAgora} trackers parados agora nesta usina; as falhas do mês não registram os trackers desta fonte">${u.trkAgora}*</span>` : `<span class="fr" title="A Sala lê os trackers desta fonte no tempo real; as falhas do mês não registram">fora</span>`) : u.tAb ? `<b>${u.tAb}</b>` : `<span class="zero">—</span>`}</span>
+        <span>${u.perdaS + u.perdaT ? kwh(u.perdaS + u.perdaT).replace(" kWh", "") : `<span class="zero">—</span>`}</span></div>`).join("")}</div></div>`; }).join("");
+}
+
+function kpis() {
+  const us = usinasDoRecorte(), s = D.s.filter(o => noRecorte(o.k) && !o.fora), t = D.t.filter(o => noRecorte(o.k) && !o.fora);
+  const sAb = s.filter(o => !o.fim), tAb = t.filter(o => !o.fim), pS = s.reduce((x, o) => x + o.perda, 0), pT = t.reduce((x, o) => x + o.perda, 0);
+  const nsAb = sAb.reduce((x, o) => x + o.strs.length, 0), foraT = us.filter(semTrk), foraS = us.filter(semStr);
+  const todasSemS = us.length && us.every(semStr), nenhumT = us.length && us.every(u => !u.dt), fT = new Set(foraT.map(u => u.g)).size;
+  const k = (cls, rot, num, un, sub) => `<div class="kn ${cls}" style="cursor:default"><small>${rot}</small><div class="num"><b>${num}</b><span>${un}</span></div><div class="sub" title="${esc(sub)}">${sub}</div></div>`;
+  $("kpis").innerHTML = (todasSemS ? k("", "Strings", "—", "fora da conta", "as falhas do mês não registram") : k(nsAb ? "acao" : "bom", "Strings", nsAb, ag("paradas agora", "em aberto no fim do mês"), `em ${pl(new Set(sAb.map(o => o.k)).size, "usina")} · ${pl(s.length, "ocorrência")} no mês`))
+    + (nenhumT ? k("", "Trackers", "—", foraT.length ? "fora da conta" : "sem leitura", foraT.length ? "a Sala lê no tempo real; as falhas do mês não registram" : "sem registro de tracker neste recorte") : k(tAb.length ? "acao" : "bom", "Trackers", tAb.length, ag("parados agora", "em aberto no fim do mês"), `em ${pl(new Set(tAb.map(o => o.k)).size, "usina")} · ${pl(t.length, "ocorrência")} no mês · ${pl(tAb.filter(o => o.cron).length, "crônico")}`))
+    + k("", "Perda no mês", n1((pS + pT) / 1000), "MWh", `strings ${n1(pS / 1000)} MWh · trackers ${n1(pT / 1000)} MWh`)
+    + k(foraT.length + foraS.length ? "crit" : "bom", "Fora da conta hoje", foraT.length + foraS.length, foraT.length + foraS.length === 1 ? "usina" : "usinas", foraT.length + foraS.length ? `trackers: ${pl(fT, "fonte")} (${pl(foraT.length, "usina")}) · strings: ${pl(foraS.length, "usina")}` : "tudo deste recorte entra na conta do mês");
+}
+
+function topo() {
+  const u = SEL.k && US[SEL.k], g = SEL.g && D.fontes.find(f => f.id === SEL.g);
+  $("recorte").textContent = u ? "· " + u.u : g ? "· " + g.nome : "· todas as fontes";
+  const sel = $("mes"), ms = (D.meses.length ? D.meses : [D.mes]).slice().sort().reverse();
+  sel.innerHTML = ms.map(m => `<option value="${m}" ${m === D.mes ? "selected" : ""}>${m.slice(5)}/${m.slice(0, 4)}</option>`).join("");
+  $("fresco1").textContent = D.gerado ? "pacote das " + D.gerado.slice(11) : "";
+  $("frescor").innerHTML = `Falhas do mês geradas às <b>${esc(D.gerado.slice(11))}</b> de ${dh(D.gerado.slice(0, 10))} (o worker refaz de 30 em 30 min) · tempo real lido às <b>${esc(D.lido)}</b>${D.regua.janela_strings ? " · régua das strings: " + esc(D.regua.janela_strings) : ""}`;
+  let h = "";
+  if (u) {
+    const f = D.fontes.find(z => z.id === u.g);
+    h = `<div class="faixa" style="margin-top:14px"><b>${esc(u.u)}</b><span>${esc(f.nome)}</span>
+      <span>Strings: ${semStr(u) ? `<span class="tag c">fora da conta do mês</span>` : `<b>${u.ds || 0}</b> dias registrados`}</span>
+      <span>Trackers: ${semTrk(u) ? `<span class="tag c">fora da conta do mês</span>${u.trkAgora ? ` <span class="tag n">${u.trkAgora} parados agora no tempo real</span>` : ""}` : nuncaTrk(u) ? "sem registro no mês" : `<b>${u.dt}</b> dias registrados`}</span>
+      <span>Comunicou em <b>${u.dc == null ? "—" : u.dc}</b> dias</span>${u.naEntrada ? "" : `<span class="tag n">não está mais no tempo real</span>`}</div>`;
+  }
+  $("cabu").innerHTML = h;
+  const s = D.s.filter(o => noRecorte(o.k) && !o.fim && !o.fora).reduce((x, o) => x + o.strs.length, 0), t = D.t.filter(o => noRecorte(o.k) && !o.fim && !o.fora).length;
+  $("abas").innerHTML = [["s", "Strings", s], ["t", "Trackers", t], ["q", "Qualidade do dado", null]].map(([a, r, n]) => `<button class="aba ${ABA === a ? "on" : ""}" data-aba="${a}">${r}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}</button>`).join("");
+}
+
+// ── o gráfico: linhas no tempo do dia (minuto → valor) ──
+function linhas(series, o) {
+  const W = 1000, H = 230, m = {l: 44, r: 12, t: 10, b: 24}, x0 = o.x0 ?? 300, x1 = o.x1 ?? 1140;
+  const ys = series.flatMap(s => s.p.filter(p => p[0] >= x0 && p[0] <= x1).map(p => p[1]));
+  if (!ys.length) return `<div class="mais">Sem leitura entre as ${String(x0 / 60).padStart(2, "0")}h e as ${String(x1 / 60).padStart(2, "0")}h deste dia.</div>`;
+  let y0 = Math.min(0, ...ys), y1 = Math.max(...ys); if (y1 - y0 < 1) y1 = y0 + 1; const fol = (y1 - y0) * .06; y1 += fol; if (y0 < 0) y0 -= fol;
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r), Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * (H - m.t - m.b);
+  let g = "";
+  for (let h = Math.ceil(x0 / 120) * 120; h <= x1; h += 120) g += `<line x1="${X(h)}" x2="${X(h)}" y1="${m.t}" y2="${H - m.b}" stroke="var(--grade)"/><text x="${X(h)}" y="${H - 7}" text-anchor="middle" fill="var(--fraco)" font-size="11">${String(h / 60).padStart(2, "0")}h</text>`;
+  for (let i = 0; i <= 4; i++) { const v = y0 + (y1 - y0) * i / 4; g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grade)"/><text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" fill="var(--fraco)" font-size="11">${n1(v)}</text>`; }
+  const tr = s => { let d = "", ult = null; s.p.forEach(p => { if (p[0] < x0 || p[0] > x1) return; d += (ult != null && p[0] - ult <= 20 ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1); ult = p[0]; });
+    return `<path d="${d}" fill="none" stroke="${s.cor}" stroke-width="${s.larg || 1.2}" ${s.trac ? 'stroke-dasharray="5 4"' : ""} opacity="${s.op || 1}"/>`; };
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.rot || "curva do dia")}">${g}${series.filter(s => !s.frente).map(tr).join("")}${series.filter(s => s.frente).map(tr).join("")}<text x="${m.l}" y="${m.t + 2}" fill="var(--fraco)" font-size="11">${esc(o.un || "")}</text></svg>`;
+}
+const minuto = x => { const s = String(x); return s.includes("T") || s.length > 8 ? +s.slice(11, 13) * 60 + +s.slice(14, 16) : +s.slice(0, 2) * 60 + +s.slice(3, 5); };
+const numDe = s => (String(s).match(/(\d+)\s*$/) || [])[1];
+// o dia do detalhe: o escolhido; senão hoje para o que segue parado, e o dia em que parou para o que já voltou
+const diaDe = (id, o) => DIAD[id] || (!o.fim && D.mes === hojeIso().slice(0, 7) ? hojeIso() : o.ini.slice(0, 10));
+
+// A curva das strings do inversor num dia, pelas MESMAS rotas da Sala (a usina inteira no banco e na API PV; um inversor
+// por pedido nas outras, pelo id que o detalhe da usina dá). Só no clique; guarda o que leu.
+async function lerCurva(o, dia) {
+  const u = US[o.k], sk = SKEY[u.g], k = o.k + "|" + o.inv + "|" + dia;
+  if (CURVAS[k] !== undefined) return;
+  CURVAS[k] = null;
+  try {
+    const guarda = (x, kk) => { const s = {}; Object.entries(x.curva || {}).forEach(([n, c]) => { s[n] = (c.x || []).map((h, i) => [minuto(h), c.y[i] == null ? null : +c.y[i]]).filter(p => p[1] != null); }); CURVAS[kk] = {s, un: x.unidade || "A"}; };
+    let url, porNome = true;
+    if (ehApiPv(sk, u.pid)) url = "/api/spv/usina/" + encodeURIComponent(u.pid) + "?full=1&data=" + dia.slice(8, 10) + "/" + dia.slice(5, 7) + "/" + dia.slice(0, 4);
+    else if (sk === "pg") url = "/api/pg/curva/" + encodeURIComponent(u.pid) + "?data=" + dia;
+    else if (["sunop", "axis", "greenyellow", "salenergia", "apolo", "solaredge"].includes(sk)) {
+      if (!INVS[o.k]) INVS[o.k] = pega(PLANT[sk] + encodeURIComponent(u.pid), 90000).then(d => Object.fromEntries((d.inversores || []).map(i => [norm(i.nome), i.id])));
+      const id = (await INVS[o.k].catch(e => { delete INVS[o.k]; throw e; }))[norm(o.inv)];
+      if (id == null) throw new Error("o inversor " + o.inv + " não está na leitura de agora da usina");
+      url = "/api/" + sk + "/curva/" + encodeURIComponent(u.pid) + "?inv=" + encodeURIComponent(id) + "&data=" + dia; porNome = false; }
+    else throw new Error("esta fonte não tem curva por string");
+    const d = await pega(url, 120000), l = d.inversores || [];
+    if (porNome) l.forEach(x => { if (x.nome) guarda(Object.assign({unidade: d.unidade}, x), o.k + "|" + x.nome + "|" + dia); });
+    const x = l.find(z => norm(z.nome) === norm(o.inv)) || (!porNome && l.length === 1 ? l[0] : null);
+    if (x) guarda(Object.assign({unidade: d.unidade}, x), k); else if (!CURVAS[k]) CURVAS[k] = {s: {}, vazia: true};
+  } catch (e) { CURVAS[k] = {s: {}, erro: String(e && e.message || e)}; }
+  corpo();
+}
+async function lerTrk(o, dia) {
+  const u = US[o.k], sk = SKEY[u.g], k = o.k + "|" + dia;
+  if (TRKC[k] !== undefined) return;
+  TRKC[k] = null;
+  try { if (!EPT[sk]) throw new Error("esta fonte não tem a curva dos trackers");
+    const j = await pega(EPT[sk] + "/" + encodeURIComponent(u.pid) + "/chart?ini=" + dia + "&fim=" + dia, 120000), t = {};
+    (j.trackers || []).forEach(x => { t[String(x.id)] = (x.x || []).map((h, i) => [minuto(h), x.y[i]]).filter(p => p[1] != null); });
+    TRKC[k] = {t, alvo: j.alvo && j.alvo.x ? j.alvo.x.map((h, i) => [minuto(h), j.alvo.y[i]]).filter(p => p[1] != null) : []}; }
+  catch (e) { TRKC[k] = {t: {}, alvo: [], erro: String(e && e.message || e)}; }
+  corpo();
+}
+const campoDia = (id, o, dia) => `<div class="ln"><span>Dia</span><input type="date" class="campo" style="padding:3px 8px" data-dia="${esc(id)}" value="${dia}" min="${o.ini.slice(0, 10)}" max="${o.fim ? o.fim.slice(0, 10) : hojeIso()}" aria-label="Dia da curva"><span>parou em ${dh(o.ini)}${o.fim ? " · voltou em " + dh(o.fim) : " · segue parado"}</span></div>`;
+const avisos = o => o.flags.length ? `<div class="mais">Avisos da conta: ${esc(o.flags.join(" · "))}.</div>` : "";
+function drillS(o) {
+  const id = idS(o), dia = diaDe(id, o), c = CURVAS[o.k + "|" + o.inv + "|" + dia];
+  if (c === undefined) { lerCurva(o, dia); return campoDia(id, o, dia) + `<div class="mais">Lendo a curva das strings do ${esc(o.inv)} em ${dh(dia)}…</div>`; }
+  if (c === null) return campoDia(id, o, dia) + `<div class="mais">Lendo a curva das strings do ${esc(o.inv)} em ${dh(dia)}…</div>`;
+  if (c.erro) return campoDia(id, o, dia) + `<div class="mais">Não consegui ler a curva: ${esc(c.erro)}. <button class="btnl" data-denovo="${esc(o.k + "|" + o.inv + "|" + dia)}">Tentar de novo</button></div>`;
+  const alvo = new Set(o.strs.map(numDe)), ser = Object.entries(c.s).sort((a, b) => natural(a[0], b[0])).map(([n, p]) => alvo.has(numDe(n)) ? {p, cor: "var(--critico)", larg: 2, frente: true} : {p, cor: "var(--neutro)", op: .55});
+  if (!ser.length) return campoDia(id, o, dia) + `<div class="mais">A fonte não devolveu a curva deste inversor em ${dh(dia)}.</div>`;
+  const nAlvo = ser.filter(s => s.frente).length;
+  return campoDia(id, o, dia) + linhas(ser, {un: c.un || "A", rot: "Corrente das strings do " + o.inv}) + `<div class="mais">Cinza = as outras ${ser.length - nAlvo} strings do inversor · <b style="color:var(--critico)">vermelho</b> = ${o.strs.length > 1 ? "as strings desta ocorrência" : "a string desta ocorrência"} (${esc(lista(o.strs.slice().sort(natural)))})${nAlvo < o.strs.length ? `; ${o.strs.length - nAlvo} sem curva neste dia` : ""}.</div>`;
+}
+function drillT(o) {
+  const id = idT(o), dia = diaDe(id, o), c = TRKC[o.k + "|" + dia];
+  if (c === undefined) { lerTrk(o, dia); return campoDia(id, o, dia) + `<div class="mais">Lendo o ângulo do ${esc(o.trk)} em ${dh(dia)}…</div>`; }
+  if (c === null) return campoDia(id, o, dia) + `<div class="mais">Lendo o ângulo do ${esc(o.trk)} em ${dh(dia)}…</div>`;
+  if (c.erro) return campoDia(id, o, dia) + `<div class="mais">Não consegui ler os trackers: ${esc(c.erro)}. <button class="btnl" data-denovot="${esc(o.k + "|" + dia)}">Tentar de novo</button></div>`;
+  const p = c.t[o.trk] || c.t[Object.keys(c.t).find(n => norm(n) === norm(o.trk) || numDe(n) === numDe(o.trk) && Object.keys(c.t).filter(z => numDe(z) === numDe(o.trk)).length === 1)];
+  if (!p || !p.length) return campoDia(id, o, dia) + `<div class="mais">A fonte não devolveu o ângulo do ${esc(o.trk)} em ${dh(dia)}.</div>`;
+  return campoDia(id, o, dia) + linhas([{p: c.alvo, cor: "var(--c-poa)", trac: true, larg: 1.4}, {p, cor: "var(--c-ger)", larg: 2, frente: true}], {un: "graus", rot: "Ângulo do " + o.trk})
+    + `<div class="mais"><b style="color:var(--c-ger)">Azul</b> = o ângulo do ${esc(o.trk)} · <b style="color:var(--c-poa)">laranja tracejado</b> = o alvo${c.alvo.length ? "" : " (a fonte não mandou o alvo deste dia)"}.</div>`;
+}
+
+const sit = o => o.fim ? `Voltou ${dh(o.fim)}` : "";
+const botoes = (id, o, osTxt) => `<span class="ac">${o.os ? `<span class="tag ${/conclu/i.test(o.os[1]) ? "o" : "i"}" title="${esc(o.os[1])}">OS ${esc(o.os[0])}</span>` : PODE && !o.fora ? `<button class="btnl" data-os="${esc(id)}" title="${esc(osTxt)}">Criar OS</button>` : ""}${PODE ? `<button class="btnl" data-fora="${esc(id)}">${o.fora ? "Voltar à conta" : "Tirar da conta"}</button>` : ""}</span>`;
+const fraseS = o => (o.strs.length === 1 ? "String " : "Strings ") + lista(o.strs.map(numDe).filter(Boolean).map(n => String(+n)).sort((a, b) => a - b)) + " com corrente nula, verificar e normalizar";
+function linhaS(o, comUsina) {
+  const id = idS(o), ab = ABERTAS.has(id);
+  return `<div class="oc s8 ${comUsina ? "" : "sem"} ${o.fim ? "" : "ab"} ${ab ? "on" : ""} ${o.fora ? "fora" : ""}" data-oc="${esc(id)}" role="button" tabindex="0" aria-expanded="${ab}">
+    <span>${PODE && !o.fora && !o.os ? `<input type="checkbox" data-marc="${esc(id)}" ${MARC.has(id) ? "checked" : ""} aria-label="Escolher para criar OS">` : ""}</span><span>${dh(o.ini)}</span>${comUsina ? `<span>${esc(US[o.k].u)}</span>` : ""}
+    <span title="${esc(o.inv + ": " + lista(o.strs.slice().sort(natural)))}"><b>${esc(o.inv)}</b><span class="sub">${o.strs.length > 1 ? o.strs.length + " strings: " : ""}${esc(lista(o.strs.slice().sort(natural)))}</span></span>
+    <span title="${esc(o.flags.join(" · "))}">${o.fim ? sit(o) : `<span class="tag c">${ag("Parada agora", "Em aberto no fim do mês")}</span>`}<span class="sub">${pl(o.dias, "dia")}</span></span>
+    <span class="d">${n1(o.h)} h</span><span class="d">${o.perda ? "≈ " + kwh(o.perda) : "—"}</span>${botoes(id, o, "Abre o OS Creator já preenchido: " + fraseS(o))}</div>
+    ${ab ? `<div class="ocx">${drillS(o)}${avisos(o)}</div>` : ""}`;
+}
+function linhaT(o, comUsina) {
+  const id = idT(o), ab = ABERTAS.has(id);
+  return `<div class="oc s8 ${comUsina ? "" : "sem"} ${o.fim ? "" : "ab"} ${ab ? "on" : ""} ${o.fora ? "fora" : ""}" data-oc="${esc(id)}" role="button" tabindex="0" aria-expanded="${ab}">
+    <span>${PODE && !o.fora ? `<input type="checkbox" data-marc="${esc(id)}" ${MARC.has(id) ? "checked" : ""} aria-label="Escolher para criar OS">` : ""}</span><span>${dh(o.ini)}</span>${comUsina ? `<span>${esc(US[o.k].u)}</span>` : ""}
+    <span><b>${esc(o.trk)}</b>${o.cron ? `<span class="tag n" style="margin-left:6px">crônico</span>` : ""}${o.semCom ? `<span class="tag a" style="margin-left:6px">sem comunicação desde ${dh(o.semCom)}</span>` : ""}</span>
+    <span title="${esc(o.flags.join(" · "))}">${o.fim ? sit(o) : `<span class="tag c">${ag("Parado agora", "Em aberto no fim do mês")}</span>`}<span class="sub">${pl(o.dias, "dia")} · desvio ${o.desvio == null ? "sem ângulo" : n1(o.desvio) + "°"}</span></span>
+    <span class="d">${n1(o.h)} h</span><span class="d">${o.perda ? "≈ " + kwh(o.perda) : "—"}</span>${botoes(id, o, "Abre o OS Creator: verificação de tracker parado, " + o.trk)}</div>
+    ${ab ? `<div class="ocx">${drillT(o)}${avisos(o)}</div>` : ""}`;
+}
+
+function visiveis() {
+  const base = (ABA === "s" ? D.s : D.t).filter(o => noRecorte(o.k));
+  const l = base.filter(o => GAVETA ? o.fora : !o.fora && (!SO_AB || !o.fim) && !(ABA === "t" && SEM_CRON && o.cron));
+  l.sort((a, b) => (a.fim ? 1 : 0) - (b.fim ? 1 : 0) || (a.fim ? b.ini.localeCompare(a.ini) : b.perda - a.perda));
+  return {base, l};
+}
+function corpo() {
+  const comUsina = !SEL.k, us = usinasDoRecorte();
+  if (ABA === "q") {
+    const tab = (t, d) => { const l = Object.entries(d || {}).sort((a, b) => b[1] - a[1]); return l.length ? `<div class="painel"><h3>${t}</h3><p>Do pacote do mês, somando todas as fontes (o pacote não separa por fonte).</p><div class="lt2" style="grid-template-columns:1fr 90px">${l.map(([k, v]) => `<span style="color:var(--tinta)">${esc(k)}</span><span style="text-align:right;color:var(--tinta)">${n0(v)}</span>`).join("")}</div></div>` : ""; };
+    $("corpo").innerHTML = `<div class="sec"><h2>O que entra na conta do mês, usina por usina</h2><p>Dias do mês com registro de string e de tracker, e em quantos a usina comunicou. "Fora da conta" é a usina que a Sala de controle lê no tempo real e que as falhas do mês ainda não registram.</p>
+      <div class="rol" style="overflow:auto"><table class="cobt"><thead><tr><th>Usina</th><th>Fonte</th><th>Strings</th><th>Trackers</th><th>Comunicou</th><th>Trackers parados agora (tempo real)</th></tr></thead><tbody>
+      ${us.slice().sort((a, b) => (semTrk(b) + semStr(b)) - (semTrk(a) + semStr(a)) || natural(a.u, b.u)).map(u => `<tr><td>${esc(u.u)}</td><td>${esc(NOME[u.g])}</td>
+        <td>${semStr(u) ? `<span class="tag c">fora da conta</span>` : (u.ds || 0) + " dias"}</td><td>${semTrk(u) ? `<span class="tag c">fora da conta</span>` : nuncaTrk(u) ? `<span class="zero">sem registro</span>` : u.dt + " dias"}</td><td>${u.dc == null ? "—" : u.dc + " dias"}</td><td>${u.trkAgora == null ? "—" : u.trkAgora || `<span class="zero">0</span>`}</td></tr>`).join("")}</tbody></table></div></div>
+      ${tab("Como as quedas de string foram tratadas", D.qual.s)}${tab("Como as paradas de tracker foram tratadas", D.qual.t)}`;
+    return;
+  }
+  const {base, l} = visiveis(), nFora = base.filter(o => o.fora).length, semNada = ABA === "s" ? us.filter(semStr) : us.filter(semTrk);
+  const aviso = semNada.length && !GAVETA ? `<div class="faixa av" style="margin-top:12px"><span class="tag c">Fora da conta</span><span>${ABA === "s" ? `As strings de <b>${pl(semNada.length, "usina")}</b> deste recorte não entram nas falhas do mês hoje: ${esc(lista(semNada.slice(0, 6).map(u => u.u)))}${semNada.length > 6 ? " e mais " + (semNada.length - 6) : ""}.`
+      : `Os trackers de ${esc(lista([...new Set(semNada.map(u => NOME[u.g].split(" · ")[0]))]))} (<b>${pl(semNada.length, "usina")}</b>; nem todas têm tracker) são lidos pela Sala no tempo real e não entram nas falhas do mês hoje.`}</span></div>` : "";
+  const marcadas = [...MARC].filter(id => id[0] === ABA).length;
+  $("corpo").innerHTML = `<div class="diasel barrafix" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      ${GAVETA ? `<button class="btnl on" data-gaveta="1">‹ Voltar às ocorrências</button><span style="color:var(--mudo);font-size:12.5px;margin-left:6px">${pl(l.length, "ocorrência")} fora da conta neste recorte</span>`
+        : `<button class="btnl ${SO_AB ? "on" : ""}" data-soab="1">${ag("Só parados agora", "Só em aberto no fim do mês")}</button>${ABA === "t" ? `<button class="btnl ${SEM_CRON ? "on" : ""}" data-cron="1">Esconder crônicos</button>` : ""}
+      <span style="color:var(--mudo);font-size:12.5px;margin-left:6px">${pl(l.length, "ocorrência")}${SO_AB ? "" : " no mês"}</span>`}<span style="flex:1"></span>
+      ${GAVETA ? "" : `<button class="btnl" data-gaveta="1" title="O que foi tirado da conta do mês neste recorte, para devolver">Tiradas da conta (${nFora})</button><button class="btnl" data-xls="1" ${l.length ? "" : "disabled"} title="O Excel do que está na lista agora">Baixar Excel</button>
+      ${PODE ? `<button class="btn" data-osm="1" ${marcadas ? "" : "disabled"} title="Abre o OS Creator com as ocorrências escolhidas de UMA usina">Criar OS${marcadas ? " (" + marcadas + ")" : ""}</button>` : ""}`}</div>${aviso}
+    ${l.length ? `<div class="ocl"><div class="oc s8 cab ${comUsina ? "" : "sem"}"><span></span><span>Parou</span>${comUsina ? "<span>Usina</span>" : ""}<span>${ABA === "s" ? "Inversor · strings" : "Tracker"}</span><span>Situação</span><span class="d" title="Horas de sol com a falha, no mês">Sol parado</span><span class="d" title="Perda estimada no mês">Perda</span><span></span></div>
+      ${l.slice(0, LIM).map(o => (ABA === "s" ? linhaS : linhaT)(o, comUsina)).join("")}</div>${l.length > LIM ? `<div class="mais"><button class="btnl" data-mais="1">Ver mais ${Math.min(60, l.length - LIM)} de ${l.length - LIM}</button></div>` : ""}`
+      : `<div class="mais" style="margin-top:14px">${GAVETA ? "Nada foi tirado da conta neste recorte." : base.some(o => !o.fora) ? ag("Nada parado agora", "Nada em aberto no fim do mês") + " neste recorte. Tire o filtro para ver as " + base.filter(o => !o.fora).length + " ocorrências do mês." : "Sem ocorrência registrada no mês neste recorte."}</div>`}`;
+}
+
+function tudo() { lado(); topo(); kpis(); corpo(); }
+let tT = null;
+function toast(t, erro) { const e = $("toast"); e.textContent = t; e.className = "toastm" + (erro ? " erro" : ""); e.hidden = false; clearTimeout(tT); tT = setTimeout(() => { e.hidden = true; }, erro ? 9000 : 5200); }
+const acha = id => (id[0] === "s" ? D.s.find(o => idS(o) === id) : D.t.find(o => idT(o) === id));
+
+// ── Criar OS: a mesma página do OS Creator que a Sala abre, já preenchida (uma usina por vez) ──
+function criarOS(ids) {
+  const os = ids.map(acha).filter(Boolean); if (!os.length) return;
+  if (new Set(os.map(o => o.k)).size > 1) { toast("Escolha ocorrências de uma usina só: a OS é por usina.", true); return; }
+  const u = US[os[0].k], p = new URLSearchParams(), ehS = ids[0][0] === "s";
+  p.set("frase", ehS ? "recomposicao de string" : "verificacao de tracker parado"); p.set("usina", u.u);
+  os.forEach(o => { p.append("ativo", ehS ? o.inv : o.trk); p.append("obs", ehS ? fraseS(o) : ""); });
+  const ev = os.map(o => o.ini).sort()[0]; if (ehS && ev) p.set("evento", (ev.length > 10 ? ev.replace(" ", "T") : ev + "T08:00").slice(0, 16));
+  p.set("origem", "strings-trackers"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
+  $("modal").innerHTML = `<div class="janos" data-fechar="1"><div role="dialog" aria-label="Criar OS no OS Creator"><iframe title="Criar OS no OS Creator" src="/os/performance/criar?${esc(p.toString())}"></iframe><button class="x" data-fechar="1" aria-label="Fechar a janela">×</button></div></div>`;
+}
+window.addEventListener("message", ev => { const d = ev.data; if (ev.origin !== location.origin || !d || d.gc !== "os-criada") return;
+  $("modal").innerHTML = ""; MARC.clear(); corpo(); toast(d.mensagem || "OS criada.", !!d.falhas); });
+
+// ── Tirar da conta (e devolver): a rota que a tela anterior já usava; a ocorrência de string leva todas as chaves dela ──
+async function tiraOuDevolve(id) {
+  const o = acha(id); if (!o) return; const tirar = !o.fora, u = US[o.k];
+  const corpoP = id[0] === "s" ? {tipo: "strings", chaves: o.chaves, desconsiderar: tirar, resumos: Object.fromEntries(o.chaves.map((c, i) => [c, {usina: u.u, inversor: o.inv, string: o.strs[i], inicio: o.ini, perda_kwh: Math.round(o.perda / o.chaves.length * 10) / 10}]))}
+    : {tipo: "trackers", chave: o.chave, desconsiderar: tirar, resumo: {usina: u.u, tracker: o.trk, inicio: o.ini, perda_kwh: o.perda}};
+  try { const r = await fetch("/api/painel/falhas/desconsiderar", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpoP)});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(r.status === 403 ? (j.error || "este perfil só lê") : j.motivo || j.error || "a rota respondeu " + r.status);
+    o.fora = tirar; MARC.delete(id); ABERTAS.delete(id);
+    Object.values(US).forEach(x => { x.sAb = x.tAb = x.nS = x.nT = x.perdaS = x.perdaT = 0; });
+    D.s.forEach(x => { if (x.fora) return; const z = US[x.k]; z.nS++; z.perdaS += x.perda; if (!x.fim) z.sAb += x.strs.length; });
+    D.t.forEach(x => { if (x.fora) return; const z = US[x.k]; z.nT++; z.perdaT += x.perda; if (!x.fim) z.tAb++; });
+    tudo(); toast(tirar ? "Tirada da conta do mês. O pacote refeito pelo worker (até 30 min) passa a contar sem ela." : "Devolvida à conta do mês."); }
+  catch (e) { toast("Não gravou: " + String(e && e.message || e), true); }
+}
+
+// ── O Excel do que está na lista (a rota só formata o xlsx, como na tela anterior) ──
+async function baixar() {
+  const {l} = visiveis(), T = (titulo, tipo) => ({titulo, tipo}), num = (v, c) => v == null ? null : Math.round(v * 10 ** c) / 10 ** c;
+  const limpo = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const corpoX = {arquivo: [ABA === "t" ? "trackers" : "strings", D.mes, limpo(SEL.k ? US[SEL.k].u : SEL.g ? NOME[SEL.g] : "")].filter(Boolean).join("_"),
+    abas: [ABA === "s" ? {nome: "Ocorrências", colunas: [T("Cliente", "texto"), T("Usina", "texto"), T("Fonte", "texto"), T("Inversor", "texto"), T("Strings paradas", "inteiro"), T("Strings", "texto"), T("Parou", "datahora"), T("Voltou", "data"), T("Situação", "texto"), T("Sol parado (h)", "numero"), T("Dias", "inteiro"), T("Perda (kWh)", "numero"), T("OS", "texto"), T("Avisos", "texto")],
+        linhas: l.map(o => [o.cliente, US[o.k].u, NOME[US[o.k].g], o.inv, o.strs.length, o.strs.slice().sort(natural).join(", "), o.ini.slice(0, 16), o.fim ? o.fim.slice(0, 10) : null, o.fim ? "voltou" : ag("parada agora", "em aberto no fim do mês"), num(o.h, 1), o.dias, num(o.perda, 1), o.os ? o.os[0] : "", o.flags.join(" · ")])}
+      : {nome: "Paradas", colunas: [T("Cliente", "texto"), T("Usina", "texto"), T("Fonte", "texto"), T("Tracker", "texto"), T("Inversor", "texto"), T("Parou", "datahora"), T("Voltou", "data"), T("Situação", "texto"), T("Sol parado (h)", "numero"), T("Dias", "inteiro"), T("Desvio (graus)", "numero"), T("Perda (kWh)", "numero"), T("Crônico", "texto"), T("Avisos", "texto")],
+        linhas: l.map(o => [o.cliente, US[o.k].u, NOME[US[o.k].g], o.trk, o.inversor, o.ini.slice(0, 16), o.fim ? o.fim.slice(0, 10) : null, o.fim ? "voltou" : ag("parado agora", "em aberto no fim do mês"), num(o.h, 1), o.dias, num(o.desvio, 1), num(o.perda, 1), o.cron ? "sim" : "não", o.flags.join(" · ")])}]};
+  toast("Montando o Excel com " + pl(l.length, "linha") + "…");
+  try { const r = await fetch("/api/painel/falhas/exportar", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpoX)});
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(r.status === 401 ? "sessão vencida (entre de novo)" : j.motivo || j.error || "HTTP " + r.status); }
+    const b = await r.blob(), a = document.createElement("a"), m = /filename="?([^";]+)/.exec(r.headers.get("Content-Disposition") || "");
+    a.href = URL.createObjectURL(b); a.download = m ? m[1] : corpoX.arquivo + ".xlsx"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast("Excel baixado: " + pl(l.length, "linha") + "."); }
+  catch (e) { toast("Não consegui montar o Excel: " + String(e && e.message || e), true); }
+}
+
+document.addEventListener("click", ev => {
+  const t = ev.target, c = s => t.closest(s); let x;
+  if ((x = c("[data-fechar]")) && (t === x || t.classList.contains("x"))) { $("modal").innerHTML = ""; return; }
+  if (c(".janos")) return;
+  if ((x = c("[data-marc]"))) { const id = x.dataset.marc; MARC.has(id) ? MARC.delete(id) : MARC.add(id); corpo(); return; }
+  if (c("[data-dia]")) return;
+  if ((x = c("[data-denovo]"))) { delete CURVAS[x.dataset.denovo]; corpo(); return; }
+  if ((x = c("[data-denovot]"))) { delete TRKC[x.dataset.denovot]; corpo(); return; }
+  if ((x = c("[data-os]"))) { criarOS([x.dataset.os]); return; }
+  if (c("[data-osm]")) { criarOS([...MARC].filter(id => id[0] === ABA)); return; }
+  if ((x = c("[data-fora]"))) { tiraOuDevolve(x.dataset.fora); return; }
+  if (c("[data-xls]")) { baixar(); return; }
+  if (c("[data-gaveta]")) { GAVETA = !GAVETA; LIM = 60; corpo(); return; }
+  if (c("[data-soab]")) { SO_AB = !SO_AB; LIM = 60; corpo(); return; }
+  if (c("[data-cron]")) { SEM_CRON = !SEM_CRON; corpo(); return; }
+  if (c("[data-mais]")) { LIM += 60; corpo(); return; }
+  if ((x = c("[data-aba]"))) { ABA = x.dataset.aba; LIM = 60; GAVETA = false; topo(); corpo(); return; }
+  if (c(".ocx")) return;                                       // dentro do detalhe, o clique não fecha a ocorrência
+  if ((x = c("[data-oc]"))) { const id = x.dataset.oc; ABERTAS.has(id) ? ABERTAS.delete(id) : ABERTAS.add(id); corpo(); return; }
+  if ((x = c(".u[data-u]"))) { const k = x.dataset.u; SEL.k = SEL.k === k ? null : k; SEL.g = SEL.k ? null : US[k].g; LIM = 60; GAVETA = false; FECH.delete(US[k].g); tudo(); scrollTo(0, 0); return; }
+  if ((x = c(".g[data-g]"))) { const g = x.dataset.g, era = SEL.g === g && !SEL.k; SEL.k = null; SEL.g = era ? null : g; era ? FECH.add(g) : FECH.delete(g); LIM = 60; GAVETA = false; tudo(); return; }
+});
+document.addEventListener("change", ev => { const t = ev.target;
+  if (t.matches && t.matches("[data-dia]") && t.value) { DIAD[t.dataset.dia] = t.value; corpo(); }
+  if (t.id === "mes" && t.value !== MES) { MES = t.value; ABERTAS.clear(); MARC.clear(); carregar(); } });
+$("q").addEventListener("input", e => { BUSCA = e.target.value; if (D) lado(); });
+
+// ── A carga: a Entrada (as fontes) e o pacote do mês. Aquecendo (depois de uma subida) ou pacote frio: tenta de novo. ──
+let tR = null;
+async function carregar(calada) {
+  clearTimeout(tR);
+  if (!calada) $("frescor").textContent = "Lendo as fontes do tempo real e as falhas do mês…";
+  try {
+    const [ent, fal] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas" + (MES ? "?mes=" + encodeURIComponent(MES) : ""), 150000)]);
+    if (ent.aquecendo || fal.quente === false || !fal.strings) {
+      $("frescor").innerHTML = `<b>${ent.aquecendo ? "O tempo real está aquecendo depois de uma subida" : "O pacote de falhas do mês ainda não foi publicado pelo worker"}</b>: tento de novo em 20 s.`;
+      tR = setTimeout(() => carregar(true), 20000); return; }
+    D = montar(ent, fal); MES = D.mes;
+    if (SEL.k && !US[SEL.k]) SEL.k = null;
+    tudo();
+    tR = setTimeout(() => carregar(true), 10 * 60 * 1000);          // o pacote muda de 30 em 30 min: a tela relê de 10 em 10, sem piscar
+  } catch (e) {
+    if (!D) { $("arvore").innerHTML = ""; $("frescor").innerHTML = `<b>Não consegui ler agora</b>: ${esc(String(e && e.message || e))}. Tento de novo em 30 s.`; }
+    tR = setTimeout(() => carregar(true), 30000);
+  }
+}
+carregar();
+</script>
+{% endraw %}
+</body>
+</html>
