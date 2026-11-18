@@ -2781,7 +2781,11 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     enquanto a fonte não responde (ou embaixo do erro, se ela falhar): nomes e numeração DO LOGGER (não se liga a
     inversor da fonte sem a leitura dela), entrada sem corrente em cinza (o logger não sabe o que está sem cabo), sem
     esperadas, trancadas, OS nem a conta de strings fora, que são da leitura da fonte. Chegou a fonte, o quadro some e
-    entra a aba de sempre. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
+    entra a aba de sempre. **O clique no inversor do quadro abre a curva das entradas dele pelo logger** (`GRAFC`,
+    `CURVC`, `lerCurvaCos`, a `/cos/entradas`; "mas gera gráfico? só vi cards e strings"), em cinza e com a numeração
+    do logger; ao chegar a lista da fonte, a curva segue aberta no inversor de mesmo nome só se a ligação conferir
+    (`levaCurvasCos`), senão fecha (a tela não pede sozinha a curva à fonte paga). A conversão da resposta do logger
+    é uma só (`cosCurvaDe`), a do `curvaCos`. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
     a fonte até o detalhe do ciclo voltar (`PV_DET_CICLO`, montado só com cache). Prova: abrir uma usina da API PV com
     a marca COS e ver o quadro antes de a lista de inversores chegar.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no

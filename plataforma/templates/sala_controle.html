@@ -438,6 +438,8 @@
   .il.c{border-left-color:var(--critico)}.il.s{border-left-color:var(--severo)}.il.n{border-left-color:var(--fraco)}
   .il.cab{cursor:default;border-top:0;border-left-color:transparent;color:var(--fraco);font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:7px 12px}
   .il.on{background:rgba(163,217,0,.07)}.il:not(.cab):hover{background:rgba(148,163,184,.07)}
+  tr.cosl{cursor:pointer}tr.cosl:hover td{background:rgba(148,163,184,.07)}tr.cosl.on td{background:rgba(163,217,0,.07)}
+  html[data-tema="claro"] tr.cosl.on td{background:rgba(86,102,16,.10)}
   .il>span{text-align:center;font-variant-numeric:tabular-nums;min-width:0}
   .il>span.n{text-align:left;font-weight:600;display:flex;align-items:center;gap:6px}.il.cab>span.n{font-weight:400}
   .il>span.sit{text-align:left;color:var(--mudo);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -890,6 +892,7 @@ async function lerUsina(u, calada) {
     recontaStrings(u.u, u.g, inv);
     // a trava recém-gravada vale até a leitura concordar com ela (há fonte que responde do cache por alguns minutos)
     Object.keys(TRANCA).forEach(k => { if (!k.startsWith(u.u + "|")) return; const [, n, sid] = k.split("|"), iv = inv.find(i => i.n === n), s = iv && iv.s.find(x => String(x[0]) === sid); if (!s || (s[2] === "trancada") === TRANCA[k]) delete TRANCA[k]; });
+    levaCurvasCos(u, dr);
     pinta();
     if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => { if (SEL.u === u.u && ABA === "str") redesenhar(); });   // os inversores do logger, para conferir as strings
     if (!calada && D.ger.usina !== u.u) lerGer(u);              // sai dos BDs em memória do servidor (não é fonte paga): o PR do mês no cabeçalho e a aba Geração já prontos
@@ -998,6 +1001,35 @@ function paresCos(u, dr) {
   const pares = meus.map(iv => { const ch = chaveInv(iv.n), l = ch ? doCos.filter(s => s.ch === ch) : []; return l.length === 1 ? {iv, s: l[0]} : null; }).filter(Boolean);
   return {pares: pares.length ? pares : null, porNome: true, meus, doCos};
 }
+// A CURVA NO QUADRO DO LOGGER (Levi, 18/11/2026: "mas gera gráfico? só vi cards e strings"). O clique no inversor do quadro
+// abre a curva das entradas dele pelo logger (a `/cos/entradas`, a mesma do Monitoramento do COS: gravada de 5 em 5 min,
+// com cópia no Nexus), sem esperar a fonte. Tudo com a numeração do logger; nenhuma cor de defeito.
+const GRAFC = new Set();    // "usina|id do inversor no logger": as curvas abertas no quadro
+const CURVC = {};           // "id|dia" → undefined (não pedida) | null (lendo) | {s, passo} | {vazia} | {erro}
+function cosCurvaDe(r) {
+  const ss = r.strings || [], pts = (r.pontos || []).filter(z => z && z.em && Array.isArray(z.s)), passo = r.passo_min || 5;
+  if (!ss.length || !pts.length) return null;
+  const s = {}; ss.forEach(z => { s["String " + z.indice] = [[], []]; });
+  let ult = null;
+  pts.forEach(pt => { const h = horaSP(pt.em), m = mm(h), buraco = ult != null && m - ult > passo * 1.5;      // buraco: ninguém mediu, não se liga por cima
+    ss.forEach((z, k) => { const l = s["String " + z.indice]; if (buraco) { l[0].push(hm(Math.round((ult + m) / 2))); l[1].push(null); } l[0].push(h); l[1].push(pt.s[k] == null ? null : pt.s[k] / 100); });
+    ult = m; });
+  return {s, passo};
+}
+async function lerCurvaCos(u, id, dia) {
+  const k = id + "|" + dia; if (CURVC[k] !== undefined) return;
+  CURVC[k] = null;
+  try { const r = await nexusPega("/t/performance/sala-de-controle/cos/entradas?inv=" + encodeURIComponent(id) + "&dia=" + dia); CURVC[k] = cosCurvaDe(r) || {vazia: true, primeiro: r.primeiro_dia || ""}; }
+  catch (e) { CURVC[k] = {erro: String(e && e.message || e)}; }
+  if (SEL.u === u.u && ABA === "str" && !D.drill[u.u]) desenhar();      // `desenhar`, não `redesenhar`: com o foco no campo do dia a curva pedida tem de aparecer
+}
+// Chegou a lista da fonte: a curva aberta no quadro segue aberta no inversor de MESMO NOME, e só se a ligação conferir
+// (`confereCos`: aí a curva continua vindo do logger). Sem conferir, fecha: a tela não pede sozinha a curva à fonte paga.
+function levaCurvasCos(u, dr) {
+  const meus = [...GRAFC].filter(k => k.startsWith(u.u + "|")); if (!meus.length) return;
+  const pr = paresCos(u, dr);
+  meus.forEach(k => { GRAFC.delete(k); const id = k.slice(u.u.length + 1), p = pr && pr.pares && pr.pares.find(z => z.s.id === id); if (p && confereCos(p).ok) GRAF.add(u.u + "|" + p.iv.n); });
+}
 // AS STRINGS PELO LOGGER DO COS ENQUANTO A FONTE NÃO RESPONDE (Levi, 18/11/2026, a Taguaí: "ali na lateral tá dizendo
 // que está lendo do COS; esperei 1 min e nada de carrega, fui lá em monitoramento no COS e carregou quase que
 // instantaneamente, onde está o gargalo?"). Medido na hora (12:14): a rota da usina deu 504 aos 60 s e, de novo, 200 aos
@@ -1015,12 +1047,20 @@ function cosProv(u) {
   const l = invsCos(u); if (!l.length) return "";
   const logs = {}; l.forEach(s => (logs[s.logger] = logs[s.logger] || []).push(s));
   const tem = v => v != null && v > 0.1;
-  const chip = z => `<button class="st ${tem(z[1]) ? "" : "inativa"}" disabled style="cursor:default" title="Entrada ${esc(z[0])} do logger: ${z[1] == null ? "sem leitura" : nf(z[1], 2) + " A"}">${esc(z[0])}<small>${z[1] == null ? "—" : nf(z[1], 2) + " A"}</small></button>`;
-  const linha = s => { const ss = (s.ss || []).slice().sort((a, b) => a[0] - b[0]), com = ss.filter(z => tem(z[1])).length;
-    return `<tr><td><b>${esc(s.nome || s.id)}</b></td><td>${s.kw == null ? "—" : nf(s.kw, 1) + " kW"}</td><td>${ss.length ? com + " de " + ss.length : "—"}</td><td>${ss.length ? `<div class="sts">${ss.map(chip).join("")}</div>` : '<span style="color:var(--mudo)">o logger não trouxe as entradas deste inversor</span>'}</td></tr>`; };
+  // o cartão da entrada não é `disabled`: botão desligado não repassa o clique à linha nem o mouse ao destaque da curva
+  const chip = (z, ab) => `<button type="button" tabindex="-1" class="st ${tem(z[1]) ? "" : "inativa"}" style="cursor:inherit"${ab ? ` data-hl="${esc(z[0])}"` : ""} title="Entrada ${esc(z[0])} do logger: ${z[1] == null ? "sem leitura" : nf(z[1], 2) + " A"}">${esc(z[0])}<small>${z[1] == null ? "—" : nf(z[1], 2) + " A"}</small></button>`;
+  const dia = DIA || HOJE;
+  const grafC = s => { const c = CURVC[s.id + "|" + dia]; if (c === undefined) lerCurvaCos(u, s.id, dia);
+    if (!c || c.erro || c.vazia) return `<div class="gi"><p>${!c ? "Lendo a curva no logger do COS…" : c.erro ? "Não consegui ler a curva no logger: " + esc(c.erro) : "O logger não tem a curva das entradas deste inversor neste dia" + (c.primeiro ? " (o histórico dele começa em " + dm(c.primeiro) + ")." : ".")}</p></div>`;
+    const ser = Object.keys(c.s).map(n => ({nome: n.replace("String", "Entrada"), sn: n.replace(/^\D+/, ""), x: c.s[n][0].map(mm), y: c.s[n][1], cor: "var(--neutro)", larg: 1.1, op: .7}));
+    return `<div class="gi">${linhas(ser, "Curva por entrada · " + (s.nome || s.id), "A", Object.assign({alto: 210}, SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440}))}
+      <div class="mais" style="margin-top:2px">Curva do <b>logger do COS</b>, gravada de ${c.passo} em ${c.passo} min${dia === HOJE ? "" : " · dia " + dm(dia)} · o mouse numa entrada acima destaca a dela em azul.</div></div>`; };
+  const linha = s => { const ss = (s.ss || []).slice().sort((a, b) => a[0] - b[0]), com = ss.filter(z => tem(z[1])).length, pode = /^[\w-]+:\d+$/.test(s.id || ""), ab = pode && GRAFC.has(u.u + "|" + s.id);
+    return `<tbody data-hlbox="1"><tr${pode ? ` class="cosl${ab ? " on" : ""}" data-cosinv="${esc(s.id)}" aria-expanded="${ab}" title="${ab ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das entradas deste inversor, pelo logger do COS"}"` : ""}><td><b>${esc(s.nome || s.id)}</b></td><td>${s.kw == null ? "—" : nf(s.kw, 1) + " kW"}</td><td>${ss.length ? com + " de " + ss.length : "—"}</td><td>${ss.length ? `<div class="sts">${ss.map(z => chip(z, ab)).join("")}</div>` : '<span style="color:var(--mudo)">o logger não trouxe as entradas deste inversor</span>'}</td></tr>${ab ? `<tr><td colspan="4" style="padding:0 6px 6px">${grafC(s)}</td></tr>` : ""}</tbody>`; };
   return `<div class="painel" data-cosprov="1" style="border-left:3px solid var(--info)"><h3>Strings pelo logger do COS · lido às ${horaSP(COSI_EM)}</h3>
-    <p>É o que o Monitoramento do COS mostra, com os nomes e a numeração <b>do logger</b> (não são os da ${esc((NOME[u.g] || "").split(" · ")[1] || "fonte da usina")}). O logger não sabe quais entradas estão sem cabo: a entrada sem corrente fica em cinza e não quer dizer defeito. As esperadas, as trancadas, as OS e a conta de strings fora chegam com a leitura da fonte.</p>` +
-    Object.keys(logs).sort(natural).map(g => `<div class="rol" style="margin-top:8px"><table><thead><tr><th>${esc(g)}</th><th>Potência</th><th>Com corrente</th><th>Entradas · corrente de agora</th></tr></thead><tbody>${logs[g].slice().sort((a, b) => natural(a.nome || a.id, b.nome || b.id)).map(linha).join("")}</tbody></table></div>`).join("") + `</div>`;
+    <p>É o que o Monitoramento do COS mostra, com os nomes e a numeração <b>do logger</b> (não são os da ${esc((NOME[u.g] || "").split(" · ")[1] || "fonte da usina")}). O logger não sabe quais entradas estão sem cabo: a entrada sem corrente fica em cinza e não quer dizer defeito. As esperadas, as trancadas, as OS e a conta de strings fora chegam com a leitura da fonte. <b>Clique num inversor</b> para abrir a curva das entradas dele, pelo logger.</p>
+    <div class="diasel" style="gap:8px;margin:0 0 2px"><span>Dia da curva</span><input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${HOJE}" aria-label="Dia da curva das entradas, pelo logger"><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button><span style="color:var(--mudo);font-size:12px">o logger guarda a curva de 5 em 5 min, por 45 dias</span></div>` +
+    Object.keys(logs).sort(natural).map(g => `<div class="rol" style="margin-top:8px"><table><thead><tr><th>${esc(g)}</th><th>Potência</th><th>Com corrente</th><th>Entradas · corrente de agora</th></tr></thead>${logs[g].slice().sort((a, b) => natural(a.nome || a.id, b.nome || b.id)).map(linha).join("")}</table></div>`).join("") + `</div>`;
 }
 // A CURVA DE STRINGS PELO LOGGER DO COS (Levi, 16/11/2026: "a leitura das strings e inversores na API COS > MONITORAMENTO
 // é super rápida, veja como é feito e se dá para aplicar"). É rápida porque a Ronda COS GRAVA as entradas de cada inversor
@@ -1046,14 +1086,8 @@ async function curvaCos(u, dr, invNome, dia) {
     if (!p || !p.s || !/^[\w-]+:\d+$/.test(p.s.id || "")) return null;
     const cf = confereCos(p); if (!cf.ok) return null;          // sem a conferência das strings, a curva é a da fonte
     const r = await nexusPega("/t/performance/sala-de-controle/cos/entradas?inv=" + encodeURIComponent(p.s.id) + "&dia=" + dia);
-    const ss = r.strings || [], pts = (r.pontos || []).filter(z => z && z.em && Array.isArray(z.s)), passo = r.passo_min || 5;
-    if (!ss.length || !pts.length) return null;
-    const s = {}; ss.forEach(z => { s["String " + z.indice] = [[], []]; });
-    let ult = null;
-    pts.forEach(pt => { const h = horaSP(pt.em), m = mm(h), buraco = ult != null && m - ult > passo * 1.5;      // buraco: ninguém mediu, não se liga por cima
-      ss.forEach((z, k) => { const l = s["String " + z.indice]; if (buraco) { l[0].push(hm(Math.round((ult + m) / 2))); l[1].push(null); } l[0].push(h); l[1].push(pt.s[k] == null ? null : pt.s[k] / 100); });
-      ult = m; });
-    return {s, e: {}, un: "A", cos: {inv: p.s.nome || p.s.id, logger: p.s.logger || "", porNome: pr.porNome, passo, comp: cf.comp, zer: cf.zer}};
+    const c = cosCurvaDe(r); if (!c) return null;
+    return {s: c.s, e: {}, un: "A", cos: {inv: p.s.nome || p.s.id, logger: p.s.logger || "", porNome: pr.porNome, passo: c.passo, comp: cf.comp, zer: cf.zer}};
   } catch (e) { return null; }
 }
 // AS FONTES QUE NÃO BATEM (Levi, 16/11/2026, 23h30: "Não faz sentido esse botão conferir fonte [...] Se já pedi para você
@@ -2195,6 +2229,7 @@ document.addEventListener("click", e => {
     if (n === "*") { const todos = dr.inv.every(i => EXPI.has(u.u + "|" + i.n)); dr.inv.forEach(i => { if (todos) EXPI.delete(u.u + "|" + i.n); else EXPI.add(u.u + "|" + i.n); }); }
     else if (EXPI.has(u.u + "|" + n)) { EXPI.delete(u.u + "|" + n); if (OSINV === n) OSINV = null; } else EXPI.add(u.u + "|" + n);
     desenhar(); return; }
+  if ((x = q("tr[data-cosinv]"))) { const k = SEL.u + "|" + x.dataset.cosinv; if (GRAFC.has(k)) GRAFC.delete(k); else GRAFC.add(k); desenhar(); return; }      // a curva do inversor DO LOGGER, no quadro de enquanto a fonte não responde
   if ((x = q(".il[data-inv]"))) { const n = x.dataset.inv, k = SEL.u + "|" + n;        // abre ou fecha a curva DESTE inversor; os outros ficam como estão
     if (novasS(SEL.u, n).length) { EXPI.add(k); GRAF.add(k); INV = n; verS(SEL.u, n); }      // o que pulsava: abre a curva, as strings ficam abertas e ele é dado como visto
     else if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }

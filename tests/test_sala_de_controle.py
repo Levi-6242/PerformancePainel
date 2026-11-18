@@ -620,7 +620,10 @@ def test_a_curva_vem_do_logger_do_cos_so_onde_a_fonte_e_lenta():
     cc = cc[:cc.index("\n}\n")]
     assert 'nexusPega("/t/performance/sala-de-controle/cos/entradas?inv=" + encodeURIComponent(p.s.id) + "&dia=" + dia)' in cc
     assert "if (!cf.ok) return null;" in cc                                                           # sem a conferência das strings, a curva é a da fonte
-    assert "pt.s[k] / 100" in cc and "buraco" in cc                                               # centésimos de A; o buraco não se liga
+    assert "const c = cosCurvaDe(r); if (!c) return null;" in cc                                  # a conversão é a mesma do quadro do logger
+    cd = html[html.index("function cosCurvaDe(r) {"):]
+    cd = cd[:cd.index("\n}\n")]
+    assert "pt.s[k] / 100" in cd and "buraco" in cd                                               # centésimos de A; o buraco não se liga
     assert "} catch (e) { return null; }" in cc                                                   # qualquer falha: vale a fonte
     assert 'const n = normN(x.nome), b = n.replace(/\\s+(\\d+|i{1,3}|iv|v)$/, ""); return b !== n ? tr.filter(u => normN(u.u) === b) : [];' in html
     assert "if (ex.length) return ex;" in html                                                    # com o nome inteiro, nunca pelo nome curto
@@ -1335,7 +1338,7 @@ def test_a_usina_com_logger_no_cos_mostra_as_strings_sem_esperar_a_api_pv():
     cosi = {"cartoes": [{"pid": 7, "inversores": [
         {"id": "tag1:1", "nome": "INVERSOR02", "modbus_id": 1, "kw": 98.4, "ss": [[2, 4.49], [1, 4.06], [10, 0.0], [3, None]]},
         {"id": "tag1:2", "nome": "INVERSOR01", "modbus_id": 2, "kw": 101.2, "ss": []}]}]}
-    script = ("const natural = (a, b) => String(a).localeCompare(String(b), 'pt-BR', {numeric: true}), esc = s => String(s), nf = (v, d) => Number(v).toFixed(d || 0).replace('.', ','), horaSP = () => '12:14';\n"
+    script = ("const natural = (a, b) => String(a).localeCompare(String(b), 'pt-BR', {numeric: true}), esc = s => String(s), nf = (v, d) => Number(v).toFixed(d || 0).replace('.', ','), horaSP = () => '12:14', DIA = null, HOJE = '2026-11-18', SOLAR = false, dm = d => d, mm = s => 0, linhas = () => '[grafico]';\n"
               "const SKEY = {g1: 'pv', g2: 'pg'}, NOME = {g1: 'Thopen · API PV'}, COSU = {'g1|Taguaí': 1, 'g2|Outra': 1}, ehApiPv = sk => sk === 'pv', SEL = {}, D = {drill: {}};\n"
               "const cosDe = () => [{id: 7, nome: 'Taguai 1', fonte: 'SCADA Grid'}]; let COS = {usinas: []}, COSI = " + json.dumps(cosi) + ", COSI_EM = 0, ABA = 'str', pedidos = 0;\n"
               "function lerCosInv() { pedidos++; return new Promise(() => {}); }\n" + js +
@@ -1355,3 +1358,62 @@ def test_a_usina_com_logger_no_cos_mostra_as_strings_sem_esperar_a_api_pv():
     assert "o logger não trouxe as entradas deste inversor" in h                             # o INVERSOR01, sem `ss`
     assert o["fora"] == "" and o["outraApi"] == "" and o["erro"] == ""                       # sem logger, de outra API que não a PV, ou o COS fora: nada
     assert "Lendo os inversores no logger do COS" in o["lendo"] and o["pedidos"] == 1        # sem a leitura ainda: pede e avisa
+
+
+def test_o_quadro_do_logger_abre_a_curva_das_entradas_no_clique():
+    """Levi, 18/11/2026, vendo o quadro do logger do COS: "mas gera gráfico? só vi cards e strings". O clique no inversor
+    do quadro abre a curva das entradas dele pelo logger, sem esperar a API PV; quando a lista da fonte chega, a curva
+    segue aberta no inversor de mesmo nome só se a ligação conferir. A regra roda de verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert 'if ((x = q("tr[data-cosinv]"))) { const k = SEL.u + "|" + x.dataset.cosinv; if (GRAFC.has(k)) GRAFC.delete(k); else GRAFC.add(k); desenhar(); return; }' in html
+    assert "    levaCurvasCos(u, dr);\n    pinta();\n" in html                                   # ao chegar a lista da fonte
+    assert " disabled " not in html[html.index("function cosProv(u) {"):html.index("// A CURVA DE STRINGS PELO LOGGER DO COS")]   # botão desligado engole o clique e o mouse
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const chaveInv = n =>"):html.index("// A CURVA DE STRINGS PELO LOGGER DO COS")]
+    cosi = {"cartoes": [{"pid": 7, "inversores": [
+        {"id": "tag1:3", "nome": "INVERSOR03", "modbus_id": 3, "kw": 90.0, "ss": [[1, 8.9], [2, 9.0], [3, 0], [4, 8.8], [5, 4.1], [6, 8.6]]},
+        {"id": "tag1:2", "nome": "INVERSOR02", "modbus_id": 2, "kw": 91.0, "ss": [[1, 8.9], [2, 0], [3, 9.0], [4, 8.8], [5, 4.1], [6, 8.6]]},
+        {"id": "sem id", "nome": "INVERSOR09", "modbus_id": 9, "kw": 1.0, "ss": [[1, 1.0]]}]}]}
+    st = [["Ipv1", 8.8, "ativa"], ["Ipv2", 9.1, "ativa"], ["Ipv3", 0, "sem_corrente"], ["Ipv4", 8.7, "ativa"], ["Ipv5", 4.0, "baixa_perf"], ["Ipv6", 8.7, "ativa"]]
+    dr = {"inv": [{"n": "Inversor 1.2", "s": st}, {"n": "Inversor 1.3", "s": st}]}       # a parada da fonte é a 3: bate com o INVERSOR03, não com o 02
+    resposta = {"passo_min": 5, "strings": [{"indice": 1}, {"indice": 2}], "pontos": [
+        {"em": "2026-11-18T09:00:00.000Z", "s": [100, None]}, {"em": "2026-11-18T09:05:00.000Z", "s": [150, 20]}, {"em": "2026-11-18T09:30:00.000Z", "s": [200, 30]}]}
+    antes = """
+const natural = (a, b) => String(a).localeCompare(String(b), 'pt-BR', {numeric: true}), esc = s => String(s), nf = (v, d) => Number(v).toFixed(d || 0).replace('.', ',');
+const horaSP = em => new Date((typeof em === 'number' ? em : Date.parse(em)) - 3 * 3600e3).toISOString().slice(11, 16);
+const mm = s => (+String(s).slice(0, 2)) * 60 + (+String(s).slice(3, 5)), hm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'), dm = d => d;
+const linhas = (ser, rot) => '[grafico ' + rot + ' ' + ser.map(s => s.nome + '=' + s.sn).join(',') + ']';
+const SKEY = {g1: 'pv'}, NOME = {g1: 'Thopen · API PV'}, COSU = {'g1|Taguaí': 1}, ehApiPv = sk => sk === 'pv', SEL = {}, D = {drill: {}}, GRAF = new Set(), HOJE = '2026-11-18';
+const cosDe = () => [{id: 7, nome: 'Taguai 1', fonte: 'SCADA Grid'}], redesenhar = () => {}, pedidos = [];
+let COS = {usinas: []}, COSI = __COSI__, COSI_EM = 0, ABA = 'str', DIA = null, SOLAR = false;
+function lerCosInv() { return new Promise(() => {}); }
+function nexusPega(url) { pedidos.push(url); return new Promise(() => {}); }
+"""
+    depois = """
+const U = {u: 'Taguaí', g: 'g1', pid: 1};
+const fechado = cosProv(U);
+GRAFC.add('Taguaí|tag1:3'); const lendo = cosProv(U), pedidosLendo = pedidos.slice();
+const curva = cosCurvaDe(__RESPOSTA__); CURVC['tag1:3|2026-11-18'] = curva; const aberto = cosProv(U);
+GRAFC.add('Taguaí|tag1:2'); levaCurvasCos(U, __DR__);
+console.log(JSON.stringify({fechado, lendo, pedidosLendo, curva, aberto, graf: [...GRAF], grafc: [...GRAFC], vazia: cosCurvaDe({strings: [], pontos: []})}));
+"""
+    script = antes.replace("__COSI__", json.dumps(cosi)) + js + depois.replace("__RESPOSTA__", json.dumps(resposta)).replace("__DR__", json.dumps(dr))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    o = json.loads(r.stdout)
+    f = o["fechado"]
+    assert 'data-cosinv="tag1:3"' in f and 'data-cosinv="tag1:2"' in f and f.count("data-cosinv=") == 2      # o de id fora do padrão não é clicável
+    assert "[grafico" not in f and "data-hl=" not in f and "Clique num inversor" in f                        # nada abre sozinho
+    assert "Lendo a curva no logger do COS" in o["lendo"] and o["lendo"].count("data-hl=") == 6              # só as entradas do inversor aberto destacam
+    assert o["pedidosLendo"] == ["/t/performance/sala-de-controle/cos/entradas?inv=tag1%3A3&dia=2026-11-18"]  # um pedido, do inversor clicado
+    # a resposta do logger: centésimos de A, hora de Brasília, e o buraco (25 min sem ponto com passo de 5) não se liga
+    assert o["curva"] == {"passo": 5, "s": {"String 1": [["06:00", "06:05", "06:18", "06:30"], [1, 1.5, None, 2]], "String 2": [["06:00", "06:05", "06:18", "06:30"], [None, 0.2, None, 0.3]]}}
+    assert o["vazia"] is None
+    assert "[grafico Curva por entrada · INVERSOR03 Entrada 1=1,Entrada 2=2]" in o["aberto"] and "gravada de 5 em 5 min" in o["aberto"]
+    assert len(o["pedidosLendo"]) == 1 and 'class="cosl on"' in o["aberto"]
+    # a lista da fonte chegou: o 1.3 confere com o INVERSOR03 e leva a curva; o 1.2 não confere e fecha
+    assert o["graf"] == ["Taguaí|Inversor 1.3"] and o["grafc"] == []
