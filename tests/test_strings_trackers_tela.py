@@ -98,3 +98,25 @@ def test_o_montar_pendura_as_falhas_do_mes_nas_usinas_da_entrada():
     assert o["sal"] == [True, False, True] and o["gy"] == [False, True]   # a Sal fora das strings; os trackers da GY fora da conta
     assert o["oc"][0] == ["thopen-db|1", "Inversor 1", "ST 01+ST 02", 2, 150.0, "18000"]
     assert o["fora"] == ["Tracker 9"] and o["flags"] == [] and o["fontes"] == ["thopen-db", "thopen-pv", "salenergia", "greenyellow"]
+
+
+def test_o_ciclo_das_falhas_grava_o_proprio_estado(tmp_path, monkeypatch):
+    """18/11/2026: o pacote do mês parou em 17/11 14:32 e ninguém via por quê (o ciclo que falha só imprimia no log do
+    worker). Cada volta grava quando começou, quando acabou e o erro; a rota devolve e a tela avisa."""
+    monkeypatch.setattr(app, "_FALHAS_CICLO_PATH", str(tmp_path / "falhas_ciclo.json"))
+
+    def falha():
+        raise KeyError("usina sem kWp")
+    monkeypatch.setattr(app, "_falhas_recalcular", falha)
+    app._falhas_ciclo()                                                            # não levanta
+    c = app._falhas_ler(app._FALHAS_CICLO_PATH)
+    assert c["ok"] is False and c["erro"].startswith("KeyError") and "usina sem kWp" in c["rastro"] and c["inicio"] and c["fim"]
+    monkeypatch.setattr(app, "_falhas_recalcular", lambda: None)
+    app._falhas_ciclo()
+    c = app._falhas_ler(app._FALHAS_CICLO_PATH)
+    assert c["ok"] is True and c["erro"] is None and c["rastro"] is None and c["ultimo_ok"] == c["fim"]
+    app.app.config["TESTING"] = True
+    with app.app.test_client() as cli_:
+        j = cli_.get("/api/painel/falhas/ciclo").get_json()
+    assert j["ok"] and j["ciclo"]["ok"] is True
+    assert 'pega("/api/painel/falhas/ciclo", 20000).catch(() => null)' in HTML and "o último recálculo FALHOU" in HTML

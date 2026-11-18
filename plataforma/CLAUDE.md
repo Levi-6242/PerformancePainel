@@ -3204,6 +3204,10 @@ link "Tela anterior"; sem rota nova, porque o mapa do Nexus é cópia assinada),
   string leva todas as chaves dela em `chaves`), o Excel do que está na lista (`/api/painel/falhas/exportar`) e Criar
   OS (o `/os/performance/criar` numa janela, como a Sala: a frase, o ativo e o texto "Strings 5, 6 e 8 com corrente
   nula, verificar e normalizar"; uma usina por vez). Quem só lê (gestor) não vê os botões (`window.gcEu.grava`).
+- **O ciclo diz o próprio estado (18/11):** o pacote parou em 17/11 14:32 e seguiu parado por três reinícios sem ninguém
+  ver o motivo. `_falhas_ciclo()` grava `falhas_ciclo.json` (início, fim, ok, erro, rastro, último ok, duração),
+  `/api/painel/falhas/ciclo` devolve e a tela avisa em vermelho quando o último recálculo falhou. Pacote velho? Abrir
+  essa rota antes de qualquer coisa.
 - **Como provar:** `tests/test_strings_trackers_tela.py` (a rota, a folha da Sala e o `montar()` rodando no node com
   um pacote pequeno). Na mão: a soma da lateral contra `strings.episodios` e `trackers.rows` do pacote.
 

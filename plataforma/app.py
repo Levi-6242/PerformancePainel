@@ -30618,6 +30618,37 @@ def _ger_publicar_loop():
         time.sleep(600)
 
 
+# O ESTADO DO CICLO, À VISTA (18/11/2026). O pacote do mês parou em 17/11 14:32 e seguiu parado por três reinícios; o ciclo que
+# falha só imprimia no log do worker, que ninguém vê da tela, e as telas mostravam o pacote velho como se fosse o de
+# agora. Cada volta grava quando começou, quando acabou e, se falhou, o erro com o rastro; /api/painel/falhas/ciclo
+# devolve e a tela de Strings e trackers avisa. Começou e não acabou = o ciclo está rodando (ou travou: a hora diz).
+_FALHAS_CICLO_PATH = _p_cache("falhas_ciclo.json")
+
+
+def _falhas_ciclo_marca(**campos):
+    try:
+        d = _falhas_ler(_FALHAS_CICLO_PATH) or {}
+        d.update(campos)
+        _falhas_gravar(_FALHAS_CICLO_PATH, d)
+    except Exception as e:                              # noqa: BLE001 — a marca é um extra: o ciclo segue
+        print(f"[falhas] estado do ciclo não gravado: {e}")
+
+
+def _falhas_ciclo():
+    """Uma volta do recálculo, com o estado gravado. Não levanta: a falha fica no arquivo (e no log)."""
+    import traceback
+    agora = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")   # noqa: E731
+    t0 = time.time()
+    _falhas_ciclo_marca(inicio=agora(), fim=None)
+    try:
+        _falhas_recalcular()
+        _falhas_ciclo_marca(fim=agora(), ok=True, erro=None, rastro=None, ultimo_ok=agora(), duracao_s=round(time.time() - t0))
+    except Exception as e:
+        print(f"[falhas] ciclo falhou (pacote anterior mantido): {e}")
+        _falhas_ciclo_marca(fim=agora(), ok=False, erro=f"{type(e).__name__}: {e}"[:400], rastro=traceback.format_exc()[-2500:],
+                            duracao_s=round(time.time() - t0))
+
+
 def _falhas_loop():
     """Worker, a cada 30 min. Espera o boot (o backfill das strings e a Disponibilidade assentam primeiro). Ocorrência
     desconsiderada (ou devolvida) na tela antecipa a volta: a tela some com a linha na hora, mas a visão por inversor ×
@@ -30631,10 +30662,7 @@ def _falhas_loop():
         except Exception as e:                          # noqa: BLE001
             print(f"[falhas] disponibilidade pelas normalizações no boot (fica para a volta): {e}")
     while True:
-        try:
-            _falhas_recalcular()
-        except Exception as e:
-            print(f"[falhas] ciclo falhou (pacote anterior mantido): {e}")
+        _falhas_ciclo()
         t0, mt0 = time.time(), _falhas_desc_mtime()
         while time.time() - t0 < FALHAS_TTL:
             time.sleep(20)
@@ -31623,6 +31651,13 @@ def api_sala_conferir():
     return jsonify({"ok": True, "situacao": "conferir", "scada": {"id": x["id"], "nome": x.get("nome"), "via": x.get("via")},
                     "cobre": x["cobre"], "duas": x["duas"], "leituras": _sala.leituras_para_conferir(leituras),
                     "quando": datetime.now().strftime("%H:%M"), "scada_total": len(lista)})
+
+
+@app.route("/api/painel/falhas/ciclo")
+def api_painel_falhas_ciclo():
+    """O estado do ciclo que refaz o pacote do mês (`_falhas_ciclo`): {inicio, fim, ok, erro, rastro, ultimo_ok,
+    duracao_s}. Vazio = o worker ainda não rodou nenhuma volta desde que isto existe."""
+    return jsonify({"ok": True, "ciclo": _falhas_ler(_FALHAS_CICLO_PATH) or {}})
 
 
 @app.route("/api/painel/falhas")
