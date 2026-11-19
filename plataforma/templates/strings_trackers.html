@@ -444,11 +444,22 @@ function recorte(g, pid) {
   LIM = 60; GAVETA = false;
 }
 if (EMBED) {
-  window.addEventListener("message", ev => { const d = ev.data; if (ev.origin !== location.origin || ev.source !== parent || !d || d.gc !== "st-recorte" || !D) return; recorte(d.g, d.pid); tudo(); });
+  window.addEventListener("message", ev => { const d = ev.data; if (ev.origin !== location.origin || ev.source !== parent || !d) return;
+    // a Sala leu de novo: só vale redesenhar aqui se o pacote do mês é outro (ele muda de 30 em 30 min)
+    if (d.gc === "st-dados") { const b = D && daSala(MES); if (b && (b.fal.gerado_em || "") !== D.gerado) carregar(true); return; }
+    if (d.gc !== "st-recorte" || !D) return; recorte(d.g, d.pid); tudo(); });
   const altura = () => paraSala({gc: "st-altura", h: Math.ceil(q(".tela").getBoundingClientRect().height)});
   new ResizeObserver(altura).observe(q(".meio"));
   // o desenho novo também avisa (o ResizeObserver espera a pintura, e a aba em segundo plano não pinta)
   new MutationObserver(altura).observe(q(".meio"), {childList: true, subtree: true});
+}
+// A LEITURA QUE A SALA JÁ FEZ (18/11/2026; ver `salaBruto` na Sala de controle). Dentro da Sala, esta tela pedia de novo o
+// tempo real e o pacote do mês (5,4 MB) que a Sala acabou de ler. Agora usa o da Sala quando ele serve: é do mês pedido
+// (ou do corrente, sem mês pedido) e tem menos de 6 min (a Sala relê de 5 em 5; com a aba do navegador escondida ela
+// para, e aí esta tela pede por conta própria). Só lê: o `montar` não altera o que recebe.
+function daSala(mes) {
+  try { const b = EMBED ? parent.gcSalaBruto : null; return b && b.ent && b.fal && (!mes || mes === b.mes) && Date.now() - b.em < 360000 ? b : null; }
+  catch (e) { return null; }
 }
 // ── A carga: a Entrada (as fontes) e o pacote do mês. Aquecendo (depois de uma subida) ou pacote frio: tenta de novo. ──
 let tR = null;
@@ -456,7 +467,8 @@ async function carregar(calada) {
   clearTimeout(tR);
   if (!calada) $("frescor").textContent = "Lendo as fontes do tempo real e as falhas do mês…";
   try {
-    const [ent, fal, cic] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas" + (MES ? "?mes=" + encodeURIComponent(MES) : ""), 150000),
+    const b = daSala(MES);
+    const [ent, fal, cic] = await Promise.all([b ? b.ent : pega("/api/entrada/tempo-real", 90000), b ? b.fal : pega("/api/painel/falhas" + (MES ? "?mes=" + encodeURIComponent(MES) : ""), 150000),
       pega("/api/painel/falhas/ciclo", 20000).catch(() => null)]);
     if (ent.aquecendo || fal.quente === false || !fal.strings) {
       $("frescor").innerHTML = `<b>${ent.aquecendo ? "O tempo real está aquecendo depois de uma subida" : "O pacote de falhas do mês ainda não foi publicado pelo worker"}</b>: tento de novo em 20 s.`;

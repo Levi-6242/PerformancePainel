@@ -44,7 +44,8 @@ def test_a_tela_de_antes_segue_com_antiga_1(cli):
 
 
 def test_le_so_o_que_ja_existia_e_grava_pelas_rotas_de_antes():
-    assert 'pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas"' in HTML
+    # as mesmas duas leituras de sempre; dentro da Sala, a que ela já fez (`daSala`, 18/11/2026)
+    assert 'b ? b.ent : pega("/api/entrada/tempo-real", 90000), b ? b.fal : pega("/api/painel/falhas"' in HTML
     for rota in ("/api/painel/falhas/desconsiderar", "/api/painel/falhas/exportar", "/os/performance/criar", "/api/spv/usina/", "/api/pg/curva/"):
         assert rota in HTML
     # a ocorrência de string leva todas as chaves dela; quem só lê não vê os botões
@@ -129,6 +130,37 @@ def test_embutida_na_sala_de_controle():
     assert ".embed .lado,.embed .topo .sobre,.embed .topo h1,.embed .topo a.btnl{display:none}" in HTML
     assert 'if (EMBED) { paraSala({gc: "st-toast", texto: t, erro: !!erro}); return; }' in HTML
     assert 'if (EMBED) { paraSala({gc: "st-criar-os", query: p.toString(), usina: u.u, g: u.g}); return; }' in HTML
-    assert 'ev.source !== parent || !d || d.gc !== "st-recorte"' in HTML and "new ResizeObserver(altura).observe(q(\".meio\"));" in HTML
+    assert 'if (ev.origin !== location.origin || ev.source !== parent || !d) return;' in HTML and 'if (d.gc !== "st-recorte" || !D) return; recorte(d.g, d.pid); tudo(); });' in HTML and "new ResizeObserver(altura).observe(q(\".meio\"));" in HTML
     assert 'new MutationObserver(altura).observe(q(".meio"), {childList: true, subtree: true});' in HTML
     assert 'SEL.k = g && pid && US[g + "|" + pid] ? g + "|" + pid : null;' in HTML
+
+
+def test_dentro_da_sala_a_tela_usa_a_leitura_que_a_sala_ja_fez():
+    """Levi, 18/11/2026: "Pacote de falhas: eliminar a requisição duplicada quando a aba Falhas do mês está aberta". O
+    pacote do mês pesa 5,4 MB e a tela embutida o baixava de novo. A regra de quando a leitura da Sala serve roda de
+    verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = HTML
+    assert 'const b = daSala(MES);' in html and 'b ? b.fal : pega("/api/painel/falhas"' in html and 'b ? b.ent : pega("/api/entrada/tempo-real", 90000)' in html
+    assert 'if (d.gc === "st-dados") { const b = D && daSala(MES); if (b && (b.fal.gerado_em || "") !== D.gerado) carregar(true); return; }' in html
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("function daSala(mes) {"):html.index("// ── A carga: a Entrada (as fontes) e o pacote do mês.")]
+    script = """
+let EMBED = true, parent = {gcSalaBruto: null};
+""" + js + """
+const agora = Date.now(), bom = {mes: '2026-11', em: agora - 60000, ent: {grupos: []}, fal: {strings: {}}}, r = {};
+r.sem = daSala('');
+parent.gcSalaBruto = bom; r.corrente = daSala('') === bom; r.mesmo_mes = daSala('2026-11') === bom; r.outro_mes = daSala('2026-10');
+parent.gcSalaBruto = Object.assign({}, bom, {em: agora - 7 * 60000}); r.velha = daSala('');
+parent.gcSalaBruto = Object.assign({}, bom, {fal: null}); r.sem_pacote = daSala('');
+parent.gcSalaBruto = bom; EMBED = false; r.fora_da_sala = daSala('');
+EMBED = true; parent = new Proxy({}, {get() { throw new Error('outra origem'); }}); r.outra_origem = daSala('');
+console.log(JSON.stringify(r));
+"""
+    p = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    assert json.loads(p.stdout) == {"sem": None, "corrente": True, "mesmo_mes": True, "outro_mes": None, "velha": None, "sem_pacote": None,
+                                    "fora_da_sala": None, "outra_origem": None}

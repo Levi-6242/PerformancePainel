@@ -1468,3 +1468,15 @@ async function nexusPega() { const r = respostas.shift(); if (r instanceof Error
     assert c["usinas"] == 2 and not c["erro"] and c["oculto"] is False                  # a lista boa não é jogada fora
     e = o["esgotou"]
     assert e["prazos"] == [20000, 40000, 20000, 40000, 80000] and e["tent"] == 3 and "próxima leitura" in e["texto"]   # três tentativas por volta, não mais
+
+
+def test_a_sala_deixa_a_leitura_dela_a_vista_da_aba_falhas_do_mes():
+    """Levi, 18/11/2026: "eliminar a requisição duplicada quando a aba Falhas do mês está aberta". A Sala guarda a última
+    leitura (tempo real + pacote do mês) e avisa o quadro; sem pacote na volta, nada fica à vista."""
+    html = _html()
+    f = html[html.index("function salaBruto(ent, fal) {"):html.index("async function ligar(primeira) {")]
+    assert "window.gcSalaBruto = ent && fal && fal.strings ? {mes: HOJE.slice(0, 7), em: Date.now(), ent, fal} : null;" in f
+    assert 'f.contentWindow.postMessage({gc: "st-dados"}, location.origin)' in f
+    lg = html[html.index("async function ligar(primeira) {"):]
+    assert lg.index("salaBruto(ent, fal);") < lg.index("const ant = D; D = montar(ent, fal,")      # antes de montar, com o que acabou de chegar
+    assert lg.index("if (ent && ent.aquecendo && !(ent.grupos || []).length) {") < lg.index("salaBruto(ent, fal);")   # aquecendo: nada a mostrar

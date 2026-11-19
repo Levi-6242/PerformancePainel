@@ -2277,6 +2277,17 @@ document.addEventListener("click", e => {
 $("q").addEventListener("input", () => { if (D) arvore(); });
 // a partida: o tempo real e as falhas do mês; relê a cada 5 min (com a aba à vista) sem perder a usina aberta
 const ARR_LIDO = {v: null};
+// A ABA "FALHAS DO MÊS" NÃO BAIXA O PACOTE DE NOVO (Levi, 18/11/2026: "eliminar a requisição duplicada quando a aba Falhas
+// do mês está aberta"). O pacote do mês pesa 5,4 MB (321 KB na rede, já comprimido) e a tela embutida o pedia de novo ao
+// abrir e de 10 em 10 min, com a Sala lendo o mesmo pacote de 5 em 5. A Sala deixa à vista do quadro a última leitura
+// dela (o tempo real e o pacote, por referência: é a mesma origem, nada é copiado) e avisa quando chega outra; a tela
+// embutida usa essa (`daSala`, em strings_trackers.html). Custa guardar o pacote bruto entre uma volta e outra.
+// Sem pacote nesta volta (a leitura falhou), nada fica à vista e a tela embutida pede por conta própria, como antes.
+function salaBruto(ent, fal) {
+  window.gcSalaBruto = ent && fal && fal.strings ? {mes: HOJE.slice(0, 7), em: Date.now(), ent, fal} : null;
+  const f = $("falmesq");
+  if (window.gcSalaBruto && f && f.getAttribute("src")) try { f.contentWindow.postMessage({gc: "st-dados"}, location.origin); } catch (e) {}
+}
 async function ligar(primeira) {
   try {
     const [ent, fal, idr, vis, arrL] = await Promise.all([pega("/api/entrada/tempo-real", 90000), pega("/api/painel/falhas?mes=" + HOJE.slice(0, 7), 150000).catch(() => null),
@@ -2288,6 +2299,7 @@ async function ligar(primeira) {
       if (!D) $("corpo").innerHTML = '<div class="carrega" style="padding:28px 0">O servidor acabou de ser atualizado e está aquecendo o tempo real (leva de 2 a 7 min). A tela tenta de novo sozinha a cada 15 s.</div>';
       clearTimeout(ligar.t); ligar.t = setTimeout(() => ligar(!D), 15000); return; }
     if (arrL && arrL.nomes) ARR_LIDO.v = arrL;                  // o arquivo não abriu agora: vale o último lido, não "sem nome"
+    salaBruto(ent, fal);                                        // a aba Falhas do mês usa esta leitura em vez de baixar outra
     const ant = D; D = montar(ent, fal, idr && idr.strings ? idr : null, vis && vis.eu ? vis : null, ARR_LIDO.v);
     if (ant) { D.osHist = ant.osHist; D.osHistFalhou = ant.osHistFalhou; D.osHistMotivo = ant.osHistMotivo; }
     Object.keys(ETMG_LIDO).forEach(g => { if (ETMG_LIDO[g] === 3) delete ETMG_LIDO[g]; });
