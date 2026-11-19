@@ -1007,42 +1007,15 @@ def test_strings_fora_e_a_conta_do_tempo_real_e_a_usina_aberta_reconta():
 def test_os_inversores_da_api_pv_saem_da_leitura_que_o_ciclo_ja_fez(cli, monkeypatch):
     """Levi, 17/11/2026: "ainda demora 1 século para abrir [...] investigue o motivo dos inversores da API PV demorarem
     tanto e corrija". Cada abertura baixava de novo o dia inteiro da fonte paga; o ciclo já baixa de 5 em 5 min."""
-    chamadas = []
-    monkeypatch.setattr(app, "_PV_DET_BOOT", 0.0)
-    monkeypatch.setattr(app, "_pv_det_cache", {"ts": 0.0, "payload": None})
-    # DESLIGADO por padrão desde 17/11 11:36 (a API PV lenta: a chamada a mais do detalhe pesava no disjuntor)
-    assert app.os.environ.get("PV_DET_CICLO") == "1" or app.PV_DET_CICLO is False
-    monkeypatch.setattr(app, "PV_DET_CICLO", False)
-    monkeypatch.setattr(app, "_pv_plant_inversores_busca", lambda pid, force=False, records=None: chamadas.append("nao devia"))
-    app._pv_det_guarda(776, [{"idefinversor": 1}])
-    assert chamadas == [] and not app._pv_det_cache["payload"]            # desligado: o ciclo não faz nada a mais
-    monkeypatch.setattr(app, "PV_DET_CICLO", True)
-    monkeypatch.setattr(app, "_pv_plant_inversores_busca", lambda pid, force=False, records=None: chamadas.append((pid, force, len(records))) or [{"id": 1, "nome": "Inversor 1.1"}])
-    app._pv_det_guarda(777, [{"idefinversor": 1}])
-    assert chamadas == [(777, True, 1)]                                   # monta com as leituras que o ciclo já tem
+    # As regras do detalhe do ciclo (nunca ir à API, o orçamento por volta, os dispositivos em disco, a validade pela
+    # tabela que está na tela) mudaram em 19/11/2026 e estão provadas em tests/test_pv_det_so_com_copia.py. Aqui, o que
+    # a Sala usa: a rota com ?tabela=1 devolve o detalhe guardado com a hora dele.
+    agora = app.time.time()
+    monkeypatch.setattr(app, "_pv_det_cache", {"ts": agora, "payload": {"plantas": {"777": {"ts": agora - 30, "inversores": [{"id": 1, "nome": "Inversor 1.1"}]}}}})
+    monkeypatch.setitem(app._cache, "ts", agora - 20)
+    monkeypatch.setitem(app._cache, "volta_ini", agora - 90)
     r = cli.get("/api/plant/777?tabela=1").get_json()
-    assert r["da_tabela"] is True and r["inversores"] == [{"id": 1, "nome": "Inversor 1.1"}] and r["idade_s"] < 5 and len(r["lido_em"]) == 5
-    # sem ?tabela=1 a rota segue ao vivo (o Tempo real e o Diagnóstico não mudam); force=1 também
-    monkeypatch.setattr(app, "_pv_plant_inversores", lambda pid, force=False: [{"id": 9}])
-    assert cli.get("/api/plant/777").get_json() == {"plant_id": 777, "inversores": [{"id": 9}]}
-    assert cli.get("/api/plant/777?tabela=1&force=1").get_json() == {"plant_id": 777, "inversores": [{"id": 9}]}
-    assert cli.get("/api/plant/778?tabela=1").get_json() == {"plant_id": 778, "inversores": [{"id": 9}]}     # usina sem detalhe: ao vivo
-    app._pv_det_cache["payload"]["plantas"]["777"]["ts"] -= app.PV_DET_VALE_S + 1
-    assert "da_tabela" not in cli.get("/api/plant/777?tabela=1").get_json()                                # detalhe velho: ao vivo
-    # nos primeiros minutos depois da subida o ciclo não calcula o detalhe (a 1ª tabela sai no tempo de sempre)
-    monkeypatch.setattr(app, "_PV_DET_BOOT", app.time.time())
-    chamadas.clear()
-    app._pv_det_guarda(779, [{"idefinversor": 1}])
-    assert chamadas == []
-    # o detalhe que falha não derruba a linha, e leitura vazia não gera detalhe
-    monkeypatch.setattr(app, "_PV_DET_BOOT", 0.0)
-
-    def explode(pid, force=False, records=None):
-        raise RuntimeError("combiner fora")
-    monkeypatch.setattr(app, "_pv_plant_inversores_busca", explode)
-    app._pv_det_guarda(780, [{"idefinversor": 1}])
-    app._pv_det_guarda(781, [])
-    assert "780" not in app._pv_det_cache["payload"]["plantas"] and "781" not in app._pv_det_cache["payload"]["plantas"]
+    assert r["da_tabela"] is True and r["inversores"] == [{"id": 1, "nome": "Inversor 1.1"}] and 25 <= r["idade_s"] <= 40 and len(r["lido_em"]) == 5
     assert app._persist_registry()["pv_det"] is app._pv_det_cache                                          # vai junto com as tabelas para o web
     html = _html()
     assert '(PLANT[sk] === "/api/plant/" ? (AOVIVO[u.u] ? "?force=1" : "?tabela=1") : "")' in html and 'data-aovivo="1"' in html
@@ -1480,3 +1453,14 @@ def test_a_sala_deixa_a_leitura_dela_a_vista_da_aba_falhas_do_mes():
     lg = html[html.index("async function ligar(primeira) {"):]
     assert lg.index("salaBruto(ent, fal);") < lg.index("const ant = D; D = montar(ent, fal,")      # antes de montar, com o que acabou de chegar
     assert lg.index("if (ent && ent.aquecendo && !(ent.grupos || []).length) {") < lg.index("salaBruto(ent, fal);")   # aquecendo: nada a mostrar
+
+
+def test_a_leitura_guardada_da_api_pv_diz_quando_e_velha():
+    """19/11/2026: o detalhe por inversor do ciclo passa a valer enquanto for da tabela que está na tela (até 2 h), para
+    um reinício do servidor não mandar cada abertura à API PV. A Sala diz há quanto tempo é a leitura quando passa de
+    15 min, em cor de alerta, e segue oferecendo o "Ler agora"."""
+    html = _html()
+    assert 'const min = Math.max(0, Math.round((Date.now() - dr.em) / 60000)), velha = min > 15;' in html
+    assert 'leitura das ${esc(dr.tabela)}${velha ? ", há " + min + " min" : ""}</span><button class="btnl" data-aovivo="1"' in html
+    assert 'color:var(--${velha ? "alerta" : "mudo"})' in html
+    assert "dr.em = Date.now() - (pl.da_tabela ? (pl.idade_s || 0) * 1000 : 0);" in html       # a idade vem do servidor

@@ -2720,10 +2720,30 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     cor do Tempo real, pela regra EXATA de lá (`bate = dif === -acomp` no Monitoramento): azul só quando o
     acompanhamento é IGUAL às zeradas, laranja quando os dois números não batem (a mais ou a menos); o cartão da fonte
     é azul quando todas as usinas dele batem. A lateral ficou 10% maior.
-  - **⚠ O detalhe da API PV pelo ciclo está DESLIGADO (17/11, 11:36):** foi ao ar às 11:15 com a API PV lenta (28 a
-    60 s, 504) e a tabela parada nas 10:57 (de antes da subida). O detalhe pede o `plant_devices` da usina com o cache
-    frio, e essa chamada a mais soma falhas no disjuntor da API PV. Fica no código atrás de `PV_DET_CICLO=1`; para
-    religar, o detalhe tem de montar só com o que já está em cache. Com ele desligado, a Sala cai na leitura ao vivo.
+  - **O detalhe da API PV pelo ciclo: DESLIGADO de 17/11 (11:36) a 19/11, RELIGADO em 19/11 sem ir à API.** Em 17/11
+    foi ao ar às 11:15 com a API PV lenta (28 a 60 s, 504) e a tabela parada nas 10:57: o detalhe pedia o
+    `plant_devices` da usina com o cache frio, dentro da volta da tabela, e isso somava falhas no disjuntor. Em 19/11
+    (Levi: "Guardar o detalhe por inversor da API PV e salvar esse cache em disco, recarregando na inicialização, para
+    que um reinício não deixe a tabela vazia por 19 a 65 min") voltou, ligado por padrão (`PV_DET_CICLO=0` desliga):
+    - **nunca vai à API** (`so_cache=True`, `_PvSemCopia`): leituras da volta; lista de usinas e dispositivos do que
+      está em memória; a combiner é a que a linha acabou de ler (`_combiner_guardada`). Sem os dispositivos, a usina
+      fica sem detalhe nesta volta (rota ao vivo, como antes) e entra na fila `_pv_det_faltam`. O resultado é o MESMO
+      da rota com as mesmas leituras (`tests/test_pv_det_so_com_copia.py`);
+    - **os dispositivos vão para o disco** (`pv_devs` nos extras da cópia) e voltam na subida, nos dois processos; os
+      que faltam são lidos DEPOIS de a tabela sair (`_pv_devs_completa`: 4 por volta, só com a volta abaixo de 180 s
+      e o disjuntor fechado). Numa instalação nova são umas 3 h até todas as usinas terem detalhe; depois, nenhum
+      reinício pede de novo;
+    - **orçamento de 25 s de processador por volta** (`PV_DET_ORCAMENTO_S`); quem fica para trás passa na frente na
+      volta seguinte;
+    - **a validade é a da tabela** (`_pv_det_da_tabela`): vale o detalhe da volta da tabela que está na tela (o
+      `_cache["volta_ini"]`) ou da anterior (`PV_DET_FOLGA_S`), com teto de 2 h. Depois de um reinício o web serve a
+      tabela e o detalhe de antes; a Sala diz "leitura das HH:MM, há N min" em cor de alerta quando passa de 15 min;
+    - **o que isto NÃO resolve:** a tabela em si continua a de antes até o worker publicar a 1ª volta nova (19, 51 e
+      65 min em 18/11, com a API PV respondendo em 20 a 60 s), e nesse tempo as usinas aparecem "sem comunicação" pela
+      idade da leitura. A cópia em disco da tabela já existia (`cache_snapshot.json`); o que demora é a 1ª volta. Para
+      saber onde esse tempo vai, o worker escreve o **diário da largada** (`_largada_marca`, `_largada_volta`;
+      `/api/sala/largada`): os marcos da subida e as últimas 12 voltas da tabela (duração, usinas sem dado, o que o
+      detalhe custou). Ler isso depois de cada reinício antes de mexer na ordem da largada.
   - **Os inversores da API PV sem esperar o portal (17/11):** cada abertura baixava de novo o `day_inverter` (o dia
     inteiro, fonte paga): Altair 504 aos 61,7 s e depois 38,9 s, Céu Azul 12,3 s. O ciclo do worker, que já baixa isso
     de 5 em 5 min para a tabela, passou a guardar o detalhe por inversor das MESMAS leituras (`_pv_det_guarda`, cache

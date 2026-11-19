@@ -5090,42 +5090,190 @@ def build_summary(plant: dict, records: list) -> dict:
 #   (em 16/11, com várias subidas, a tabela da API PV ficou parada a tarde toda).
 # - O detalhe que falha não derruba a linha da usina.
 # - Sem `?tabela=1` (o Tempo real, o Diagnóstico) a rota continua ao vivo, como sempre.
-# ⚠ DESLIGADO POR PADRÃO desde 17/11/2026, 11:36 (21 min depois de ir ao ar): a API PV respondia em 28 a 60 s (504 no
-# drill) e a tabela estava parada nas 10:57, de antes da subida. O detalhe pede o `plant_devices` da usina quando o cache
-# dele está frio (20 s de teto), e com a fonte lenta essa chamada a mais soma falhas de rede no disjuntor da API PV, o
-# mesmo que protege o `day_inverter` da tabela. Para religar (`PV_DET_CICLO=1` no ambiente do worker), o detalhe precisa
-# antes montar só com o que já está em cache, sem chamada nova.
-PV_DET_CICLO = os.environ.get("PV_DET_CICLO", "0") == "1"
-PV_DET_VALE_S = 900                 # o detalhe do ciclo vale 15 min (três ciclos): mais velho que isso, a rota vai à fonte
-PV_DET_ESPERA_BOOT_S = 600          # depois da subida, 10 min sem o detalhe
+# ⚠ DESLIGADO de 17/11/2026, 11:36 (21 min depois de ir ao ar) até 19/11: a API PV respondia em 28 a 60 s (504 no drill)
+# e a tabela estava parada nas 10:57, de antes da subida. O detalhe pedia o `plant_devices` da usina quando o cache dele
+# estava frio (20 s de teto), e com a fonte lenta essa chamada a mais somava falhas de rede no disjuntor da API PV, o
+# mesmo que protege o `day_inverter` da tabela.
+# RELIGADO em 19/11/2026 (Levi: "Guardar o detalhe por inversor da API PV e salvar esse cache em disco, recarregando na
+# inicialização, para que um reinício não deixe a tabela vazia por 19 a 65 min"), do jeito que a nota acima pedia:
+# - O DETALHE DO CICLO NUNCA VAI À API (`so_cache=True` no `_pv_plant_inversores_busca`): as leituras são as da volta; a
+#   lista de usinas, os dispositivos e a combiner vêm do que já está em memória (a combiner é a que a linha da usina
+#   acabou de ler, na mesma volta). Sem a lista ou sem os dispositivos (`_PvSemCopia`), a usina fica sem detalhe nesta
+#   volta e a rota dela segue ao vivo, como antes.
+# - OS DISPOSITIVOS VÃO PARA O DISCO com as tabelas ("pv_devs" nos extras da cópia) e voltam na subida, nos dois
+#   processos: nome de inversor não muda de uma hora para outra, e sem isso cada reinício zerava a memória e o detalhe só
+#   voltaria depois de pedir o `plant_devices` de cada usina. Quem ainda não tem entra numa fila (`_pv_det_faltam`) que
+#   o `_pv_devs_completa` atende DEPOIS de a tabela sair: poucas por volta, e só com a API saudável.
+# - ORÇAMENTO POR VOLTA (`PV_DET_ORCAMENTO_S`, em tempo de processador da própria volta): passou disso, as usinas
+#   restantes ficam para a seguinte, que começa por elas. A tabela nunca atrasa mais que o orçamento por causa do detalhe.
+# - A VALIDADE É A DA TABELA, não a do relógio (`_pv_det_da_tabela`): o detalhe vale enquanto for da volta da tabela que
+#   está na tela (ou da anterior) e tiver menos de 2 h. Depois de um reinício o web segue servindo a tabela e o detalhe de
+#   antes, com a hora deles, em vez de mandar cada abertura à API PV (18/11: a 1ª tabela depois de um reinício levou 19,
+#   51 e 65 min, e nesse tempo cada usina aberta esperava de 20 a 60 s). A Sala diz a hora da leitura e oferece "Ler agora".
+# - `PV_DET_CICLO=0` no ambiente desliga tudo isto (o ciclo volta a guardar só a linha da usina).
+PV_DET_CICLO = os.environ.get("PV_DET_CICLO", "1") == "1"
+PV_DET_FOLGA_S = 600                # o detalhe pode ser da volta anterior à da tabela na tela: até 10 min antes do começo dela
+PV_DET_TETO_S = 7200                # e nunca com mais de 2 h
+PV_DET_ORCAMENTO_S = 25.0           # segundos de processador que o detalhe pode gastar por volta da tabela
 _PV_DET_BOOT = time.time()
 _pv_det_cache = {"ts": 0.0, "payload": None}
 _pv_det_lock = threading.Lock()
+_pv_det_volta = {"gasto": 0.0, "feitos": 0, "sem_copia": 0, "adiados": 0, "falhas": 0}   # a conta da volta em curso
+_pv_det_faltam: set = set()         # usinas sem os dispositivos em memória: a fila do `_pv_devs_completa`
+_pv_det_adiadas: set = set()        # usinas que o orçamento deixou para a volta seguinte
+_pv_det_prioridade: set = set()     # ... e que passam na frente nela
+
+
+class _PvSemCopia(Exception):
+    """O detalhe do ciclo precisaria ir à API PV: falta em memória a lista de usinas ou os dispositivos da usina."""
+
+
+def _pv_det_nova_volta() -> dict:
+    """Começa a conta do detalhe de uma volta da tabela; devolve a da volta que acabou. Quem o orçamento deixou para trás
+    na volta que acabou passa na frente nesta."""
+    global _pv_det_prioridade, _pv_det_adiadas
+    ant = dict(_pv_det_volta)
+    _pv_det_prioridade, _pv_det_adiadas = _pv_det_adiadas, set()
+    _pv_det_volta.update(gasto=0.0, feitos=0, sem_copia=0, adiados=0, falhas=0)
+    return ant
+
+
+def _pv_devs_guardados(plant_id):
+    """Os dispositivos da usina SEM rede: a cópia do `plant_devices` em memória, de qualquer idade (nome de inversor não
+    muda de uma hora para outra), com o decidido na tela por cima. Lista vazia = a conta não lê o `plant_devices` (a rota
+    também recebe vazio). None = nunca foi lido neste processo nem veio do disco."""
+    ent = _pv_devs_cache.get(plant_id)
+    if not isinstance(ent, dict) or not isinstance(ent.get("devs"), list):
+        return None
+    return _pv_devs_com_a_tela(plant_id, ent["devs"])
+
+
+def _combiner_guardada(plant_id, idinv):
+    """A combiner do inversor SEM rede, pelo mesmo caminho do `_combiner_strings`: a cópia da API PV e, sem leitura nela,
+    a da PV Plataforma. É o que a linha da usina acabou de ler nesta volta (a mesma porta: `_ipv_reais <= 1` com String
+    Box ou inversor gerando); o que ela não conseguiu ler, o detalhe também não tem (None = sem visão, como na linha)."""
+    d = ((_pv_comb_cache.get(plant_id) or {}).get("por_inv") or {}).get(idinv)
+    if d and d.get("strings"):
+        return d
+    ent = _plat_view_cache.get(idinv)
+    return ent.get("dados") if isinstance(ent, dict) else None
 
 
 def _pv_det_guarda(pid, records) -> None:
-    """Guarda o detalhe por inversor da usina, a partir das leituras que o ciclo acabou de baixar."""
-    if not PV_DET_CICLO or not isinstance(records, list) or not records or time.time() - _PV_DET_BOOT < PV_DET_ESPERA_BOOT_S:
+    """Guarda o detalhe por inversor da usina, das leituras que o ciclo acabou de baixar, SEM ir à API e dentro do
+    orçamento da volta."""
+    if not PV_DET_CICLO or not isinstance(records, list) or not records:
         return
+    if _pv_det_volta["gasto"] >= PV_DET_ORCAMENTO_S and not (pid in _pv_det_prioridade and _pv_det_volta["gasto"] < 2 * PV_DET_ORCAMENTO_S):
+        _pv_det_volta["adiados"] += 1
+        _pv_det_adiadas.add(pid)
+        return
+    t0 = time.thread_time()
     try:
-        invs = _pv_plant_inversores_busca(pid, force=True, records=records)
+        invs = _pv_plant_inversores_busca(pid, force=True, records=records, so_cache=True)
+    except _PvSemCopia as e:
+        _pv_det_volta["sem_copia"] += 1
+        if "dispositivos" in str(e):
+            _pv_det_faltam.add(pid)
+        return
     except Exception as e:                                   # noqa: BLE001 — o detalhe é um extra: a linha da usina segue
+        _pv_det_volta["falhas"] += 1
         print(f"[pv-det] {pid}: {type(e).__name__}: {str(e)[:160]}")
         return
+    finally:
+        _pv_det_volta["gasto"] += time.thread_time() - t0
     with _pv_det_lock:
         plantas = dict((_pv_det_cache.get("payload") or {}).get("plantas") or {})
         plantas[str(pid)] = {"ts": time.time(), "inversores": invs}
         _pv_det_cache["payload"] = {"plantas": plantas}
         _pv_det_cache["ts"] = time.time()
+    _pv_det_volta["feitos"] += 1
     _persist_mark()
 
 
 def _pv_det_da_tabela(pid):
-    """O detalhe que o ciclo publicou para a usina, se ainda vale: {"ts", "inversores"} ou None."""
+    """O detalhe que o ciclo publicou para a usina, se ainda vale: {"ts", "inversores"} ou None. Vale o que é da volta da
+    tabela que o processo está servindo (ou da anterior: `PV_DET_FOLGA_S` antes do começo dela) e tem menos de 2 h."""
     d = ((_pv_det_cache.get("payload") or {}).get("plantas") or {}).get(str(pid))
     if not isinstance(d, dict) or not isinstance(d.get("inversores"), list) or not d["inversores"]:
         return None
-    return d if time.time() - float(d.get("ts") or 0) < PV_DET_VALE_S else None
+    ts = float(d.get("ts") or 0)
+    if time.time() - ts >= PV_DET_TETO_S:
+        return None
+    volta_ini = float(_cache.get("volta_ini") or _cache.get("ts") or 0.0)    # cópia de antes de 19/11: só a hora da tabela
+    return d if ts >= volta_ini - PV_DET_FOLGA_S else None
+
+
+# Os dispositivos que faltam, DEPOIS de a tabela sair (19/11/2026). Em 17/11 o detalhe pedia o `plant_devices` de cada
+# usina dentro da volta da tabela e, com a API lenta, isso pesou no disjuntor. Aqui são poucas usinas por volta, uma de
+# cada vez, fora do caminho da tabela, e só quando a volta dela foi rápida (a API está saudável) e o disjuntor fechado.
+# Lidos uma vez, ficam no disco (ver `_cache_save`): depois da 1ª noite, um reinício não pede nenhum de novo.
+PV_DEVS_POR_VOLTA = 4
+PV_DEVS_VOLTA_MAX_S = 180
+
+
+def _pv_devs_completa(volta_s) -> int:
+    """Lê o `plant_devices` de até PV_DEVS_POR_VOLTA usinas da fila. → quantas foram pedidas à API."""
+    for p in [p for p in list(_pv_det_faltam) if _pv_devs_guardados(p) is not None]:
+        _pv_det_faltam.discard(p)                            # alguém já leu (a combiner, a rota): sai da fila sem chamada
+    if not _pv_det_faltam or volta_s > PV_DEVS_VOLTA_MAX_S or _pv_disj_aberto():
+        return 0
+    n = 0
+    for p in sorted(_pv_det_faltam, key=str)[:PV_DEVS_POR_VOLTA]:
+        _pv_det_faltam.discard(p)                            # falhou agora: volta para a fila quando o detalhe sentir falta
+        try:
+            _pv_plant_devices(p)
+        except Exception as e:                               # noqa: BLE001 — nunca derruba o ciclo
+            print(f"[pv-det] dispositivos da usina {p}: {type(e).__name__}: {str(e)[:120]}")
+        n += 1
+    if n:
+        _persist_mark()
+    return n
+
+
+# ── O DIÁRIO DA LARGADA (19/11/2026) ─────────────────────────────────────────────────────────────────────────────
+# Depois de um reinício, a 1ª tabela nova da API PV levou 19, 51 e 65 min em 18/11 (em 22/09, 23 min), e de fora não dá
+# para ver onde o tempo vai: os avisos do laço saem num registro que só existe no servidor. O worker anota os marcos da
+# largada (quanto depois da subida cada etapa terminou) e as últimas voltas da tabela (duração, usinas sem dado, o que o
+# detalhe custou), e isso vai para o web com as tabelas ("largada" na cópia): `/api/sala/largada`. Só leitura.
+_largada_cache = {"ts": 0.0, "payload": None}
+_LARGADA_VOLTAS = 12
+
+
+def _largada_payload() -> dict:
+    p = _largada_cache.get("payload")
+    if not isinstance(p, dict) or p.get("subiu") != _PV_DET_BOOT:     # o diário do processo anterior veio do disco: começa outro
+        p = _largada_cache["payload"] = {"subiu": _PV_DET_BOOT, "subiu_em": time.strftime("%d/%m %H:%M:%S", time.localtime(_PV_DET_BOOT)),
+                                         "marcos": [], "voltas": []}
+    return p
+
+
+def _largada_marca(o, **extra) -> None:
+    """Anota um marco da largada: o que terminou e quantos segundos depois da subida. Só o worker escreve o diário (o
+    web também pode refazer a tabela, pelo botão Atualizar, e escreveria por cima do que veio do disco)."""
+    if _MODO_WEB:
+        return
+    try:
+        p = _largada_payload()
+        if len(p["marcos"]) < 60:
+            p["marcos"].append(dict(extra, o=o, aos_s=int(time.time() - _PV_DET_BOOT), **{"as": time.strftime("%H:%M:%S")}))
+        _largada_cache["ts"] = time.time()
+        _persist_mark()
+    except Exception as e:                                   # noqa: BLE001 — o diário nunca derruba o laço
+        print(f"[largada] {type(e).__name__}: {e}")
+
+
+def _largada_volta(v: dict) -> None:
+    """Anota uma volta da tabela da API PV (ficam as últimas `_LARGADA_VOLTAS`)."""
+    if _MODO_WEB:
+        return
+    try:
+        p = _largada_payload()
+        p["voltas"].append(dict(v, fim=time.strftime("%H:%M:%S")))
+        del p["voltas"][:-_LARGADA_VOLTAS]
+        _largada_cache["ts"] = time.time()
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[largada] {type(e).__name__}: {e}")
 
 
 # ── Processa uma usina (visão geral) ──────────────────────────────────────────
@@ -5178,6 +5326,7 @@ PV_TIMEOUT_1A_PASSADA = 90
 
 
 def fetch_all(fonte: str = None) -> list:
+    _pv_det_nova_volta()                # a conta (e o orçamento) do detalhe por inversor desta volta
     token     = get_token()
     all_plants = get_plants(token)
     # Filtra apenas usinas Full O&M = Sim (se a lista estiver carregada)
@@ -5299,7 +5448,7 @@ def _pv_plant_inversores(plant_id, force=False):
             raise
 
 
-def _pv_plant_inversores_busca(plant_id, force=False, records=None):
+def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=False):
     """Inversores da usina (API PV) com strings classificadas. Reusado pelo endpoint /api/plant
     e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede.
 
@@ -5311,14 +5460,15 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None):
     as chamadas à fonte pela metade e ainda deixa instantâneo reabrir a mesma usina logo em seguida. Curto
     de propósito: a tela é AO VIVO, então 90 s é o teto do que se pode repetir sem mentir sobre o "agora"."""
     # `records` = as leituras do dia que o chamador JÁ baixou (o ciclo do worker, `_pv_det_guarda`): o detalhe sai delas,
-    # sem outro day_inverter.
+    # sem outro day_inverter. `so_cache` (19/11/2026) = o detalhe do ciclo não vai à API por NADA: a lista de usinas e os
+    # dispositivos são os que estão em memória (sem eles, `_PvSemCopia`) e a combiner é a que a linha acabou de ler.
     _ja_lidas = records
     if not force and _ja_lidas is None:
         with _pv_plant_memo_lock:
             ent = _PV_PLANT_MEMO.get(plant_id)
         if ent and (time.time() - ent[0]) < _PV_PLANT_MEMO_S:
             return ent[1]
-    token = _pv_token_for(plant_id)
+    token = None if so_cache else _pv_token_for(plant_id)
 
     def _leituras():
         r = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
@@ -5336,6 +5486,11 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None):
 
     def _nome_api():
         # nome da usina (para lookup no ESPERADO_INV) — SEMPRE (mesmo sem leitura hoje)
+        if so_cache:                              # a lista que a volta da tabela acabou de usar, de qualquer idade
+            lst = _plants_cache.get("data")
+            if lst is None:
+                raise _PvSemCopia("lista de usinas")
+            return next((p["nome"].strip() for p in lst if p["id"] == plant_id), "")
         try:
             return next((p["nome"].strip() for p in get_plants(token) if p["id"] == plant_id), "")
         except Exception:
@@ -5344,8 +5499,11 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None):
     def _nomes_dispositivos():
         # .strip(): a API às vezes retorna o nome com espaço no fim (ex.: "INVERSOR 04 "),
         # o que quebrava o match com a planilha (nome/esperada caíam no cru). Normaliza aqui.
+        devs = _pv_devs_guardados(plant_id) if so_cache else _pv_plant_devices(plant_id)
+        if devs is None:
+            raise _PvSemCopia("dispositivos")
         return {d["device_id"]: str(d.get("device_name", "")).strip()
-                for d in _pv_plant_devices(plant_id) if isinstance(d, dict) and "device_id" in d}
+                for d in devs if isinstance(d, dict) and "device_id" in d}
 
     # As três chamadas em PARALELO (Levi, 24/09/2026: "pra mim sem cache está demorando uns 2 minutos"). Medido na
     # Santana do Ipanema às 22h, com a API PV lenta: day_inverter 18,5 s, lista de usinas 10 s e plant_devices 10,6 s,
@@ -5455,7 +5613,8 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None):
             _pac_ult = cj.get("Pac")
             _gera = isinstance(_pac_ult, (int, float)) and _pac_ult >= MACRO_POT_INV_MIN
             if _ipv_reais <= 1 and (plant_nome_api in STRING_BOX or _gera):
-                cmb = _combiner_strings(plant_id, inv_id)   # API PV primeiro, Plataforma de reserva
+                # API PV primeiro, Plataforma de reserva; no detalhe do ciclo, o que a linha da usina acabou de ler
+                cmb = _combiner_guardada(plant_id, inv_id) if so_cache else _combiner_strings(plant_id, inv_id)
                 if cmb:
                     scj = dict(scj)                       # não polui o cj original (Temp/Eday ficam)
                     scj.update(dict(cmb["strings"]))
@@ -6980,9 +7139,17 @@ def _refresh_data_cache():
         if _data_refreshing["on"]:
             return
         _data_refreshing["on"] = True
+    _t0 = time.time()
     try:
-        _cache["payload"] = _build_data_payload()
+        _novo = _build_data_payload()
+        _cache["payload"] = _novo
+        _cache["volta_ini"] = _t0           # o detalhe por inversor vale enquanto for desta volta (_pv_det_da_tabela)
         _cache["ts"] = time.time()
+        _rows = (_novo or {}).get("rows") or []
+        _largada_volta({"dur_s": round(time.time() - _t0, 1), "usinas": len(_rows),
+                        "sem_dados": sum(1 for r in _rows if r.get("sem_dados")),
+                        "sem_comunicacao": sum(1 for r in _rows if r.get("falha_comunicacao")),
+                        "detalhe": dict(_pv_det_volta, gasto=round(_pv_det_volta["gasto"], 1), na_fila=len(_pv_det_faltam))})
         _persist_mark()
     except Exception as e:
         print(f"[api/data] refresh falhou: {e}")
@@ -26557,9 +26724,13 @@ def _prewarm_loop():
         # Pego em 19/08: o Levi marcou Full O&M no Itajá 2 (552) e em 7 Ceilândias; as usinas
         # passaram a valer no catálogo (98 contra 89 publicadas) e mesmo assim não apareciam.
         # A checagem é um getmtime — só relê o xlsx quando o arquivo de fato mudou.
+        if ciclo == 1:
+            _largada_marca("o laço de aquecimento começou")
         maybe_reload_equipamentos()
         maybe_reload_tickets()
         _expira_por_token_novo()      # token novo → rebuild na hora, não no fim do TTL
+        if ciclo == 1:
+            _largada_marca("cadastro e tickets relidos")
         # ETAPA 1 — disponibilidade por TEMPO (Ocorrências) de HOJE. Tem de vir ANTES dos
         # overviews de trackers: senão o overview reconstrói com "disponibilidade_tempo" vazio
         # (cache de eventos ainda frio) e fica preso nesse payload até o próximo ciclo, porque
@@ -26570,6 +26741,8 @@ def _prewarm_loop():
             ("Axis disponibilidade",  lambda: _sunop_disp_hoje("axis")),
             ("2C disponibilidade",    _owen_disp_hoje),
         ]))
+        if ciclo == 1:
+            _largada_marca("etapa 1 (disponibilidade de hoje) terminou")
         outros = [
             ("ETM",            _etm_cache,           _build_etm_payload),
             ("ETM análise",    _etm_analise_cache,   _build_etm_analise_payload),
@@ -26624,8 +26797,10 @@ def _prewarm_loop():
         # ETAPA 2 — a aba padrão PRIMEIRO e SOZINHA. É a mais aberta e a mais cara; deixá-la
         # disputar CPU com o resto foi exatamente o que a medição reprovou.
         t1 = _t.time()
+        _saiu = False
         try:
-            if _prewarm_aba_principal():
+            _saiu = _prewarm_aba_principal()
+            if _saiu:
                 print(f"[prewarm] /api/data aquecido em {_t.time()-t1:.0f}s")
             else:
                 print(f"[prewarm] /api/data passou de {PREWARM_ABA_PRINCIPAL_MAX_S}s (API PV lenta ou fora do ar) — "
@@ -26633,6 +26808,13 @@ def _prewarm_loop():
         except Exception as e:
             print(f"[prewarm] /api/data falhou: {e}")
         _ABA_PRINCIPAL_SAIU.set()             # libera a 1ª varredura de trackers (ver _pv_trk_loop)
+        if ciclo <= 3:
+            _largada_marca(f"volta {ciclo}: tabela da API PV", saiu=bool(_saiu), s=int(_t.time() - t1))
+        if _saiu:                             # a tabela saiu: os dispositivos que faltam, poucos por volta (ver _pv_devs_completa)
+            try:
+                _pv_devs_completa(_t.time() - t1)
+            except Exception as e:            # noqa: BLE001
+                print(f"[pv-det] dispositivos: {e}")
 
         # ETAPA 3 — fontes LEVES (segundos cada) e as telas de uso diário.
         # "SunOp ETM anál" entrou aqui em 26/08: ela baixa a curva do DIA INTEIRO (POA/GHI/POA-RI)
@@ -26672,6 +26854,8 @@ def _prewarm_loop():
         _persist_mark()                       # o ciclo aqueceu coisa nova → salva o snapshot
         gasto = _t.time() - t0
         print(f"[prewarm] ciclo completo em {gasto:.0f}s")
+        if ciclo <= 3:
+            _largada_marca(f"volta {ciclo} completa", s=int(gasto))
         _prewarm_periodo["s"] = gasto + max(30, CACHE_TTL - 30 - gasto)   # período real desta volta
         # Dorme só o que SOBRA da validade: assim o período do ciclo cabe no TTL e o dado não
         # vence antes de ser reaquecido. Piso de 30 s para não virar laço apertado se o ciclo
@@ -26733,6 +26917,7 @@ def _persist_registry():
         "semp_analise":  _semp_etm_analise_cache,
         "pv_det":        _pv_det_cache,       # o detalhe por inversor que o ciclo monta (17/11/2026, _pv_det_guarda)
         "pg_trk_det":    _pg_trk_det_cache,   # o detalhe de trackers por usina do banco da Thopen, da mesma volta do resumo (18/11/2026)
+        "largada":       _largada_cache,      # o diário da largada e das voltas da tabela da API PV (19/11/2026)
         "sg_trk_acum":   _sg_trk_acum_cache,  # a curva de trackers que a plataforma junta quando o /historico falha (17/11/2026)
     }
 
@@ -26799,6 +26984,10 @@ def _cache_save():
         "qualidade":    {"ts": _qualidade_cache.get("ts", 0.0), "data": _qualidade_cache.get("data")},
         "sunop_str_ev": {f"{k[0]}|{k[1]}": v for k, v in list(_sunop_str_ev_cache.items()) if isinstance(k, tuple)},
         "plat_view":    {str(k): v for k, v in list(_plat_view_cache.items())},
+        # Os dispositivos das usinas da API PV (19/11/2026): com eles em disco, o detalhe por inversor do ciclo é montado
+        # já na 1ª volta depois de um reinício, sem pedir o `plant_devices` de ninguém (ver `_pv_det_guarda`).
+        "pv_devs":      {str(k): {"ts": v.get("ts", 0.0), "devs": v.get("devs")} for k, v in list(_pv_devs_cache.items())
+                         if isinstance(v, dict) and isinstance(v.get("devs"), list)},
         # Metadata do SunOp/Axis (pathnames por usina). O WEB é reiniciado com o meta VAZIO e o
         # drill da 1ª carga disparava 10 buscas de metadata na hora — se a borda estivesse
         # bloqueada (o worker raja a cada ciclo), o disjuntor abria, TODAS pulavam e o drill
@@ -26911,6 +27100,14 @@ def _cache_load():
             continue
         _plat_view_cache[_kk] = v
     n += 1 if _pvw else 0
+    # Os dispositivos da API PV, nos DOIS processos (19/11/2026). A idade é a de quando foram lidos: a rota ao vivo
+    # continua relendo depois de 30 min; o detalhe do ciclo usa de qualquer idade. O que a memória tem de mais novo fica.
+    for k, v in (ex.get("pv_devs") or {}).items():
+        if not (str(k).isdigit() and isinstance(v, dict) and isinstance(v.get("devs"), list)):
+            continue
+        _cur = _pv_devs_cache.get(int(k))
+        if _cur is None or float(v.get("ts") or 0.0) > float(_cur.get("ts") or 0.0):
+            _pv_devs_cache[int(k)] = {"ts": float(v.get("ts") or 0.0), "devs": v["devs"]}
     # Metadata SunOp/Axis — SÓ no processo WEB (o _MODO_WEB ainda não foi setado quando isto
     # roda, então o gate é pelo script principal). O worker NÃO restaura: ele deriva o meta
     # fresco da API a cada boot (e se recicla às 03:00 todo dia), senão um meta velho no
@@ -31722,6 +31919,12 @@ def api_sala_exportar():
     except _sala.ExportRecusado as e:
         return jsonify({"ok": False, "motivo": str(e)}), 400
     return _xlsx_resp(wb, arquivo)
+
+
+@app.route("/api/sala/largada")
+def api_sala_largada():
+    """O diário da largada do worker e as últimas voltas da tabela da API PV (ver `_largada_marca`). Só leitura."""
+    return jsonify({"ok": True, "largada": _largada_cache.get("payload")})
 
 
 @app.route("/api/sala/idade")
