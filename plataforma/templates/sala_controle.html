@@ -1597,9 +1597,26 @@ function janelaOS() {
   p.set("origem", "sala-de-controle"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
   abreJanela(p, {u: u.u, g: u.g, nomes: lista.map(i => i.n)});
 }
+// A USINA COMO O FRACTTAL A CHAMA (19/11/2026, conferido em produção pelo chat do Nexus: a Sala mandava usina=PEII e o
+// Fracttal tem "Axis - Petrolina 2 - PE"; o OS Creator só casa por igual ou contém e não escolhia cliente, usina nem
+// ativo). O mesmo de-para do Criar OS do Tempo real (`/api/os-creator/fractall-usinas`, a "Usina Fractall" do cadastro):
+// SMP100 → "Athon - Santa Maria do Pará 1 - PA", Rio do Peixe I e II → "Apolo - Rio do Peixe - PB". Guardado por usina
+// enquanto a tela está aberta; sem de-para (ou sem resposta), vai o nome da Sala, e o OS Creator avisa se não achar.
+const FRACU = {};
+async function usinaNoFracttal(nome) {
+  if (!nome) return nome;
+  if (FRACU[nome] === undefined) {
+    try { const r = await fetch("/api/os-creator/fractall-usinas", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", Accept: "application/json"}, body: JSON.stringify({usinas: [nome]})});
+      const j = r.ok && /json/.test(r.headers.get("content-type") || "") ? await r.json() : null;
+      FRACU[nome] = (j && j.map && j.map[nome]) || ""; }
+    catch (e) { return nome; }
+  }
+  return FRACU[nome] || nome;
+}
 async function abreJanela(p, ctx) {
   OS_ULTIMA = {p, ctx};
   if (!(await sessaoFracttal())) { cartaoEntrar(); return; }
+  if (p.get("usina")) p.set("usina", await usinaNoFracttal(p.get("usina")));
   OSJ = ctx;
   $("modal").innerHTML = `<div class="modal modal-os" data-fechar-os="1"><div class="jan" role="dialog" aria-label="Criar OS no OS Creator"><iframe title="Criar OS no OS Creator" src="${OS_CRIAR}?${esc(p.toString())}"></iframe><button class="x" data-fechar-os="1" aria-label="Fechar a janela">×</button></div></div>`;
 }

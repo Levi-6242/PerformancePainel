@@ -1526,6 +1526,9 @@ def test_sem_a_sessao_do_fracttal_o_login_e_um_cartao_na_sala():
     j = html[html.index("async function abreJanela(p, ctx) {"):]
     j = j[:j.index("\n}\n")]
     assert j.index("OS_ULTIMA = {p, ctx};") < j.index("if (!(await sessaoFracttal())) { cartaoEntrar(); return; }") < j.index("OSJ = ctx;")
+    # a usina vai como o Fracttal a chama (19/11/2026, a PEII = "Axis - Petrolina 2 - PE"), pelo de-para do Criar OS do Tempo real
+    assert j.index('if (p.get("usina")) p.set("usina", await usinaNoFracttal(p.get("usina")));') < j.index("OSJ = ctx;")
+    assert 'fetch("/api/os-creator/fractall-usinas", {method: "POST"' in html and "FRACU[nome] = (j && j.map && j.map[nome]) || \"\";" in html
     assert 'fetch("/os/_nexus/sessao", {credentials: "same-origin"' in html
     assert 'window.open("/entrar?next=" + encodeURIComponent("/t/_janela/entrou"), "nexus-entrar", "width=520,height=720")' in html
     assert "window.gcSalaEntrar = () => { cartaoEntrar(); };" in html

@@ -2884,6 +2884,12 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     `origem=sala-de-controle`, e volta à criação; (b) o aviso `nexus-entrou` pode não chegar (o login pela Microsoft passa
     por outro domínio na janela à parte e o navegador pode cortar o `window.opener`): a Sala confere a sessão de novo quando
     a janela fecha (de segundo em segundo) ou quando volta ao foco com ela fechada (`conferirVolta`).
+  - **A usina vai ao OS Creator como o Fracttal a chama (`usinaNoFracttal`, no `abreJanela`):** conferido em produção pelo
+    chat do Nexus, a Sala mandava `usina=PEII` e o Fracttal tem "Axis - Petrolina 2 - PE"; o OS Creator só casa por igual
+    ou contém e não escolhia cliente, usina nem ativo (também a SMP100, a Rio do Peixe I e II). Agora a Sala usa o mesmo
+    de-para do Criar OS do Tempo real (`/api/os-creator/fractall-usinas`, a "Usina Fractall" do cadastro; conferido em
+    produção para PEII, PEIII, SMP100, Taguaí, Rio do Peixe I e II, Marialva). Sem de-para, vai o nome da Sala, e o OS
+    Creator diz no aviso do topo que não achou a usina (Nexus c3ce30e8).
   - **O de-para editável (`linhasDp`, `pedidoDp`, `salvarDp`):** o "Editar o de-para" põe a própria tabela em edição: o
     inversor do Fracttal (INVR), a cabine (CABN) e as strings esperadas. A base é o cadastro do Nexus
     (`/t/base/equipamentos/depara/estado`); grava pelo remendo do Modo de-para (`/salvar`, só administrador, o selo da
