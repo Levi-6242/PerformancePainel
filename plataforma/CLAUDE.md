@@ -2860,7 +2860,31 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
       usina inteira é pedida (a 2ª consulta, `_pg_str_med_usina`, levava de 0,65 a 4,7 s em produção; igual em 19
       usinas e 2 dias, soma a soma, `compara_mediana.py`). Com `?inv=`, a consulta de sempre. Em todas, a resposta é a
       mesma de antes (provado com a curva real, nas duas réguas). O resto da varredura (155 funções com chamada cara
-      em laço) NÃO se mexe sem medição no servidor. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
+      em laço) NÃO se mexe sem medição no servidor.
+- **Os pedidos de 19/11 à tarde (Sala de controle), com o lado do Nexus feito à parte:**
+  - **Cabeçalho fixo:** as abas (da usina e da visão geral) moram no `#abasFix`, fora do `#corpo` e acima do quadro das
+    Falhas do mês, `position:sticky` no alto da coluna (`fixaAbas`, chamada no fim do `desenhar`, move o `.abas` que o
+    desenho acabou de pôr no `#corpo`); a barra do dia das strings gruda logo abaixo (`top: var(--abasH)`).
+  - **Criar OS no alto, ao lado do Prontuário (`botaoCriarOS`, `criarOSTopo`, `acaoCriarOS`)**, no mesmo estilo
+    (`btnl`). Age pela aba aberta: Strings → a OS de recomposição dos inversores marcados (a caixa ou o botão direito na
+    linha; a linha fica verde, `.il.marc`); Trackers → a de tracker parado dos trackers separados com o botão direito
+    (no cartão abaixo do gráfico ou nas tabelas "Agora" e "Quando parou", `MARCT`, `data-trkm`), com a observação da
+    leitura de agora (`obsTracker`); ETM → direto a OS da estação (`osDaEstacao`); Abaixo dos demais → a OS de
+    inspeção ("Inspeção Geral do Inversor") dos inversores separados com o botão direito (`MARCB`, `data-bxm`,
+    `obsInspecao`). O botão da barra do dia das strings saiu. Trocar de usina limpa o que estava separado.
+  - **A janela do OS Creator tinha 760 px desde sempre:** a regra `.modal>div` (mais específica) vencia o `.jan`. Agora
+    `.modal>div.jan` com 96vw × 94vh (medido: 1536 × 846 numa tela de 1600 × 900). O Nexus aumenta a letra dentro.
+  - **O login sem sair da Sala:** o `abreJanela` confere `/os/_nexus/sessao` antes de abrir o OS Creator (`sessaoDe`);
+    caída, o cartão "Entrar no Fracttal" (`cartaoEntrar`) abre o login do Nexus numa janela pequena
+    (`/entrar?next=/t/_janela/entrou`); a janela avisa `{gc: "nexus-entrou"}` e a OS abre de onde parou. Com o OS
+    Creator já aberto, a tela de entrar do Nexus chama `window.gcSalaEntrar` em vez de tomar a janela. Sem resposta da
+    conferência (a Sala fora do Nexus), segue.
+  - **O de-para editável (`linhasDp`, `pedidoDp`, `salvarDp`):** o "Editar o de-para" põe a própria tabela em edição: o
+    inversor do Fracttal (INVR), a cabine (CABN) e as strings esperadas. A base é o cadastro do Nexus
+    (`/t/base/equipamentos/depara/estado`); grava pelo remendo do Modo de-para (`/salvar`, só administrador, o selo da
+    usina), só o que mudou; campo vazio não apaga; o inversor sem o nome na fonte e a chave sem usina no Registro viram
+    aviso (vão a Base › Equipamentos). O nome na fonte e o da plataforma não mudam por aqui (regra do Nexus). O editor
+    de antes (a ligação da usina com a fonte) ficou no botão "Ligação com a fonte". Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
     a fonte até o detalhe do ciclo voltar (`PV_DET_CICLO`, montado só com cache). Prova: abrir uma usina da API PV com
     a marca COS e ver o quadro antes de a lista de inversores chegar.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no

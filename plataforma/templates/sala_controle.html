@@ -360,6 +360,21 @@
   .lado .f.pulsa:has(>.g.on){animation:none}
   .lado .u.pulsa{animation:pulsoL 1.8s ease-in-out infinite}
   #falmesq{display:block;width:100%;height:700px;border:0;margin-top:14px;background:transparent}
+  /* OS CABEÇALHOS FIXOS (Levi, 19/11/2026: "os cabeçalhos [...] ficassem fixos. E aí, quando eu estivesse dando scroll, o
+     cabeçalho acompanhasse"): as abas (da usina e da visão geral) moram no #abasFix, fora do #corpo (refeito a cada desenho)
+     e acima do quadro das Falhas do mês, grudadas no alto da coluna; a barra do dia das strings gruda logo abaixo delas. */
+  #abasFix{position:sticky;top:0;z-index:22;background:var(--fundo)}
+  #abasFix:empty{display:none}
+  #abasFix .abas{margin-top:14px}
+  .barrafix{top:var(--abasH,0px)}
+  /* o que vai para a OS fica verde (Levi, 19/11/2026: "quando eu seleciono o inversor, ele vai ficar verde") */
+  .il.marc{background:rgba(163,217,0,.13);box-shadow:inset 3px 0 0 var(--verde)}
+  .tc.marc{background:rgba(163,217,0,.2);box-shadow:0 0 0 2px var(--verde)}
+  tr.marc>td{background:rgba(163,217,0,.11)}tr.marc>td:first-child{box-shadow:inset 3px 0 0 var(--verde)}
+  html[data-tema="claro"] .il.marc,html[data-tema="claro"] tr.marc>td{background:rgba(86,102,16,.13)}
+  .dica{color:var(--mudo);font-size:12px;margin:10px 0 2px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .modal.modal-os{padding:2vh 2vw;align-items:center}
+  .modal>div.cartao-entrar{width:min(460px,100%)}
   /* o pulso segue até o problema (17/11/2026): o inversor com ocorrência nova e a aba que guarda a novidade */
   .tela .il.pulsa{animation:pulsoL 1.8s ease-in-out infinite}
   .abas .aba.pulsa{animation:pulsoL 1.8s ease-in-out infinite;border-radius:7px 7px 0 0;color:var(--tinta)}
@@ -459,7 +474,10 @@
   /* quem só lê (perfil de gestor, chave de leitura): sem caixa de marcar, sem barra de OS, sem campo de comentário */
   .soleitura .selinv,.soleitura div.acao,.soleitura #novoComent,.soleitura #nickComent,.soleitura .delc{display:none !important}
   .soleitura .st{cursor:default}.soleitura .st:hover{outline:0}
-  .jan{position:relative;width:min(1280px,100%);height:min(920px,calc(100vh - 80px));padding:0 !important;background:transparent !important}
+  /* a janela do OS Creator quase a tela toda (Levi, 19/11/2026: "dobre o tamanho também do card do OS Creator quando abre").
+     `.modal>div.jan`: a regra `.modal>div` (760 px) é mais específica que `.jan` sozinho e vencia — medido em 19/11 na cópia
+     local, a janela abria com 760 px numa tela de 1600: era por isso que o OS Creator aparecia pequeno. */
+  .modal>div.jan{position:relative;width:96vw;max-width:100%;height:94vh;padding:0 !important;background:transparent !important}
   .jan iframe{width:100%;height:100%;border:0;border-radius:14px;background:var(--fundo)}
   .jan .x{position:absolute;top:-14px;right:-14px;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:#161d30;color:var(--tinta);font-size:20px;line-height:28px;cursor:pointer}
   .delc{background:none;border:0;color:var(--fraco);cursor:pointer;font-size:12px;padding:0 4px}.delc:hover{color:var(--critico)}
@@ -523,6 +541,7 @@
     <div class="frescor" id="frescor"></div>
     <div class="aviso" id="aviso0" hidden style="margin:0 0 12px">Não consegui ler as falhas do mês agora: "há quanto tempo", os Insights e a perda ficam vazios até a próxima leitura.</div>
     <div class="kpis" id="kpis"></div>
+    <div id="abasFix"></div>
     <div id="corpo"></div>
     <!-- As falhas do mês (a tela de Strings e trackers) embutidas: fora do #corpo de propósito, que é refeito a cada desenho -->
     <div id="falmes" hidden><iframe id="falmesq" title="Falhas do mês: strings e trackers"></iframe></div>
@@ -598,10 +617,10 @@ function ocorrenciasDe(u) {
     return {k: g.t + "|" + (ss[0] ? ss[0].inv + ss[0].s : ts[0].id), t: g.t, dia: g.t.slice(0, 10), comHora: g.t.length > 10, ss, ts, invs, aberta: g.ev.some(e => e.aberta), fim: g.ev.every(e => e.fim) ? fins[fins.length - 1] : "", kwh: g.ev.reduce((a, e) => a + e.kwh, 0), antes: g.ev.some(e => e.antes)}; }).reverse();
 }
 // a OS dos trackers de uma ocorrência: a mesma página do OS Creator, com a frase dos trackers e um ativo por tracker
-function osDosTrackers(u, ids) { const p = new URLSearchParams();
+function osDosTrackers(u, ids, obs, origem) { const p = new URLSearchParams();
   p.set("frase", "verificacao de tracker parado"); p.set("usina", u.u);
-  ids.forEach(id => { p.append("ativo", id); p.append("obs", ""); });
-  p.set("origem", "sala-de-controle-ocorrencia"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
+  ids.forEach(id => { p.append("ativo", id); p.append("obs", (obs && obs[id]) || ""); });
+  p.set("origem", origem || "sala-de-controle-ocorrencia"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
   abreJanela(p, {u: u.u, g: u.g, nomes: []}); }
 // O nome que a Sala mostra: o que foi dado na engrenagem (só aqui), ou o da fonte. A CHAVE da usina segue a da fonte.
 const rotN = (n, g) => (D && D.rot && (D.rot[g + "|" + n] || D.rot[n])) || n;
@@ -1262,6 +1281,76 @@ let SEL = {g: null, u: null}, MODO = {novo: "s", fora: "s"}, ABERTOS = new Set()
 let DIA = null, TDIA = null, TSEL = null, BXA = null, OSINV = null;
 // o que a pessoa escolheu para a OS e as OS que criou nesta visita
 const MARC = new Set(), VISTOEM = {}, CRIADAS = {};
+// O CRIAR OS NO ALTO, AO LADO DO PRONTUÁRIO (Levi, 19/11/2026: "ao lado de prontuário da usina ficasse o botão de criar OS
+// [...] no mesmo estilo de prontuário da usina"). A OS sai do que está separado NA ABA ABERTA: os inversores marcados em
+// Strings (a caixa à esquerda ou o botão direito na linha), os trackers separados com o botão direito em Trackers, a estação
+// em ETM e os inversores separados com o botão direito em Abaixo dos demais (a OS de inspeção). Nas outras abas o botão diz
+// o que fazer. Só quem cria OS (`PODE`).
+const MARCT = new Set(), MARCB = new Set();      // os trackers e os inversores do "abaixo dos demais" separados para a OS
+const DICA_OS = {str: "Marque os inversores da OS (a caixa à esquerda da linha ou o botão direito nela): eles ficam verdes",
+  trk: "Clique com o botão direito nos trackers da OS (no cartão abaixo do gráfico ou nas tabelas): eles ficam verdes",
+  bx: "Clique com o botão direito nos inversores da OS de inspeção: eles ficam verdes",
+  outra: "A OS sai do que estiver separado: inversores em Strings ou em Abaixo dos demais, trackers em Trackers, ou a estação em ETM"};
+const acaoCriarOS = (aba, n) => aba === "etm" ? {faz: "estacao"} : !["str", "trk", "bx"].includes(aba) ? {aviso: DICA_OS.outra}
+  : !n ? {aviso: DICA_OS[aba]} : {faz: {str: "strings", trk: "trackers", bx: "inspecao"}[aba]};
+const separadosNaAba = () => ABA === "str" ? MARC.size : ABA === "trk" ? MARCT.size : ABA === "bx" ? MARCB.size : 0;
+function botaoCriarOS() { const n = separadosNaAba();
+  const t = {str: "Cria a OS de recomposição de string dos inversores marcados", trk: "Cria a OS de tracker parado dos trackers separados com o botão direito",
+    etm: "Cria a OS da estação meteorológica desta usina", bx: "Cria a OS de inspeção dos inversores separados com o botão direito"}[ABA] || DICA_OS.outra;
+  return `<button class="btnl" data-criaros-topo="1" style="margin-left:auto;align-self:center" title="${t}">Criar OS${n ? " (" + n + ")" : ""}</button>`; }
+function criarOSTopo() { if (!PODE) return; const u = usinas()[0]; if (!u) return;
+  const a = acaoCriarOS(ABA, separadosNaAba());
+  if (a.aviso) { toast(a.aviso); return; }
+  if (a.faz === "estacao") osDaEstacao();
+  else if (a.faz === "trackers") osDosTrackers(u, [...MARCT].sort(natural), obsTrackers(u), "sala-de-controle-trackers");
+  else if (a.faz === "inspecao") osInspecao(u);
+  else abrirCriarOS(); }
+// a observação de cada tracker: o que a leitura de agora diz dele (a linha da tabela "Agora")
+const NOME_TRK = {parado: "parado", severo: "com desvio severo", medio: "com desvio médio", leve: "com desvio leve"};
+const obsTracker = (id, x) => !x ? id + ": verificar" : `${id} ${x[6] ? "sem comunicação" : NOME_TRK[x[4]] || "fora do alvo"}${x[1] != null ? " no ângulo " + nf(x[1], 1) + "°" : ""}${x[2] != null ? " (alvo " + nf(x[2], 1) + "°)" : ""}: verificar e normalizar`;
+function obsTrackers(u) { const dr = D.drill[u.u], l = dr && dr.trk && dr.trk.l || [], o = {};
+  MARCT.forEach(id => { o[id] = obsTracker(id, l.find(x => String(x[0]) === String(id))); }); return o; }
+// A OS DE INSPEÇÃO DO ABAIXO DOS DEMAIS (Levi, 19/11/2026: "E abaixo dos demais, eu também posso clicar com o botão direito.
+// Para criar um OS de inspeção. De performance."): o plano "Inspeção Geral do Inversor" do OS Creator, um ativo por
+// inversor separado, com o que a conta do mês viu na observação.
+const obsInspecao = (b, n) => !b ? n + " abaixo dos demais no mês: inspecionar"
+  : `${n} com 70% ou menos da média dos outros inversores em ${b.sem} dia${b.sem === 1 ? "" : "s"} do mês sem parada que explique (pior dia ${Math.round(b.pior * 100)}%, último ${dm(b.ult)}): inspecionar`;
+function osInspecao(u) { const p = new URLSearchParams(), bx = D.baixos.filter(b => b.u === u.u && b.g === u.g);
+  p.set("frase", "inspecao geral do inversor"); p.set("usina", u.u);
+  [...MARCB].sort(natural).forEach(n => { p.append("ativo", n); p.append("obs", obsInspecao(bx.find(b => b.i === n), n)); });
+  p.set("origem", "sala-de-controle-abaixo"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
+  abreJanela(p, {u: u.u, g: u.g, nomes: []}); }
+// O LOGIN SEM SAIR DA SALA (Levi, 19/11/2026: "quando tiver deslogado do Fractal, aparecer só um pop-up só um cardzinho no
+// meio para logar, porque ele redireciona para uma aba do OS Creator que eu não consigo voltar para a sala de comando").
+// A sessão do Fracttal que cai derruba a do Nexus (regra dele), e a tela de entrar tomava a janela inteira: quem estava na
+// Sala perdia o que via. Agora a Sala pergunta antes de abrir o OS Creator (`/os/_nexus/sessao`); caída, mostra um cartão no
+// meio com o Entrar, que abre o login do Nexus numa janela pequena. A janela avisa quando a pessoa entrou
+// (`/t/_janela/entrou` → {gc: "nexus-entrou"}) e a OS abre aqui, de onde parou. Se a sessão cair com o OS Creator já aberto,
+// a tela de entrar do Nexus chama `gcSalaEntrar` em vez de tomar a janela. Sem resposta da conferência (a Sala aberta fora
+// do Nexus, a rede), segue: o OS Creator diz o que for.
+let OS_ULTIMA = null, ENTRAR_DEPOIS = null;
+const sessaoDe = (status, j, redirecionou, url) => !(status === 401 || (j && (j.sessao_encerrada || j.login)) || (redirecionou && /\/entrar(\?|$)/.test(String(url || ""))));
+async function sessaoFracttal() {
+  try { const r = await fetch("/os/_nexus/sessao", {credentials: "same-origin", headers: {Accept: "application/json"}, cache: "no-store"});
+    const j = /json/.test(r.headers.get("content-type") || "") ? await r.json().catch(() => null) : null;
+    return sessaoDe(r.status, j, r.redirected, r.url); }
+  catch (e) { return true; }
+}
+function cartaoEntrar() {
+  OSJ = null; ENTRAR_DEPOIS = OS_ULTIMA;
+  $("modal").innerHTML = `<div class="modal" data-fechar="1" style="align-items:center"><div role="dialog" aria-label="Entrar no Fracttal" class="cartao-entrar"><h3>Entrar no Fracttal</h3>
+    <p id="entrarTxt">A sua sessão do Fracttal caiu. A OS é criada no seu nome: entre de novo e ela abre aqui, sem sair da Sala.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn2" data-fechar="1">Cancelar</button><button class="btn" data-entrar="1">Entrar</button></div></div></div>`;
+}
+window.gcSalaEntrar = () => { cartaoEntrar(); };      // a tela de entrar do Nexus, aberta dentro da janela do OS Creator, chama
+function abrirEntrar() {
+  const w = window.open("/entrar?next=" + encodeURIComponent("/t/_janela/entrou"), "nexus-entrar", "width=520,height=720");
+  const t = $("entrarTxt");
+  if (t) t.textContent = w ? "Entre na janela que abriu. Quando terminar, a OS abre aqui." : "O navegador não deixou abrir a janela de entrar: permita janelas (pop-ups) para este endereço e clique de novo.";
+}
+window.addEventListener("message", ev => { if (ev.origin !== location.origin || !ev.data || ev.data.gc !== "nexus-entrou") return;
+  const d = ENTRAR_DEPOIS; ENTRAR_DEPOIS = null; $("modal").innerHTML = ""; atualizaCos(true);
+  if (d) abreJanela(d.p, d.ctx); });
 const GRAF = new Set();     // os inversores com a CURVA aberta embaixo da linha ("usina|inversor"): vários de uma vez
 const EXPI = new Set();     // os inversores com as strings abertas na lista ("usina|inversor")
 // as strings escolhidas para trancar ou destrancar de uma vez (Levi, 16/11/2026: "É melhor eu selecionar várias de uma
@@ -1494,9 +1583,11 @@ function janelaOS() {
   p.set("origem", "sala-de-controle"); p.set("comentario", VKEY[u.g] + ":" + u.pid); p.set("janela", "1");
   abreJanela(p, {u: u.u, g: u.g, nomes: lista.map(i => i.n)});
 }
-function abreJanela(p, ctx) {
+async function abreJanela(p, ctx) {
+  OS_ULTIMA = {p, ctx};
+  if (!(await sessaoFracttal())) { cartaoEntrar(); return; }
   OSJ = ctx;
-  $("modal").innerHTML = `<div class="modal" data-fechar-os="1"><div class="jan" role="dialog" aria-label="Criar OS no OS Creator"><iframe title="Criar OS no OS Creator" src="${OS_CRIAR}?${esc(p.toString())}"></iframe><button class="x" data-fechar-os="1" aria-label="Fechar a janela">×</button></div></div>`;
+  $("modal").innerHTML = `<div class="modal modal-os" data-fechar-os="1"><div class="jan" role="dialog" aria-label="Criar OS no OS Creator"><iframe title="Criar OS no OS Creator" src="${OS_CRIAR}?${esc(p.toString())}"></iframe><button class="x" data-fechar-os="1" aria-label="Fechar a janela">×</button></div></div>`;
 }
 // a OS da estação: o mesmo link do Tempo real (a frase do plano "Geração e ETM", modo=etm), com os sinais de agora na observação
 function osDaEstacao() {
@@ -1647,7 +1738,7 @@ const tabExpl = bx => `<div class="rol"><table><thead><tr><th>Usina</th><th>Inve
    `<tr><td colspan="5" class="zero">Nenhum dia explicado neste recorte.</td></tr>`) + "</tbody></table></div>";
 const tabBaixo = (bx, comUsina) => `<div class="rol"><table><thead><tr>${comUsina ? "<th>Usina</th>" : ""}<th>Inversor</th><th>Dias sem explicação</th><th>Explicados (COS/OS)</th><th>Pior dia</th><th>Último dia baixo</th><th>String parada no mesmo inversor</th></tr></thead><tbody>` +
   (bx.map(b => { const ab = !comUsina && BXA === b.i;
-    return `<tr class="cl ${ab ? "sel" : ""}" data-bx="${esc(b.i)}" data-bu="${esc(b.u)}" data-bg="${b.g}" title="Clique para ver os dias"><td><b>${esc(comUsina ? b.u : b.i)}</b></td>${comUsina ? `<td>${esc(b.i.replace(/^Inversor\s*/, ""))}</td>` : ""}<td>${b.sem ? `<span class="tag ${b.sem >= 5 ? "c" : "s"}">${b.sem}</span>` : Z}</td><td>${b.expl || Z}</td><td>${Math.round(b.pior * 100)}%</td><td>${dm(b.ult)}</td><td>${b.str ? `<span class="tag s">${b.str} parada${b.str > 1 ? "s" : ""}</span>` : '<span class="tag n">nenhuma</span>'}</td></tr>` +
+    return `<tr class="cl ${ab ? "sel" : ""}${!comUsina && MARCB.has(b.i) ? " marc" : ""}" data-bx="${esc(b.i)}" data-bu="${esc(b.u)}" data-bg="${b.g}"${comUsina ? "" : ` data-bxm="${esc(b.i)}"`} title="Clique para ver os dias"><td><b>${esc(comUsina ? b.u : b.i)}</b></td>${comUsina ? `<td>${esc(b.i.replace(/^Inversor\s*/, ""))}</td>` : ""}<td>${b.sem ? `<span class="tag ${b.sem >= 5 ? "c" : "s"}">${b.sem}</span>` : Z}</td><td>${b.expl || Z}</td><td>${Math.round(b.pior * 100)}%</td><td>${dm(b.ult)}</td><td>${b.str ? `<span class="tag s">${b.str} parada${b.str > 1 ? "s" : ""}</span>` : '<span class="tag n">nenhuma</span>'}</td></tr>` +
       (ab ? `<tr class="exp"><td colspan="6"><span style="color:var(--mudo);font-size:12px;margin-right:8px">Dias abaixo dos demais (clique para abrir a curva por string do dia):</span><br>${b.dias.map(x => `<button class="dchip ${x[2] === "sem" ? "sem" : ""}" data-dia="${x[0]}" data-inv="${esc(b.i)}" title="${x[2] === "sem" ? "Sem parada que explique" : esc(x[4] || "")}">${dm(x[0])} · ${Math.round(x[1] * 100)}%${x[2] === "sem" ? "" : x[2] === "parcial" ? " · explicado em parte" : " · explicado"}</button>`).join("")}${b.dias.some(x => x[2] !== "sem") ? `<div style="color:var(--mudo);font-size:12px;margin-top:4px">O que explica: ${[...new Set(b.dias.filter(x => x[2] !== "sem").flatMap(x => String(x[4] || "").split("; ")))].filter(Boolean).map(esc).join(" · ")}</div>` : ""}</td></tr>` : ""); }).join("") ||
    `<tr><td colspan="7" class="zero">Nenhum inversor abaixo dos demais neste recorte.</td></tr>`) + "</tbody></table></div>";
 
@@ -1744,7 +1835,74 @@ const DP_FONTES = ["pv", "semp", "alveslima", "2capi", "greenyellow", "salenergi
 // só o editor, que para a fonte que liga pelo nome dizia "nada a decidir aqui". Agora é a tabela do que o cadastro diz de
 // cada inversor (como a fonte chama, como a plataforma chama, o do Fracttal, a cabine, as strings esperadas, o kWp) ao
 // lado de quem está lendo agora; o que a fonte manda e o cadastro não conhece aparece marcado. O editor fica num botão.
-const DPR = {}; let DPED = false;
+const DPR = {}; let DPED = false, DPLIGA = false;
+// A TABELA DO DE-PARA EDITÁVEL (Levi, 19/11/2026: "se eu cliquei em editar, eu quero ver como é que tá [...] pode até transformar
+// ali a tabela de para da usina e uma tabela que eu possa editar"). O Editar abria o editor da LIGAÇÃO da usina com a fonte,
+// que na usina que liga pelo nome (a SMP100 da Athon) só dizia "nada a decidir aqui". Agora ele põe a própria tabela em
+// edição: as strings esperadas, a cabine (CABN) e o inversor do Fracttal (INVR) de cada inversor, que é o que o de-para da
+// usina guarda. Grava no cadastro do Nexus pelas rotas que o Modo de-para do Tempo real já usa (`/t/base/equipamentos/
+// depara/estado` e `/salvar`: só administrador do Nexus, na mesma origem; o remendo com o selo da usina, o Nexus recalcula
+// o kWp e diz se a chave passou a valer no lugar da aba), e os leitores pegam no minuto seguinte. Campo vazio não apaga (é
+// o contrato do remendo). O nome na fonte e o nome da plataforma não mudam por aqui (a regra do Nexus: o nome de um
+// equipamento que já existe nunca muda; e o inversor sem o nome na fonte, como o da GreenYellow, não entra no remendo): o
+// link leva a Base › Equipamentos das usinas. A ligação da usina com a fonte segue no editor de antes ("Ligação com a fonte").
+const NXDP = {}, DPE = {}, DPMSG = {};
+const nexusBaseDp = () => { if (typeof window.GC_NEXUS_BASE === "string") return window.GC_NEXUS_BASE;
+  try { if (!window.top || window.top === window) return null; const m = String(window.top.location.pathname || "").match(/^(.*?)\/t\/[a-z0-9_-]+\/[a-z0-9_-]+(?:\/|$)/i); return m ? m[1] : null; } catch (e) { return null; } };
+const nkDp = s => String(s == null ? "" : s).split(/\s+/).filter(Boolean).join(" ");
+const canDp = s => String(s == null ? "" : s).trim().toUpperCase();
+async function jsonDoNexus(url, op) {
+  let r; try { r = await fetch(url, Object.assign({credentials: "same-origin", headers: {Accept: "application/json", "Content-Type": "application/json"}}, op || {})); }
+  catch (e) { const x = new Error("o Nexus não respondeu (rede)"); x.semSaber = !!(op && op.method === "POST"); throw x; }
+  const j = /json/.test(r.headers.get("content-type") || "") ? await r.json().catch(() => null) : null;
+  if (!j) { const x = new Error(r.status === 403 ? "só administrador do Nexus edita o de-para" : r.status >= 500 ? "o Nexus respondeu " + r.status : "o Nexus não respondeu como esperado (só administrador do Nexus edita o de-para)"); x.semSaber = !!(op && op.method === "POST" && r.status >= 500); throw x; }
+  if (!r.ok || j.ok === false) throw new Error(j.motivo || j.erro || "o Nexus respondeu " + r.status);
+  return j; }
+async function lerNexusDp(u, chaves) { if (NXDP[u.u] !== undefined) return; NXDP[u.u] = null;
+  const base = nexusBaseDp();
+  try { if (base == null) throw new Error("abra a Sala de controle pela Performance do Nexus para editar o de-para");
+    NXDP[u.u] = await jsonDoNexus(base + "/t/base/equipamentos/depara/estado?chaves=" + chaves.map(c => encodeURIComponent(nkDp(c))).join("|")); }
+  catch (e) { NXDP[u.u] = {erro: String(e && e.message || e)}; }
+  if (SEL.u === u.u && ABA === "dp") redesenhar(); }
+// a linha de edição de cada inversor: o que o Nexus guarda (a base do remendo); a chave que o Nexus ainda não tem nasce da
+// aba no 1º salvar ("semeada pela aba"), então ali vale o que a plataforma lê hoje
+function linhasDp(R, N) {
+  const out = [];
+  (R.chaves || []).forEach(c => { const nu = (N.usinas || []).find(x => (x.chaves || []).some(k => nkDp(k.usina_supervisorio) === nkDp(c.chave))) || null;
+    const nxi = nu ? (nu.inversores || []).filter(i => nkDp(i.usina_supervisorio) === nkDp(c.chave)) : [];
+    c.inversores.forEach(i => { const v = i.esup ? nxi.find(x => normN(x.equipamento_supervisorio) === normN(i.esup)) : null;
+      const cab = v && nu ? ((nu.cabines || []).find(k => k.cabine_id === v.cabine_id) || {}).codigo_fracttal : null;
+      const s0 = v ? v.strings_esperadas_qtd : i.esp, c0 = v ? cab : null, f0 = v ? v.codigo_fracttal : i.cod_fracttal;
+      out.push({chave: c.chave, usina: nu, esup: i.esup, nome: i.nome, kwp: v ? v.potencia_kwp : i.kwp,
+        s0: s0 == null ? "" : String(s0), c0: c0 || "", f0: f0 || "", s: s0 == null ? "" : String(s0), c: c0 || "", f: f0 || ""}); }); });
+  return out; }
+// o pedido do remendo: só o que mudou, por chave; campo esvaziado não vai (não apaga)
+function pedidoDp(rows) {
+  const por = {}, erros = [];
+  rows.forEach(r => { const m = {};
+    if (r.s !== r.s0 && r.s !== "") { if (!/^\d+$/.test(r.s) || +r.s < 1) erros.push((r.esup || r.nome) + ": as strings têm de ser um número inteiro maior que zero"); else m.strings = +r.s; }
+    if (canDp(r.c) !== canDp(r.c0) && r.c !== "") m.cabine_codigo_fracttal = r.c.trim();
+    if (canDp(r.f) !== canDp(r.f0) && r.f !== "") m.codigo_fracttal = r.f.trim();
+    if (!Object.keys(m).length) return;
+    if (!r.esup) { erros.push(r.nome + ": sem o nome na fonte no cadastro, este inversor se edita em Base › Equipamentos das usinas, no Nexus"); return; }
+    if (!r.usina) { erros.push("a chave " + r.chave + " não está ligada a uma usina do Registro mestre no Nexus: ligue em Base › Equipamentos das usinas"); return; }
+    const k = nkDp(r.chave), it = por[k] = por[k] || {usina_supervisorio: k, usina_id: r.usina.usina_id, selo: r.usina.selo, inversores: []};
+    it.inversores.push(Object.assign({equipamento_supervisorio: r.esup, nome: r.nome}, m)); });
+  return {itens: Object.values(por), erros}; }
+async function salvarDp(u) {
+  const M = DPE[u.u]; if (!M) return;
+  document.querySelectorAll("[data-dpe]").forEach(el => { const r = M[+el.dataset.k]; if (r) r[el.dataset.dpe] = el.value.trim(); });
+  const p = pedidoDp(M);
+  if (p.erros.length) { DPMSG[u.u] = {erro: p.erros.join(" · ")}; desenhar(); return; }
+  if (!p.itens.length) { toast("Nada mudou na tabela."); return; }
+  DPMSG[u.u] = {indo: true}; desenhar();
+  try { const j = await jsonDoNexus(nexusBaseDp() + "/t/base/equipamentos/depara/salvar", {method: "POST", body: JSON.stringify({itens: p.itens})});
+    const fora = (j.marcacao || []).filter(x => !x.marcada).map(x => x.usina_supervisorio + ": " + (x.fora_da_regra || []).join("; ")).filter(x => !/: $/.test(x));
+    DPMSG[u.u] = {ok: true, texto: j.mudancas ? `Gravado no cadastro do Nexus: ${j.mudancas} mudança${j.mudancas > 1 ? "s" : ""}. A plataforma passa a ler no próximo minuto.` : "Nada mudou: o cadastro já estava assim.",
+      avisos: (j.avisos || []).map(a => a.texto).concat(fora.length ? ["Não vale no lugar da aba (continua a aba): " + fora.join(" · ")] : [])};
+    DPED = false; delete DPR[u.u]; delete NXDP[u.u]; delete DPE[u.u]; }
+  catch (e) { DPMSG[u.u] = {erro: e.semSaber ? "Não sei se gravou (o Nexus não respondeu a tempo): feche a edição, espere um minuto e confira a tabela." : String(e && e.message || e)}; }
+  if (SEL.u === u.u && ABA === "dp") desenhar(); }
 async function lerDepara(u) { if (DPR[u.u] !== undefined) return; DPR[u.u] = null;
   try { DPR[u.u] = await pega("/api/sala/depara?usina=" + encodeURIComponent(u.u), 30000); } catch (e) { DPR[u.u] = {erro: String(e && e.message || e)}; }
   if (SEL.u === u.u && ABA === "dp") redesenhar(); }
@@ -1757,17 +1915,26 @@ function deparaHtml(u) {
   else if (R.erro) h += `<div class="erro"><b>Não consegui ler o de-para.</b> ${esc(R.erro)} <button class="btnl" data-dpdenovo="1" style="margin-left:10px">Tentar de novo</button></div>`;
   else {
     const vivos = dr ? dr.inv : [], usados = new Set(), cs = R.chaves || [];
-    const linha = (c, i) => { const v = vivos.find(z => normN(z.n) === normN(i.nome) || normN(z.n) === normN(i.esup)); if (v) usados.add(v.n);
+    // em edição (DPED): a base é o que o Nexus guarda (lido uma vez ao entrar em edição)
+    const N = DPED ? NXDP[u.u] : null; if (DPED && N === undefined) lerNexusDp(u, cs.map(c => c.chave));
+    if (DPED && N && !N.erro && !DPE[u.u]) DPE[u.u] = linhasDp(R, N);
+    const ed = DPED && N && !N.erro ? DPE[u.u] : null; let k = -1;
+    const campo = (r, qual, larg, ph) => `<input class="campo" data-dpe="${qual}" data-k="${k}" value="${esc(r[qual])}" placeholder="${ph}" style="width:${larg}px;padding:4px 7px;background:var(--fundo)"${qual === "s" ? ' inputmode="numeric"' : ""}>`;
+    const linha = (c, i) => { const v = vivos.find(z => normN(z.n) === normN(i.nome) || normN(z.n) === normN(i.esup)); if (v) usados.add(v.n); k++;
+      if (ed) { const r = ed[k];
+        return `<tr><td style="text-align:left">${i.esup == null ? '<span class="zero">—</span>' : esc(i.esup)}</td><td style="text-align:left"><b>${esc(i.nome)}</b></td><td style="text-align:left">${campo(r, "f", 150, "INVR1.1")}</td><td>${campo(r, "c", 90, "CABN1")}</td><td>${campo(r, "s", 64, "—")}</td><td>${r.kwp == null ? T : nf(r.kwp, 1)}</td><td>${!dr ? T : v ? '<span class="tag o">lendo</span>' : '<span class="tag n">sem leitura agora</span>'}</td></tr>`; }
       return `<tr><td style="text-align:left">${i.esup == null ? (v && v.id != null ? esc(v.id) : '<span class="zero">—</span>') : esc(i.esup)}</td><td style="text-align:left"><b>${esc(i.nome)}</b></td><td style="text-align:left">${i.nome_fracttal ? esc(i.nome_fracttal) : ""}${i.cod_fracttal ? ` <small style="color:var(--fraco)">${esc(i.cod_fracttal)}</small>` : (i.nome_fracttal ? "" : '<span class="zero">—</span>')}</td><td>${esc(i.cabine || i.ug || "—")}</td><td>${i.esp == null ? T : i.esp}</td><td>${i.kwp == null ? T : nf(i.kwp, 1)}</td><td>${!dr ? T : v ? `<span class="tag o">lendo</span>${v.id != null ? ` <small style="color:var(--fraco)">id ${esc(v.id)}</small>` : ""}` : '<span class="tag n">sem leitura agora</span>'}</td></tr>`; };
     const corpo = cs.map(c => (cs.length > 1 ? `<tr><td colspan="7" style="text-align:left;color:var(--verde);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Chave ${esc(c.chave)}</td></tr>` : "") + c.inversores.map(i => linha(c, i)).join("")).join("");
     const fora = vivos.filter(v => !usados.has(v.n));
     h += `<div class="painel"><h3>De-para da usina${cs.length === 1 ? ` · chave do cadastro <span style="color:var(--mudo);font-weight:400">${esc(cs[0].chave)}</span>` : ""}</h3>
       <p>O que o cadastro desta plataforma diz de cada inversor: o nome que a fonte manda, o nome que a plataforma mostra (e grava nos BDs), o inversor do Fracttal, as strings esperadas e o kWp. À direita, quem está na leitura de agora.${R.carregado_em ? " Cadastro carregado em " + esc(R.carregado_em) + "." : ""}${cs.some(c => c.por_exibicao) ? " Nesta fonte o cadastro guarda a usina pelo nome de exibição: a coluna Na fonte mostra o equipamento que a leitura de agora traz." : ""}</p>
-      ${cs.length ? `<div class="rol"><table><thead><tr><th style="text-align:left">Na fonte</th><th style="text-align:left">Na plataforma</th><th style="text-align:left">No Fracttal</th><th>Cabine</th><th>Strings esperadas</th><th>kWp</th><th>Agora</th></tr></thead><tbody>${corpo}</tbody></table></div>` : `<div class="aviso">O cadastro não tem chave para esta usina com este nome: nenhum inversor dela tem strings esperadas nem kWp aqui.</div>`}
+      ${DPMSG[u.u] ? (DPMSG[u.u].indo ? '<div class="carrega" style="padding:10px 0">Gravando no cadastro do Nexus…</div>' : DPMSG[u.u].erro ? `<div class="erro" style="margin:8px 0">${esc(DPMSG[u.u].erro)}</div>` : `<div class="aviso" style="margin:8px 0;border-left:3px solid var(--ok)"><b>${esc(DPMSG[u.u].texto)}</b>${(DPMSG[u.u].avisos || []).length ? "<br>" + DPMSG[u.u].avisos.map(esc).join("<br>") : ""}</div>`) : ""}
+      ${DPED ? (!N ? '<div class="carrega" style="padding:10px 0">Lendo o de-para desta usina no cadastro do Nexus…</div>' : N.erro ? `<div class="erro" style="margin:8px 0">Não dá para editar agora: ${esc(N.erro)}</div>` : `<div class="dica">Em edição: o inversor do Fracttal (INVR), a cabine (CABN) e as strings esperadas de cada inversor. Campo vazio não apaga. O nome na fonte e o da plataforma se mudam em ${N.usinas && N.usinas[0] ? `<a href="${esc((nexusBaseDp() || "") + "/t/base/equipamentos?usina=" + N.usinas[0].usina_id)}" target="_blank" rel="noopener" style="color:var(--info)">Base › Equipamentos das usinas</a>` : "Base › Equipamentos das usinas"}, no Nexus.</div>`) : ""}
+      ${cs.length ? `<div class="rol"><table><thead><tr><th style="text-align:left">Na fonte</th><th style="text-align:left">Na plataforma</th><th style="text-align:left">No Fracttal${ed ? " (INVR)" : ""}</th><th>Cabine${ed ? " (CABN)" : ""}</th><th>Strings esperadas</th><th>kWp</th><th>Agora</th></tr></thead><tbody>${corpo}</tbody></table></div>` : `<div class="aviso">O cadastro não tem chave para esta usina com este nome: nenhum inversor dela tem strings esperadas nem kWp aqui.</div>`}
       ${fora.length ? `<div class="aviso" style="margin-top:12px;border-left:3px solid var(--severo)"><b>${fora.length} inversor${fora.length > 1 ? "es" : ""} que a fonte manda e o cadastro não conhece:</b> ${fora.map(v => esc(v.n)).join(", ")}. Sem o de-para, ${fora.length > 1 ? "ficam" : "fica"} sem strings esperadas e sem kWp.</div>` : ""}
-      ${DP_FONTES.includes(f) && ADM && ADM.abre_admin ? `<div class="diasel" style="margin-top:12px"><button class="btnl ${DPED ? "on" : ""}" data-dped="1">${DPED ? "Fechar o editor" : "Editar o de-para"}</button></div>` : `<div class="mais">${DP_FONTES.includes(f) ? "Mudar o de-para é administração da plataforma (administrador do Nexus)." : "Nesta fonte o inversor chega com o nome do cadastro: o que estiver errado se corrige em Base > Equipamentos das usinas, no Nexus."}</div>`}</div>`;
+      ${ADM && ADM.abre_admin && cs.length ? `<div class="diasel" style="margin-top:12px">${ed ? `<button class="btn" data-dpsalvar="1">Salvar no cadastro</button><button class="btn2" data-dped="1">Cancelar</button>` : `<button class="btnl" data-dped="1">${DPED ? "Fechar a edição" : "Editar o de-para"}</button>`}${DP_FONTES.includes(f) && !DPED ? `<button class="btnl ${DPLIGA ? "on" : ""}" data-dpliga="1" title="A ligação desta usina (e dos inversores, nas fontes que ligam pelo id) com a fonte: o editor da plataforma">${DPLIGA ? "Fechar a ligação com a fonte" : "Ligação com a fonte"}</button>` : ""}</div>` : `<div class="mais">${ADM && ADM.abre_admin ? "Nesta usina o cadastro não tem chave: ligue em Base › Equipamentos das usinas, no Nexus." : "Mudar o de-para é administração (administrador do Nexus)."}</div>`}</div>`;
   }
-  if (DPED && DP_FONTES.includes(f) && ADM && ADM.abre_admin) h += `<div class="painel" style="padding:0;overflow:hidden;margin-top:14px"><iframe class="dpj" title="De-para de equipamentos" src="/admin/de-para?editar=${encodeURIComponent(f + "|" + u.pid)}&janela=1"></iframe></div>`;
+  if (DPLIGA && DP_FONTES.includes(f) && ADM && ADM.abre_admin) h += `<div class="painel" style="padding:0;overflow:hidden;margin-top:14px"><iframe class="dpj" title="De-para de equipamentos" src="/admin/de-para?editar=${encodeURIComponent(f + "|" + u.pid)}&janela=1"></iframe></div>`;
   return h;
 }
 function detalhe(u, bx) {
@@ -1785,7 +1952,7 @@ function detalhe(u, bx) {
   // ocorrências novas (as mesmas que fazem a fonte e a usina pulsar); a ETM pelo alarme sem OS, até o clique nela.
   const novoNaAba = id => id === "str" ? novasS(u.u).length : id === "trk" ? novasT(u.u).length : id === "etm" ? (u.ea && !u.eo && !CLICADAS.has("e|" + u.u) ? 1 : 0) : 0;
   const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""} ${ABA !== id && novoNaAba(id) ? "pulsa" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
-  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}${aba("fal", "Falhas do mês")}<a class="btnl" style="margin-left:auto;align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
+  let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}${aba("fal", "Falhas do mês")}${PODE ? botaoCriarOS() : ""}<a class="btnl" style="margin-left:${PODE ? "8px" : "auto"};align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
   if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
   if (!dr && !["gp", "dp", "fal"].includes(ABA)) { const prov = ABA === "str" ? cosProv(u) : ""; cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : `<div class="carrega"${prov ? ' style="padding:16px 0 0"' : ""}>${ABA === "str" ? (prov ? "Lendo os inversores e as strings desta usina na fonte dela (a API PV leva de 10 a 60 s)… Enquanto ela não responde, a leitura de agora do logger do COS:" : "Lendo os inversores e as strings desta usina… (os trackers e a estação já estão sendo lidos ao mesmo tempo)") : "Lendo esta usina…"}</div>`) + prov; return; }
@@ -1831,7 +1998,7 @@ function detalhe(u, bx) {
         // 15 min a tela diz há quanto tempo, em cor de alerta; "Ler agora" vai à API PV.
         const min = Math.max(0, Math.round((Date.now() - dr.em) / 60000)), velha = min > 15;
         return `<span style="color:var(--${velha ? "alerta" : "mudo"});font-size:12.5px;margin-left:8px" title="${velha ? "O servidor ainda não publicou outra leitura desta usina (logo depois de uma atualização dele, ou com a API PV lenta): estes inversores e strings são da leitura das " + esc(dr.tabela) + ". Ler agora vai à API PV." : "Inversores e strings da leitura que o servidor fez às " + esc(dr.tabela) + " (o ciclo de 5 min da API PV)"}">leitura das ${esc(dr.tabela)}${velha ? ", há " + min + " min" : ""}</span><button class="btnl" data-aovivo="1" title="Ler agora na API PV (pode levar de 10 a 60 s)">Ler agora</button>`; })()}
-      <span style="flex:1"></span>${nG > 1 ? `<button class="btnl" data-grafx="1">Fechar as ${nG} curvas</button>` : ""}<button class="btnl" data-expi="*">${dr.inv.every(i => EXPI.has(u.u + "|" + i.n)) ? "Recolher as strings de todos" : "Abrir as strings de todos"}</button>${PODE ? `<button class="btn" data-criaros="1" title="${MARC.size ? "Criar a OS de recomposição de string dos " + MARC.size + " inversores marcados" : "Marque os inversores na caixa à esquerda de cada linha e clique aqui"}">Criar OS${MARC.size ? " (" + MARC.size + ")" : ""}</button>` : ""}</div>` +
+      <span style="flex:1"></span>${nG > 1 ? `<button class="btnl" data-grafx="1">Fechar as ${nG} curvas</button>` : ""}<button class="btnl" data-expi="*">${dr.inv.every(i => EXPI.has(u.u + "|" + i.n)) ? "Recolher as strings de todos" : "Abrir as strings de todos"}</button>${PODE ? (MARC.size ? `<span class="tag i" style="align-self:center">${MARC.size} marcado${MARC.size > 1 ? "s" : ""} para a OS</span><button class="btnl" data-limpam="str">Limpar</button>` : `<span style="color:var(--mudo);font-size:12px;align-self:center">Marque os inversores (a caixa ou o botão direito) e use o Criar OS, no alto</span>`) : ""}</div>` +
       Object.keys(cab).sort((a, b) => a - b).map(c => { const l = cab[c], fora = l.reduce((a, i) => a + faltaDe(i), 0), bxc = l.reduce((a, i) => a + i.s.filter(s => est(i, s) === "baixa_perf").length, 0), nov = l.reduce((a, i) => a + novasS(u.u, i.n).length, 0);
       return `<details class="cabine" data-cab="${c}" ${FECHADAS.has(u.u + "|" + c) ? "" : "open"}><summary>${c === "—" ? "Inversores" : "Cabine " + esc(c)} <small>${l.length} inversor${l.length > 1 ? "es" : ""} · ${fora ? fora + " string" + (fora > 1 ? "s" : "") + " fora" : "nenhuma string fora"}${bxc ? " · " + bxc + " com corrente baixa" : ""}</small>${pill(nov)}</summary>
         <div class="ilista"><div class="il cab"><span></span><span class="n">Inversor</span><span>Potência</span><span>Hoje</span><span title="Strings gerando agora / esperadas pelo cadastro">Ativas / esperadas</span><span title="Ativas menos esperadas">Diferença</span><span title="Strings com mais de 2 h sem corrente no período solar de hoje">+2 h hoje</span><span class="sit">Situação</span><span></span></div>` +
@@ -1839,7 +2006,7 @@ function detalhe(u, bx) {
           const k = u.u + "|" + i.n, cri = CRIADAS[k], o = osRecentes(u.u, i.n)[0], qv = quemViu(u.u, i.n), extra = [];
           if (tr1) extra.push(tr1 + " trancada" + (tr1 > 1 ? "s" : "")); if (qv) extra.push(qv); if (cri) extra.push("<b>OS criada por você</b> às " + cri); else if (o) extra.push("<b>OS " + esc(o.os) + "</b> há " + diasAte(o.criada) + " dias · " + esc(o.status));
           const sit = (i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : i.at === 0 ? "Sem geração agora" : "Todas gerando") + (bx1 && !i.desl && !i.fc ? " · " + bx1 + " com corrente baixa" : "");
-          return `<div class="il ${cls} ${gr ? "on" : ""} ${nv.length ? "pulsa" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
+          return `<div class="il ${cls} ${gr ? "on" : ""} ${nv.length ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
             <span><input type="checkbox" class="selinv" data-sel="${esc(i.n)}" ${MARC.has(i.n) ? "checked" : ""} title="Escolher para criar OS" aria-label="Escolher ${esc(i.n)} para criar OS"></span>
             <span class="n">${esc(i.n)}${nv.length ? '<span class="nv">nova</span>' : ""}${osDe(i.n).length || osRecentes(u.u, i.n).length || cri ? `<button class="ferr" data-os="${esc(i.n)}" title="OS de performance deste inversor" aria-label="OS de performance deste inversor"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></button>` : ""}</span>
             <span>${i.kw == null ? "—" : nf(i.kw, 1) + " kW"}</span><span>${i.eday == null ? "—" : nf(i.eday) + " kWh"}</span>
@@ -1862,6 +2029,7 @@ function detalhe(u, bx) {
     const trkp = D.trkRows.filter(r => r.usina === u.u).map(r => [r.tracker, r.inicio, r.fim || "", r.h_sol, Math.round(r.perda_kwh || 0), !!r.cronico]).sort((a, b) => String(b[1]).localeCompare(String(a[1])));
     const rec = (id, tit, sub, corpo) => `<div class="sec"><details class="rec" data-rec="${id}" ${REC.has(id) ? "open" : ""}><summary>${tit} <small>${sub}</small></summary><div>${corpo}</div></details></div>`;
     const nvt = NOVT[u.u] || [], nvSet = new Set(nvt.map(x => x.tk));
+    if (PODE) h += `<div class="dica">${MARCT.size ? `<b style="color:var(--verde)">${MARCT.size} tracker${MARCT.size > 1 ? "s separados" : " separado"} para a OS:</b> ${[...MARCT].sort(natural).map(esc).join(", ")} <button class="btnl" data-limpam="trk">Limpar</button>` : DICA_OS.trk + ". O Criar OS, no alto, abre o OS Creator com eles."}</div>`;
     if (nvt.length) h += `<div class="aviso" style="border-left:3px solid var(--critico)"><b>${nvt.length} tracker${nvt.length > 1 ? "s novos" : " novo"} desde a sua última visita</b> (o aviso vermelho era ${nvt.length > 1 ? "deles" : "dele"}): ${nvt.slice().sort((a, b) => natural(a.tk, b.tk)).map(x => `<span class="tag c" style="margin:0 4px 4px 0">${esc(x.tk)}</span><small style="color:var(--fraco);margin-right:8px">parou em ${dm(x.d)}</small>`).join("")}</div>`;
     if (temC) {
       // O MESMO gráfico do Tempo real de hoje (_trkChartInline): os mesmos controles e a mesma conta
@@ -1886,19 +2054,19 @@ function detalhe(u, bx) {
         <div style="font-size:12.5px;margin:4px 0 8px"><b style="color:#ff5b6e">${qt("parado")} parado</b> · <b style="color:#ff8f3c">${qt("severo")} severo</b> · <b style="color:#ffb43d">${qt("medio")} médio</b> · <b style="color:#ffd83d">${qt("leve")} leve</b>${qt("sem_comunicacao") ? ` · <b style="color:#c9b6ff">${qt("sem_comunicacao")} sem comunicação</b>` : ""} · <span style="color:var(--mudo)">mostrando ${shown.length} de ${all.length}${shown.length ? "" : ' · <b style="color:#ffb43d">nenhum selecionado: clique nos cartões ou em Todos</b>'}</span></div>
         <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px">${legb(COR_T.parado, "Parado", "parado")}${legb(COR_T.severo, "Severo", "severo")}${legb(COR_T.medio, "Médio", "medio")}${legb(COR_T.leve, "Leve", "leve")}${legb(COR_T.sem_comunicacao, "Sem comunicação", "sem_comunicacao")}${legb(COR_T.normal, "Normal", "normal")}${legb("#e2e8f0", "Alvo", "alvo", true)}</div>
         ${dias.length ? (dias.length > 1 ? grafJunto() : graf(dias[0])) : `<p style="margin:14px 0">${Object.values(D.trkc.dias).some(v => v && v.erro) ? "Não consegui ler a curva dos trackers neste período." : "Lendo a curva dos trackers…"}</p>`}
-        <div class="tcs">${all.map(x => `<button class="tc ${TRK.hide[x.id] ? "off" : ""}${nvSet.has(String(x.id)) ? " nvt" : ""}" data-tc="${esc(x.id)}" data-hl="${esc(x.id)}" data-hlc="var(--tinta)" style="border-color:${COR_T[x.st] || COR_T.normal};color:${COR_T[x.st] || COR_T.normal}" title="${esc(x.id)} · ${x.st.replace("_", " ")} · clique para ${TRK.hide[x.id] ? "pôr no" : "tirar do"} gráfico">${esc(x.id.replace(/^Tracker\s*/, ""))}</button>`).join("")}</div></div>`;
+        <div class="tcs">${all.map(x => `<button class="tc ${TRK.hide[x.id] ? "off" : ""}${nvSet.has(String(x.id)) ? " nvt" : ""}${MARCT.has(String(x.id)) ? " marc" : ""}" data-tc="${esc(x.id)}" data-trkm="${esc(x.id)}" data-hl="${esc(x.id)}" data-hlc="var(--tinta)" style="border-color:${COR_T[x.st] || COR_T.normal};color:${COR_T[x.st] || COR_T.normal}" title="${esc(x.id)} · ${x.st.replace("_", " ")} · clique para ${TRK.hide[x.id] ? "pôr no" : "tirar do"} gráfico">${esc(x.id.replace(/^Tracker\s*/, ""))}</button>`).join("")}</div></div>`;
     } else h += dr.trk.lendo ? '<div class="carrega" style="padding:18px 0">Lendo os trackers desta usina…</div>'
       : `<div class="aviso">${dr.trk.erro ? "Não consegui ler os trackers desta usina na fonte dela agora." : "A fonte desta usina no Tempo real não tem trackers dela."}</div>` + scadaBloco(u, "trk");
     if (!dr.trk.fora) { const cor = {parado: "c", severo: "s", medio: "a", leve: "i"}, nome = {parado: "Parado", severo: "Desvio severo", medio: "Desvio médio", leve: "Desvio leve"}, ord = "parado severo medio leve".split(" ");
       h += (dr.trk.semHist ? `<div class="aviso">O histórico de hoje dos trackers não respondeu no supervisório. ${dr.trk.propDesde ? `A curva do dia é a que a plataforma juntou com as próprias leituras, desde as <b>${esc(dr.trk.propDesde)}</b> (uma a cada ciclo, das 05h às 19h).` : "Ainda só há a leitura de agora: a curva do dia começa a ser juntada pela plataforma a partir daqui."} Quem aparece parado sem curva vem do último dia classificado.</div>` : "") + rec("agora", "Agora", `${dr.trk.parados} parados (${dr.trk.com} com ticket, ${dr.trk.sem} sem) · ${dr.trk.severos} com desvio severo · de ${dr.trk.total} trackers · lido às ${esc((dr.trk.lido || "").slice(11))}`,
         `<div class="rol"><table><thead><tr><th>Tracker</th><th>Situação</th><th>Ângulo atual</th><th>Alvo</th><th>Desvio</th><th>Acompanhamento</th></tr></thead><tbody>` +
         (dr.trk.l.slice().sort((a, b) => ord.indexOf(a[4]) - ord.indexOf(b[4]) || (b[3] || 0) - (a[3] || 0)).map(x =>
-          `<tr><td><b>${esc(x[0])}</b>${nvSet.has(String(x[0])) ? '<span class="nv">novo</span>' : ""}</td><td><span class="tag ${cor[x[4]] || "n"}">${nome[x[4]] || esc(x[4])}</span>${x[6] ? ' <span class="tag n">sem comunicação</span>' : ""}</td><td>${x[1] == null ? "—" : nf(x[1], 1) + "°"}</td><td>${x[2] == null ? "—" : nf(x[2], 1) + "°"}</td><td>${x[3] == null ? "—" : nf(x[3], 1) + "°"}</td><td>${x[5] ? `<span class="tag o">ticket: ${esc(x[5])}</span>` : (x[4] === "parado" ? '<span class="tag s">sem OS nem ticket</span>' : T)}</td></tr>`).join("") ||
+          `<tr data-trkm="${esc(x[0])}" class="${MARCT.has(String(x[0])) ? "marc" : ""}"><td><b>${esc(x[0])}</b>${nvSet.has(String(x[0])) ? '<span class="nv">novo</span>' : ""}</td><td><span class="tag ${cor[x[4]] || "n"}">${nome[x[4]] || esc(x[4])}</span>${x[6] ? ' <span class="tag n">sem comunicação</span>' : ""}</td><td>${x[1] == null ? "—" : nf(x[1], 1) + "°"}</td><td>${x[2] == null ? "—" : nf(x[2], 1) + "°"}</td><td>${x[3] == null ? "—" : nf(x[3], 1) + "°"}</td><td>${x[5] ? `<span class="tag o">ticket: ${esc(x[5])}</span>` : (x[4] === "parado" ? '<span class="tag s">sem OS nem ticket</span>' : T)}</td></tr>`).join("") ||
          `<tr><td colspan="6" class="zero">Todos os trackers seguindo o alvo.</td></tr>`) + "</tbody></table></div>"); }
     if (trkp.length) h += rec("quando", "Quando parou", `${trkp.length} paradas no mês · clique na linha para abrir o gráfico no dia`,
         `<div class="rol"><table><thead><tr><th>Tracker</th><th>Quando parou</th><th>Voltou</th><th>Horas de sol parado</th><th>Perda estimada</th><th>Gráfico</th></tr></thead><tbody>` +
         trkp.slice(0, 20).map(q => { const d0 = q[1].slice(0, 10), tem = temC && d0 >= addDia(hoje, -45);
-          return `<tr class="cl" data-tp="${esc(q[0])}" data-td="${d0}"><td><b>${esc(q[0])}</b>${q[5] ? ' <span class="tag n">crônico</span>' : ""}</td><td>${dm(d0)} às ${q[1].slice(11)}</td><td>${q[2] ? dm(q[2].slice(0, 10)) + (q[2].length > 10 ? " às " + q[2].slice(11) : "") : '<span class="tag c">segue parado</span>'}</td><td>${nf(q[3], 1)} h</td><td>${nf(q[4])} kWh</td><td>${tem ? '<span class="tag i">abrir no dia</span>' : '<span class="zero">—</span>'}</td></tr>`; }).join("") +
+          return `<tr class="cl${MARCT.has(String(q[0])) ? " marc" : ""}" data-tp="${esc(q[0])}" data-td="${d0}" data-trkm="${esc(q[0])}"><td><b>${esc(q[0])}</b>${q[5] ? ' <span class="tag n">crônico</span>' : ""}</td><td>${dm(d0)} às ${q[1].slice(11)}</td><td>${q[2] ? dm(q[2].slice(0, 10)) + (q[2].length > 10 ? " às " + q[2].slice(11) : "") : '<span class="tag c">segue parado</span>'}</td><td>${nf(q[3], 1)} h</td><td>${nf(q[4])} kWh</td><td>${tem ? '<span class="tag i">abrir no dia</span>' : '<span class="zero">—</span>'}</td></tr>`; }).join("") +
         `</tbody></table></div><div class="mais">${trkp.length > 20 ? `As 20 mais recentes, de ${trkp.length}.` : ""}</div>`);
   } else if (ABA === "etm") {
     const e = dr.etm;
@@ -2044,7 +2212,7 @@ function detalhe(u, bx) {
   } else if (ABA === "dp") {
     h += deparaHtml(u); if (h.includes('class="dpj"')) cp.dataset.dp = u.g + "|" + u.u;
   } else h += !ABX ? `<div class="aviso">${lerAbaixo.indo ? "Calculando o abaixo dos demais (a geração do mês por inversor, lida do banco)…" : "Não consegui ler o abaixo dos demais: " + esc(ABX_ERRO || "sem leitura") + ' <button class="btnl" data-denovo2="abx" style="margin-left:10px">Tentar de novo</button>'}</div>`
-    : `<div class="sec" style="margin-top:14px"><p>Inversores desta usina com 70% ou menos da média dos outros, no mês${ABX.fim ? " (até " + dm(ABX.fim) + ")" : ""}. Clique na linha para ver os dias; clique no dia para abrir a curva por string dele.</p>${tabBaixo(bx, false)}</div>`;
+    : `<div class="sec" style="margin-top:14px"><p>Inversores desta usina com 70% ou menos da média dos outros, no mês${ABX.fim ? " (até " + dm(ABX.fim) + ")" : ""}. Clique na linha para ver os dias; clique no dia para abrir a curva por string dele.</p>${PODE ? `<div class="dica">${MARCB.size ? `<b style="color:var(--verde)">${MARCB.size} inversor${MARCB.size > 1 ? "es separados" : " separado"} para a OS de inspeção:</b> ${[...MARCB].sort(natural).map(esc).join(", ")} <button class="btnl" data-limpam="bx">Limpar</button>` : DICA_OS.bx + ". O Criar OS, no alto, abre o OS Creator com eles."}</div>` : ""}${tabBaixo(bx, false)}</div>`;
   $("corpo").innerHTML = h;
 }
 
@@ -2082,7 +2250,7 @@ const verT = u => { const l = D.novas.t.filter(x => x.u === u && !VISTO.has(x.k)
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
   const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
   return [eu ? "visto por <b>você</b> em " + q(eu) : "", ou.length ? "visto por <b>" + esc(lst(ou)) + "</b>" : ""].filter(Boolean).join(" · "); };
-const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };
+const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); MARCT.clear(); MARCB.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };
 
 function desenhar() {
   if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(() => { if (IR_NOVO && SEL.u === IR_NOVO) irAoNovo(); }, 0);
@@ -2097,6 +2265,7 @@ function desenhar() {
   if (!SEL.u) kpis(us, bx);
   $("corpo").classList.remove("geral");
   if (SEL.u && us[0]) detalhe(us[0], bx); else visaoGeral(us, bx);
+  fixaAbas();
   falMes(us);
   arvore(); sino();
 }
@@ -2105,6 +2274,11 @@ function desenhar() {
 // da sala de controle, deu certo?". A aba "Falhas do mês" mostra a tela de Strings e trackers (/painel/falhas?embed=1)
 // sem a lateral dela: quem escolhe o recorte é a lateral DAQUI (todas, uma fonte, uma usina), avisado por mensagem para
 // o quadro não recarregar. Ele mora fora do #corpo porque o #corpo é refeito a cada desenho (a cada 5 min e a cada clique).
+// as abas vão para o #abasFix, que gruda no alto (ver o CSS); a altura dele diz onde a barra do dia das strings gruda. O
+// desenho que não refez o #corpo (o editor do de-para aberto) não traz abas novas: ficam as que estavam.
+function fixaAbas() { const ab = $("corpo").querySelector(":scope > .abas"), fx = $("abasFix");
+  if (ab) { fx.innerHTML = ""; fx.appendChild(ab); }
+  document.documentElement.style.setProperty("--abasH", fx.offsetHeight + "px"); }
 let FALREC = null;
 function falMes(us) {
   const mostra = SEL.u ? ABA === "fal" : VG === "fal", cx = $("falmes"), f = $("falmesq");
@@ -2121,6 +2295,18 @@ window.addEventListener("message", ev => { const d = ev.data, f = $("falmesq");
   if (d.gc === "st-altura" && d.h > 0) f.style.height = Math.max(420, Math.ceil(d.h) + 8) + "px";
   if (d.gc === "st-toast") toast(String(d.texto || ""));
   if (d.gc === "st-criar-os") abreJanela(new URLSearchParams(String(d.query || "")), {u: String(d.usina || ""), g: String(d.g || ""), nomes: []}); });
+// O BOTÃO DIREITO SEPARA PARA A OS (Levi, 19/11/2026: "No caso de trackers, quando eu clicar no tracker, com o botão direito,
+// ele vai ser selecionado e eu vou ter como criar um OS"; "E abaixo dos demais, eu também posso clicar com o botão direito").
+// Nas Strings, o botão direito na linha do inversor faz o mesmo que a caixa. Só quem cria OS; fora disso, o menu de sempre.
+document.addEventListener("contextmenu", e => {
+  if (!PODE || !SEL.u) return;
+  const q = s => e.target.closest(s), troca = (S, k) => { if (S.has(k)) S.delete(k); else S.add(k); };
+  let x;
+  if (ABA === "str" && (x = q(".il[data-inv]"))) troca(MARC, x.dataset.inv);
+  else if (ABA === "trk" && (x = q("[data-trkm]"))) troca(MARCT, x.dataset.trkm);
+  else if (ABA === "bx" && (x = q("[data-bxm]"))) troca(MARCB, x.dataset.bxm);
+  else return;
+  e.preventDefault(); desenhar(); });
 document.addEventListener("toggle", e => { const c = e.target; if (!c.classList || !c.classList.contains("rec")) return; if (c.dataset.rec) { if (c.open) REC.add(c.dataset.rec); else REC.delete(c.dataset.rec); if (c.dataset.rec === "raiox" && c.open) desenhar(); } else visaoGeral.aberto = c.open; }, true);
 document.addEventListener("change", e => { const x = e.target;
   if (x.classList.contains("aci")) { const r = x.closest(".u"), u = r && todas().find(z => z.u === r.dataset.u && z.g === r.dataset.g);
@@ -2160,6 +2346,9 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { fecharJane
 document.addEventListener("click", e => {
   const q = s => e.target.closest(s);
   let x;
+  if ((x = q("[data-criaros-topo]"))) { criarOSTopo(); return; }
+  if ((x = q("[data-entrar]"))) { abrirEntrar(); return; }
+  if ((x = q("[data-limpam]"))) { ({trk: MARCT, bx: MARCB}[x.dataset.limpam] || MARC).clear(); desenhar(); return; }
   if ((x = q(".nt[data-nu]"))) { abrirUsina(x.dataset.ng, x.dataset.nu); CLICADAS.add("u|" + x.dataset.nu); CLICADAS.add("g|" + x.dataset.ng); ABA = x.dataset.na;
     if (ABA === "trk") verT(SEL.u); else { const n1 = novasS(SEL.u)[0]; if (n1) { INV = n1.i; GRAF.add(SEL.u + "|" + INV); verS(SEL.u, INV); } }
     $("sino").open = false; desenhar(); scrollTo(0, 0); return; }
@@ -2194,7 +2383,9 @@ document.addEventListener("click", e => {
   if ((x = q(".selinv"))) { const n = x.dataset.sel; if (MARC.has(n)) MARC.delete(n); else MARC.add(n); desenhar(); return; }
   if ((x = q("[data-acao]"))) { const a = x.dataset.acao; if (a === "limpar") MARC.clear(); else if (a === "criar") { if (PODE) abrirCriarOS(); return; } else if (a === "confirmar") { janelaOS(); return; } desenhar(); return; }
   if ((x = q("[data-fechar]")) && (e.target === x || x.tagName === "BUTTON")) { $("modal").innerHTML = ""; return; }
-  if ((x = q("[data-dped]"))) { DPED = !DPED; delete $("corpo").dataset.dp; if (!DPED && SEL.u) delete DPR[SEL.u]; desenhar(); return; }
+  if ((x = q("[data-dped]"))) { DPED = !DPED; DPLIGA = false; delete $("corpo").dataset.dp; if (SEL.u) { delete NXDP[SEL.u]; delete DPE[SEL.u]; delete DPMSG[SEL.u]; if (!DPED) delete DPR[SEL.u]; } desenhar(); return; }
+  if ((x = q("[data-dpliga]"))) { DPLIGA = !DPLIGA; delete $("corpo").dataset.dp; if (!DPLIGA && SEL.u) delete DPR[SEL.u]; desenhar(); return; }
+  if ((x = q("[data-dpsalvar]"))) { const u = usinas()[0]; if (u) salvarDp(u); return; }
   if ((x = q("[data-dpdenovo]"))) { if (SEL.u) delete DPR[SEL.u]; desenhar(); return; }
   if ((x = q("[data-ocos]"))) { const u = usinas()[0], o = ocorrenciasDe(u).find(z => z.k === x.dataset.k); if (!o || !PODE) return;
     if (x.dataset.ocos === "t") { osDosTrackers(u, o.ts.map(e => e.id)); return; }

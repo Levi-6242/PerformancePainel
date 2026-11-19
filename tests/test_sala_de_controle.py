@@ -47,7 +47,7 @@ def test_o_dado_nao_vem_embutido_nem_com_a_data_do_mockup():
     assert "let D = null;" in html and "/*DADOS*/" not in html
     assert 'const HOJE = isoDe(new Date())' in html
     assert "Date.UTC(2026" not in html and '"2026-11-16"' not in html
-    assert len(html) < 300_000                     # o mockup, com o dado dentro, passava de 1 MB
+    assert len(html) < 350_000                     # o mockup, com o dado dentro, passava de 1 MB (a tela foi a 311 KB em 19/11/2026)
 
 
 def test_quem_grava_e_quem_a_plataforma_diz_e_o_gestor_so_le():
@@ -971,7 +971,9 @@ def test_a_linha_de_botoes_das_strings_fica_fixa_e_tem_o_criar_os():
     assert ".barrafix{position:sticky;top:0;z-index:18;" in html and '<div class="diasel barrafix" style="gap:8px"><span>Dia</span>' in html
     barra = html[html.index('<div class="diasel barrafix"'):]
     barra = barra[:barra.index("Object.keys(cab)")]
-    assert 'data-criaros="1"' in barra and "${PODE ? `<button class=\"btn\" data-criaros" in barra            # só para quem grava
+    # o Criar OS subiu para o alto, ao lado do Prontuário (19/11/2026: `botaoCriarOS`); a barra diz quantos estão marcados
+    assert 'marcado${MARC.size > 1 ? "s" : ""} para a OS</span><button class="btnl" data-limpam="str">Limpar</button>' in barra
+    assert '${PODE ? botaoCriarOS() : ""}' in html                                                         # só para quem grava
     assert 'if ((x = q("[data-criaros]"))) { if (!PODE) return; if (MARC.size) abrirCriarOS(); else toast(' in html   # sem marcar, não escolhe por ninguém
 
 
@@ -1207,7 +1209,7 @@ def test_o_pulso_segue_ate_o_problema():
     pulsa a parte de trackers ou ETM até eu clicar e ser levado para o problema!"."""
     html = _html()
     # o inversor com ocorrência nova: linha pulsando e as strings já abertas
-    assert '${nv.length ? "pulsa" : ""}" role="button" tabindex="0" data-inv=' in html
+    assert '${nv.length ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv=' in html
     assert 'ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n || nv.length > 0' in html
     assert ".tela .il.pulsa{animation:pulsoL 1.8s ease-in-out infinite}" in html
     # o clique nele abre a curva, mantém as strings abertas e marca como visto
@@ -1464,3 +1466,112 @@ def test_a_leitura_guardada_da_api_pv_diz_quando_e_velha():
     assert 'leitura das ${esc(dr.tabela)}${velha ? ", há " + min + " min" : ""}</span><button class="btnl" data-aovivo="1"' in html
     assert 'color:var(--${velha ? "alerta" : "mudo"})' in html
     assert "dr.em = Date.now() - (pl.da_tabela ? (pl.idade_s || 0) * 1000 : 0);" in html       # a idade vem do servidor
+
+
+def test_os_cabecalhos_ficam_fixos_no_alto():
+    """Levi, 19/11/2026: "os cabeçalhos [...] ficassem fixos. E aí, quando eu estivesse dando scroll, o cabeçalho acompanhasse".
+    As abas moram no #abasFix (fora do #corpo, que é refeito a cada desenho, e acima do quadro das Falhas do mês), grudado
+    no alto; a barra do dia das strings gruda logo abaixo."""
+    html = _html()
+    assert html.index('<div id="abasFix"></div>') < html.index('<div id="corpo"></div>') < html.index('<div id="falmes" hidden>')
+    assert "#abasFix{position:sticky;top:0;z-index:22;background:var(--fundo)}" in html and ".barrafix{top:var(--abasH,0px)}" in html
+    d = html[html.index("function desenhar() {"):]
+    d = d[:d.index("\n}\n")]
+    assert d.index("detalhe(us[0], bx); else visaoGeral(us, bx);") < d.index("fixaAbas();") < d.index("falMes(us);")
+    assert 'const ab = $("corpo").querySelector(":scope > .abas"), fx = $("abasFix");' in html
+
+
+def test_o_criar_os_fica_no_alto_ao_lado_do_prontuario_e_age_pela_aba():
+    """Levi, 19/11/2026: "ao lado de prontuário da usina ficasse o botão de criar OS [...] no mesmo estilo"; o botão direito
+    separa trackers e inversores do abaixo dos demais; ETM vai direto à estação. A regra roda de verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert '${aba("fal", "Falhas do mês")}${PODE ? botaoCriarOS() : ""}<a class="btnl" style="margin-left:${PODE ? "8px" : "auto"};' in html
+    assert 'data-criaros="1"' not in html                                     # o botão de antes, na barra do dia, saiu
+    assert 'document.addEventListener("contextmenu", e => {' in html and 'data-trkm="${esc(x.id)}"' in html and 'data-bxm="${esc(b.i)}"' in html
+    assert '${MARC.has(i.n) ? "marc" : ""}' in html and ".il.marc{" in html and "tr.marc>td{" in html and ".tc.marc{" in html
+    assert 'MARC.clear(); MARCT.clear(); MARCB.clear();' in html                # trocar de usina limpa
+    assert 'p.set("frase", "inspecao geral do inversor");' in html
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    ini = html.index("const DICA_OS = {")
+    js = html[ini:html.index("async function sessaoFracttal() {")]
+    script = ("const nf = (v, d) => Number(v).toFixed(d || 0).replace('.', ','), dm = d => d.slice(8) + '/' + d.slice(5, 7), esc = s => String(s), natural = (a, b) => String(a).localeCompare(String(b), 'pt-BR', {numeric: true});\n"
+              "let ABA = 'str', PODE = true; const MARC = new Set(), MARCT = new Set(), MARCB = new Set(), D = {drill: {}};\n" + js +
+              "\nconsole.log(JSON.stringify({etm: acaoCriarOS('etm', 0), str0: acaoCriarOS('str', 0), str2: acaoCriarOS('str', 2), trk1: acaoCriarOS('trk', 1), bx1: acaoCriarOS('bx', 1), gp: acaoCriarOS('gp', 3),"
+              " t1: obsTracker('TRK41', ['TRK41', -41.5, 12.3, 53.8, 'parado', null, false]), t2: obsTracker('TRK7', ['TRK7', null, null, null, 'severo', null, true]), t3: obsTracker('TRK9', null),"
+              " i1: obsInspecao({sem: 4, pior: 0.512, ult: '2026-11-18'}, 'Inversor 1.3'), i2: obsInspecao({sem: 1, pior: 0.69, ult: '2026-11-02'}, 'Inversor 2.1'), i3: obsInspecao(null, 'Inversor 3.1'),"
+              " b0: botaoCriarOS(), s401: sessaoDe(401, null, false, ''), sok: sessaoDe(200, {ok: true}, false, ''), slog: sessaoDe(200, {login: true}, false, ''),"
+              " sred: sessaoDe(200, null, true, 'https://x/entrar?next=/os'), s404: sessaoDe(404, null, false, '')}));")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    o = json.loads(r.stdout)
+    assert o["etm"] == {"faz": "estacao"} and o["str2"] == {"faz": "strings"} and o["trk1"] == {"faz": "trackers"} and o["bx1"] == {"faz": "inspecao"}
+    assert "botão direito" in o["str0"]["aviso"] and "Abaixo dos demais" in o["gp"]["aviso"]
+    assert o["t1"] == "TRK41 parado no ângulo -41,5° (alvo 12,3°): verificar e normalizar"
+    assert o["t2"] == "TRK7 sem comunicação: verificar e normalizar" and o["t3"] == "TRK9: verificar"
+    assert o["i1"] == "Inversor 1.3 com 70% ou menos da média dos outros inversores em 4 dias do mês sem parada que explique (pior dia 51%, último 18/11): inspecionar"
+    assert "em 1 dia do mês" in o["i2"] and o["i3"] == "Inversor 3.1 abaixo dos demais no mês: inspecionar"
+    assert 'data-criaros-topo="1"' in o["b0"] and "Criar OS</button>" in o["b0"]          # nada separado: sem o número
+    assert o["s401"] is False and o["sok"] is True and o["slog"] is False and o["sred"] is False and o["s404"] is True
+
+
+def test_sem_a_sessao_do_fracttal_o_login_e_um_cartao_na_sala():
+    """Levi, 19/11/2026: "quando tiver deslogado do Fractal, aparecer só um pop-up só um cardzinho no meio para logar, porque
+    ele redireciona para uma aba do OS Creator que eu não consigo voltar para a sala de comando". A Sala confere a sessão
+    antes de abrir o OS Creator; caída, o cartão abre o login numa janela pequena e a OS abre quando ela avisa."""
+    html = _html()
+    j = html[html.index("async function abreJanela(p, ctx) {"):]
+    j = j[:j.index("\n}\n")]
+    assert j.index("OS_ULTIMA = {p, ctx};") < j.index("if (!(await sessaoFracttal())) { cartaoEntrar(); return; }") < j.index("OSJ = ctx;")
+    assert 'fetch("/os/_nexus/sessao", {credentials: "same-origin"' in html
+    assert 'window.open("/entrar?next=" + encodeURIComponent("/t/_janela/entrou"), "nexus-entrar", "width=520,height=720")' in html
+    assert "window.gcSalaEntrar = () => { cartaoEntrar(); };" in html
+    assert 'ev.data.gc !== "nexus-entrou") return;' in html and "if (d) abreJanela(d.p, d.ctx); });" in html
+    assert ".modal>div.jan{position:relative;width:96vw;max-width:100%;height:94vh;" in html      # a janela do OS Creator quase a tela toda (a `.modal>div` de 760 px vencia o `.jan`)
+
+
+def test_o_editar_do_de_para_poe_a_propria_tabela_em_edicao():
+    """Levi, 19/11/2026: "se eu cliquei em editar, eu quero ver como é que tá [...] pode até transformar ali a tabela de para
+    da usina e uma tabela que eu possa editar". O Editar abria o editor da ligação com a fonte ("nada a decidir aqui" na
+    SMP100). Agora a tabela vira campos (Fracttal, cabine, strings) e grava no cadastro do Nexus pelo remendo do Modo
+    de-para; a ligação com a fonte fica num botão à parte. A regra do pedido roda de verdade (no node)."""
+    import json
+    import shutil
+    import subprocess
+    html = _html()
+    assert 'data-dpliga="1"' in html and "if (DPLIGA && DP_FONTES.includes(f) && ADM && ADM.abre_admin) h +=" in html
+    assert '"/t/base/equipamentos/depara/estado?chaves="' in html and '"/t/base/equipamentos/depara/salvar", {method: "POST"' in html
+    assert 'data-dpsalvar="1">Salvar no cadastro</button>' in html
+    if not shutil.which("node"):
+        pytest.skip("sem o node nesta máquina")
+    js = html[html.index("const nkDp = s =>"):html.index("async function salvarDp(u) {")]
+    R = {"chaves": [{"chave": "Usina X  (12)", "inversores": [
+        {"esup": "INVERSOR01", "nome": "Inversor 1.1", "esp": 18, "kwp": 99.0, "cod_fracttal": "INVR1.1"},
+        {"esup": "INVERSOR02", "nome": "Inversor 1.2", "esp": 18, "kwp": 99.0, "cod_fracttal": None},
+        {"esup": None, "nome": "Inversor 1.3", "esp": 20, "kwp": 99.0, "cod_fracttal": None}]},
+        {"chave": "Sem Usina (13)", "inversores": [{"esup": "INV9", "nome": "Inversor 2.1", "esp": 10, "kwp": 50.0, "cod_fracttal": None}]}]}
+    N = {"usinas": [{"usina_id": 77, "selo": "abc", "chaves": [{"usina_supervisorio": "Usina X (12)"}], "cabines": [{"cabine_id": 5, "codigo_fracttal": "CABN1"}],
+                     "inversores": [{"usina_supervisorio": "Usina X (12)", "equipamento_supervisorio": "INVERSOR01", "cabine_id": 5, "strings_esperadas_qtd": 17, "codigo_fracttal": "INVR1.1", "potencia_kwp": 93.5}]}]}
+    script = ("const normN = s => String(s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim();\n" + js +
+              "\nconst R = " + json.dumps(R) + ", N = " + json.dumps(N) + ";\nconst L = linhasDp(R, N);\n"
+              "const base = pedidoDp(L);\n"
+              "L[0].s = '18'; L[0].c = 'cabn1'; L[1].f = 'INVR1.2'; L[1].c = 'CABN2'; L[2].s = '21'; L[3].s = '11';\n"
+              "const p = pedidoDp(L);\n"
+              "const L2 = linhasDp(R, N); L2[0].s = '0'; L2[1].s = ''; const q = pedidoDp(L2);\n"
+              "console.log(JSON.stringify({L: L.map(r => [r.esup, r.s0, r.c0, r.f0, r.kwp, !!r.usina]), base, p, q}));")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    o = json.loads(r.stdout)
+    # a base: o que o Nexus guarda (o 1.1 com 17 strings e a CABN1), e o que ainda não está no Nexus vem da aba
+    assert o["L"] == [["INVERSOR01", "17", "CABN1", "INVR1.1", 93.5, True], ["INVERSOR02", "18", "", "", 99.0, True],
+                      [None, "20", "", "", 99.0, True], ["INV9", "10", "", "", 50.0, False]]
+    assert o["base"] == {"itens": [], "erros": []}                                  # nada mudou: nada vai
+    # só o que mudou, por chave, com o selo e a usina; a cabine igual sem caixa não vai; o sem nome na fonte e a chave sem usina viram erro
+    assert o["p"]["itens"] == [{"usina_supervisorio": "Usina X (12)", "usina_id": 77, "selo": "abc", "inversores": [
+        {"equipamento_supervisorio": "INVERSOR01", "nome": "Inversor 1.1", "strings": 18},
+        {"equipamento_supervisorio": "INVERSOR02", "nome": "Inversor 1.2", "cabine_codigo_fracttal": "CABN2", "codigo_fracttal": "INVR1.2"}]}]
+    assert len(o["p"]["erros"]) == 2 and "Inversor 1.3: sem o nome na fonte" in o["p"]["erros"][0] and "Sem Usina (13)" in o["p"]["erros"][1]
+    assert o["q"]["erros"] == ["INVERSOR01: as strings têm de ser um número inteiro maior que zero"] and o["q"]["itens"] == []   # o esvaziado não vai (não apaga)
