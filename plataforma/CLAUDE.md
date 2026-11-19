@@ -2793,7 +2793,33 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     até a volta seguinte, sem dizer nada. Agora: nova tentativa em 20, 40 e 80 s (três por volta), a lateral diz que o
     COS não respondeu e por quê, a lista boa que já estava na tela fica, e na volta a tela se redesenha. A causa do
     caso de 18/11 NÃO ficou provada (sem a sessão do Nexus não dá para pedir a rota daqui): o código do selo não tinha
-    mudado, e o Nexus teve uma subida às 13:38. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
+    mudado, e o Nexus teve uma subida às 13:38.
+  - **Auditoria de desempenho da Sala (18/11, 23h, com a skill `performance`; `C:\GridcoAuto\tmp_sc\audita_sala.py`).**
+    A página e o desenho estão rápidos (293 KB, 91 KB na rede; `desenhar` 31 ms; volta de 5 min 236 ms); o lento é
+    dado. O que mudou:
+    - **Trackers do banco da Thopen (`/api/pg/trackers/<id>`: 4,7 s; três aberturas seguidas 6,8 / 5,0 / 4,9 s).** O
+      Levi mandou medir antes ("consulta lenta ou falta de índice"): o banco responde em 0,17 s, com o índice
+      `(power_plant_id, timestamp)` em uso (a `raw_tracker` é hypertable do Timescale); o tempo era do cálculo em
+      Python, refeito a cada abertura, e 69% dele era a `_trk_mins` (a hora de cada ponto por expressão regular, 383
+      mil chamadas para 24 mil pontos). Duas correções: (a) **a hora sai por posição** no formato de sempre
+      ("AAAA-MM-DDTHH:MM..."), no `app.py` (`_trk_mins`) e no `trk_regua_v2.py` (`min_do_dia`), com o MESMO resultado
+      (o `tests/test_trk_desempenho.py` compara com a expressão regular em 65 mil textos) e sem tocar na régua: vale
+      para os trackers de TODAS as fontes e alivia o worker; (b) **a rota serve o detalhe que a volta já calcula**
+      (`_pg_trk_det_cache`, chave `pg_trk_det` da cópia do worker): o `_pg_trackers_overview` classificava tracker a
+      tracker e jogava a lista fora. A resposta leva `da_copia`, `idade_s` e `copia_das`; vale 15 min
+      (`PG_TRK_DET_VALE_S`); outro dia (`?date=`), usina fora da volta, usina que falhou e `?vivo=1` calculam na hora,
+      como antes. O detalhe passa a ser IGUAL ao resumo por construção.
+    - **Curva de strings do banco (`/api/pg/curva/<id>`: 33,5 s e 10,3 s a frio; 0,1 s com a cópia).** NÃO é "só a 1ª
+      pessoa do dia": a cópia de hoje vale 5 min, então paga quem abre a usina depois de 5 min sem ninguém abrir, e o
+      custo cresce com o dia (82 mil linhas às 23h). Daqui de fora as duas consultas somam 2,2 s; o resto não se vê
+      sem medir no servidor. Por isso a resposta ganhou `tempos` (consulta, mediana, montagem, total, linhas, hora):
+      mede-se primeiro. Aquecer "antes do nascer do sol" não resolve sozinho (de madrugada a curva está vazia e a
+      cópia vence em 5 min); o desenho que resolve é a cópia que só busca o que chegou depois (incremental), aí sim
+      aquecida de madrugada. Espera a decisão do Levi.
+    - **Pacote de falhas (5,4 MB; 321 KB na rede).** Já vai comprimido (gzip para quem pede gzip; zstd no navegador,
+      pelo Caddy). A duplicada acabou: a Sala deixa a última leitura dela à vista do quadro (`window.gcSalaBruto`,
+      `salaBruto`) e a tela embutida a usa (`daSala`: mesmo mês, menos de 6 min) em vez de baixar de novo; a Sala
+      avisa (`st-dados`) e a tela embutida só redesenha se o pacote do mês for outro. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
     a fonte até o detalhe do ciclo voltar (`PV_DET_CICLO`, montado só com cache). Prova: abrir uma usina da API PV com
     a marca COS e ver o quadro antes de a lista de inversores chegar.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no

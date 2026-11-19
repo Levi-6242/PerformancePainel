@@ -56,11 +56,25 @@ CLU_ANG_TOL = 12.0      # graus. guarda p/ nao fundir eventos distintos no mesmo
 
 
 # ----------------------------------------------------------------- helpers
-def min_do_dia(x):
-    m = re.search(r"(\d{1,2}):(\d{2})", str(x))
+# A hora do ponto sem expressão regular no formato de sempre ("AAAA-MM-DDTHH:MM..."), com o MESMO resultado: é a
+# `_trk_mins` do app.py (18/11/2026: 69% do cálculo de trackers era esta conversão). Fora do formato, a regra de antes.
+_MIN_DO_DIA_RE = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+def _min_do_dia_regex(s):
+    m = _MIN_DO_DIA_RE.search(s)
     if not m:
         return None
     return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def min_do_dia(x):
+    s = x if type(x) is str else str(x)
+    if len(s) >= 16 and s[13] == ":" and s[4] == "-" and s[7] == "-" and (s[10] == "T" or s[10] == " "):
+        h, m = s[11:13], s[14:16]
+        if h.isdecimal() and m.isdecimal() and s[:4].isdecimal() and s[5:7].isdecimal() and s[8:10].isdecimal():
+            return int(h) * 60 + int(m)
+    return _min_do_dia_regex(s)
 
 
 def _serie_dia(pts):

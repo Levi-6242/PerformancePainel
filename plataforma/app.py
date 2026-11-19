@@ -13009,9 +13009,32 @@ TRK_FREEZE_SEV      = 30     # min — freeze ≥ isto = severo (TRK_FREEZE_MIN.
 TRK_FREEZE_DEV      = 8.0    # ° — o freeze tem que ter CAÍDO isto da frota (senão é dwell/seção lenta)
 
 
-def _trk_mins(x):
-    m = re.search(r"(\d{1,2}):(\d{2})", str(x))
+# A HORA DO PONTO, SEM EXPRESSÃO REGULAR NO FORMATO DE SEMPRE (18/11/2026). Levi: "Trackers da Thopen: antes de corrigir,
+# medir onde vai o tempo (consulta lenta ou falta de índice)". Medido na Aparecida 3 (66 trackers, 24.051 pontos no dia):
+# o banco responde em 0,17 s, com índice; o cálculo em Python levava 4,9 a 6,8 s por abertura no servidor, e 69% dele era
+# ESTA função, chamada 383 mil vezes (cada régua relê a hora de cada ponto, 16 vezes por ponto) com um `re.search` por
+# chamada. Todo ponto de curva chega como "AAAA-MM-DDTHH:MM..." (ou com espaço): aí a hora sai por posição. O resultado é
+# o MESMO da expressão regular de antes, que segue valendo para qualquer outro formato (com cópia das últimas respostas);
+# o `tests/test_trk_desempenho.py` compara as duas em 65 mil textos. A régua não mudou.
+from functools import lru_cache as _lru_cache
+
+_TRK_MINS_RE = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+@_lru_cache(maxsize=4096)
+def _trk_mins_regex(s):
+    m = _TRK_MINS_RE.search(s)
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def _trk_mins(x):
+    s = x if type(x) is str else str(x)
+    # "AAAA-MM-DD" + "T" ou espaço + "HH:MM": sem ":" antes da hora, a 1ª ocorrência de "dígitos:dois dígitos" é ela
+    if len(s) >= 16 and s[13] == ":" and s[4] == "-" and s[7] == "-" and (s[10] == "T" or s[10] == " "):
+        h, m = s[11:13], s[14:16]
+        if h.isdecimal() and m.isdecimal() and s[:4].isdecimal() and s[5:7].isdecimal() and s[8:10].isdecimal():
+            return int(h) * 60 + int(m)
+    return _trk_mins_regex(s)
 
 
 # ══ Régua de trackers v2 (fusão: distribuição-por-usina + alvo-real + guardas provadas) ═══════════
@@ -21280,9 +21303,15 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
         AND (%(inv)s IS NULL OR rc.device_id = %(inv)s)
       ORDER BY rc.device_id, rc.string_number, rc.ts
     """
+    # OS TEMPOS DA PRÓPRIA LEITURA VÃO NA RESPOSTA (18/11/2026). A abertura fria desta curva levou 33,5 s e depois 10,3 s
+    # em produção; daqui de fora as duas consultas somam 2,2 s, e o resto não dá para ver sem medir no servidor. Antes de
+    # montar cópia que se aquece sozinha, mede-se onde o tempo vai (a regra do Levi para os trackers: "antes de corrigir,
+    # medir onde vai o tempo"). A tela ignora o campo; quem investiga lê `tempos` na resposta de `/api/pg/curva/<id>`.
+    _t0 = time.time()
     conn = _pg_conn(); cur = conn.cursor()
     cur.execute(sql, {"pid": plant_id, "dia": dia, "inv": inv})
     recs = cur.fetchall(); conn.close()
+    _t1 = time.time()
 
     sup, invs = "", {}
     for dev_id, dev_name, pname, snum, ts, curr in recs:
@@ -21290,7 +21319,9 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
         inv = invs.setdefault(dev_id, {"nome_api": (dev_name or f"INV {dev_id}").strip(), "strings": {}})
         inv["strings"].setdefault(str(snum), []).append((ts, float(curr) if curr is not None else 0.0))
 
+    _t2 = time.time()
     med_usina = _pg_str_med_usina(plant_id, dia)   # referência da USINA (não do inversor)
+    _t3 = time.time()
     out = []
     for dev_id in sorted(invs):
         inv = invs[dev_id]
@@ -21322,8 +21353,12 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
                     "mediana": round(med, 1), "mediana_usina": round(med_usina, 1),
                     "abaixo": abaixo, "strings": strings})
     _marca_inv_sub(out)
+    _t4 = time.time()
     return {"plant_id": plant_id, "data": dia, "inversores": out,
-            "mediana_usina": round(med_usina, 1)}
+            "mediana_usina": round(med_usina, 1),
+            "tempos": {"consulta_s": round(_t1 - _t0, 2), "mediana_s": round(_t3 - _t2, 2),
+                       "montagem_s": round((_t4 - _t1) - (_t3 - _t2), 2), "total_s": round(_t4 - _t0, 2),
+                       "linhas": len(recs), "lido_em": datetime.now().strftime("%H:%M:%S")}}
 
 
 # A CÓPIA DA CURVA (16/11/2026, Levi: "a leitura das strings e inversores na API COS > MONITORAMENTO é super rápida,
@@ -24212,6 +24247,16 @@ def _inv_key(x):
 #   Overview  : leitura instantânea (dbt.int_tracker_latest_readings) → severo/leve/fora
 #   Detalhe+curva: série do dia (dbt.stg_tracker_analogic_data) → parado/desvio/atraso
 _pg_trk_cache      = {"payload": None, "ts": 0.0}     # overview de todas as usinas
+# O DETALHE POR USINA QUE A VOLTA JÁ CALCULA (18/11/2026). Para montar o resumo, o `_pg_trackers_overview` classifica
+# tracker a tracker em cada usina e jogava a lista fora; a rota da usina refazia a MESMA conta a cada abertura (4,9 a
+# 6,8 s no servidor, com a curva já em memória). Agora a lista fica guardada, vai para o web pela cópia de sempre
+# ("pg_trk_det") e a rota a serve na hora, com a idade dela. É o que o Monitoramento do COS ensina (gravar antes, ler
+# depois) e deixa o detalhe IGUAL ao resumo por construção (é a mesma conta, não duas feitas em horas diferentes).
+# - Vale 15 min (três voltas): mais velha que isso, a rota calcula ao vivo, como antes.
+# - Só entra a usina que leu e tem tracker: a que falhou na volta não fica guardada como "sem tracker".
+# - Outro dia (`?date=`) e o pedido ao vivo por extenso (`?vivo=1`) seguem calculando na hora.
+_pg_trk_det_cache  = {"payload": None, "ts": 0.0}     # {"date", "plantas": {plant_id: detalhe}}
+PG_TRK_DET_VALE_S  = 900
 _pg_trk_curva_cache = {}                              # (plant_id, date) → {ts, dados}
 
 
@@ -24259,7 +24304,7 @@ def _pg_trackers_overview() -> dict:
     plants = [(pid, pname) for pid, pname in cur.fetchall() if _cob_entra("pg", pid)]   # Fontes do tempo real
     conn.close()
 
-    out = []
+    out, det = [], {}
     # data-base calculada UMA vez: sem isto cada uma das 17 usinas do fan-out repetia o
     # `SELECT max(timestamp)` (conexão nova + agregado) só p/ chegar na mesma data.
     _data_base = _pg_trk_default_date()
@@ -24272,6 +24317,8 @@ def _pg_trackers_overview() -> dict:
                 continue
             r["usina"] = futs[f] or r["usina"]   # nome REAL do tb_power_plants (a query já trouxe);
             #                                      não depender do _pg_trk_nome/cache (fallback = plant_id numérico)
+            if r.get("fonte_ok") is not False and r.get("trackers"):
+                det[str(r["plant_id"])] = dict(r, tem_trackers=True)   # o detalhe da usina, para a rota dela (_pg_trk_det_cache)
             r.pop("trackers", None)   # overview não carrega a lista completa
             r["tem_trackers"] = True
             out.append(r)
@@ -24279,6 +24326,8 @@ def _pg_trackers_overview() -> dict:
     disp_pid = _pg_disp_hoje(ov_rows=out)          # disponibilidade por TEMPO (janela 06:00–18:00)
     for r in out:
         r["disponibilidade_tempo"] = disp_pid.get(str(r["plant_id"]))
+    _pg_trk_det_cache["payload"] = {"date": _data_base, "plantas": det}
+    _pg_trk_det_cache["ts"] = time.time()
     return {"rows": out, "summary": _trk_resumo_linhas(out),
             "cache_ts": datetime.now().strftime("%H:%M:%S")}
 
@@ -24456,9 +24505,22 @@ def api_pg_trackers():
                         "erro": str(e), "cache_ts": datetime.now().strftime("%H:%M:%S")})
 
 
+def _pg_trk_det_da_copia(plant_id, date=None):
+    """O detalhe que a volta publicou para a usina, se ainda vale e é do dia pedido: (detalhe, quando) ou None."""
+    p, ts = _pg_trk_det_cache.get("payload") or {}, float(_pg_trk_det_cache.get("ts") or 0)
+    d = (p.get("plantas") or {}).get(str(plant_id))
+    if not isinstance(d, dict) or not d.get("trackers") or time.time() - ts >= PG_TRK_DET_VALE_S:
+        return None
+    return (d, ts) if not date or date == p.get("date") else None
+
+
 @app.route("/api/pg/trackers/<plant_id>")
 def api_pg_trackers_plant(plant_id):
-    r = _pg_trackers_analise(plant_id, flask_request.args.get("date"))
+    date = (flask_request.args.get("date") or "").strip() or None
+    c = None if flask_request.args.get("vivo") == "1" else _pg_trk_det_da_copia(plant_id, date)
+    if c:                                # a conta que a volta já fez (ver _pg_trk_det_cache), com a idade dela
+        return jsonify(dict(c[0], da_copia=True, idade_s=int(time.time() - c[1]), copia_das=time.strftime("%H:%M", time.localtime(c[1]))))
+    r = _pg_trackers_analise(plant_id, date)
     if r.get("fonte_ok") is False:      # o PG fora: 503, como o /api/gerencial (8633218), e o corpo no formato de sempre
         return jsonify(dict(r, fonte="PG")), 503
     return jsonify(r)
@@ -26670,6 +26732,7 @@ def _persist_registry():
         "semp_etm":      _semp_etm_cache,
         "semp_analise":  _semp_etm_analise_cache,
         "pv_det":        _pv_det_cache,       # o detalhe por inversor que o ciclo monta (17/11/2026, _pv_det_guarda)
+        "pg_trk_det":    _pg_trk_det_cache,   # o detalhe de trackers por usina do banco da Thopen, da mesma volta do resumo (18/11/2026)
         "sg_trk_acum":   _sg_trk_acum_cache,  # a curva de trackers que a plataforma junta quando o /historico falha (17/11/2026)
     }
 
