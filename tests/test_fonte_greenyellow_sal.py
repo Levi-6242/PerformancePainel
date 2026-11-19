@@ -174,7 +174,10 @@ def test_drill_nomeia_pelo_de_para_e_mostra_so_as_ligadas(api):
     assert i18["strings"][2]["status"] == "sem_corrente" and i18["eday"] == 1204.0
 
 
-def test_curva_do_inversor_de_dia_passado(api):
+def test_curva_do_inversor_de_dia_passado(api, monkeypatch):
+    # o teste fica no tempo dele: 01/10 tem de estar dentro dos 45 dias que a API guarda (SG_HIST_DIAS, pelo `sg.hoje`);
+    # com o relógio de verdade, desde 16/11/2026 a rota respondia "não há" sem ir à rede e o teste falhava
+    monkeypatch.setattr(sg, "hoje", lambda: "2026-10-10")
     d = api.get("/api/greenyellow/curva/irece_2?inv=4&data=2026-10-01").get_json()
     assert d["unidade"] == "A" and len(d["inversores"]) == 1
     iv = d["inversores"][0]
@@ -184,7 +187,8 @@ def test_curva_do_inversor_de_dia_passado(api):
                                 "equipamento": "4", "limit": sg.LIMITE}) in api.pedidos
 
 
-def test_curva_da_usina_inteira_vai_inversor_por_inversor(api):
+def test_curva_da_usina_inteira_vai_inversor_por_inversor(api, monkeypatch):
+    monkeypatch.setattr(sg, "hoje", lambda: "2026-10-10")         # idem
     d = api.get("/api/greenyellow/curva/irece_2?data=2026-10-01").get_json()
     assert [iv["nome"] for iv in d["inversores"]] == [f"Inversor 1.{i}" for i in range(1, 11)]
     assert sum(1 for r, _p in api.pedidos if r == "/api/telemetria") == 10
