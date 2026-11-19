@@ -56,6 +56,7 @@ def test_a_hora_do_ponto_sai_igual_a_da_expressao_regular():
     for c in casos:
         esperado = _referencia(c)
         assert app._trk_mins(c) == esperado, repr(c)
+        assert app._trk_mins(c) == esperado, repr(c)                          # de novo: a que sai do guardado (19/11/2026)
         assert trk_regua_v2.min_do_dia(c) == esperado, repr(c)
     assert app._trk_mins("2026-11-18T05:07:33") == 307 and app._trk_mins("2026-11-18 23:59:00") == 1439
 
@@ -66,6 +67,7 @@ def test_no_formato_de_sempre_a_hora_nao_passa_pela_expressao_regular(monkeypatc
         raise AssertionError("passou pela expressão regular")
     monkeypatch.setattr(app, "_trk_mins_regex", nunca)
     monkeypatch.setattr(trk_regua_v2, "_min_do_dia_regex", nunca)
+    monkeypatch.setattr(app, "_TRK_MINS_MEMO", {}, raising=False)             # nada guardado de outro teste
     for s in ("2026-11-18T05:07:33", "2026-11-18 05:07:33", "2026-11-18T05:07", "2026-11-18T05:07:33Z"):
         assert app._trk_mins(s) == 307 and trk_regua_v2.min_do_dia(s) == 307
     with pytest.raises(AssertionError):                    # fora do formato, vale a expressão regular de antes
@@ -184,7 +186,81 @@ def test_a_curva_de_strings_do_banco_diz_os_tempos_dela(monkeypatch):
     monkeypatch.setattr(app, "_trancadas", set())
     r = app._pg_strings_curva(100, "2026-11-18")
     t = r["tempos"]
-    assert set(t) == {"consulta_s", "mediana_s", "montagem_s", "total_s", "linhas", "lido_em"} and t["linhas"] == 2
+    assert set(t) == {"consulta_s", "mediana_s", "mediana_de", "montagem_s", "total_s", "linhas", "lido_em"} and t["linhas"] == 2
     assert all(isinstance(t[k], float) and 0 <= t[k] < 5 for k in ("consulta_s", "mediana_s", "montagem_s", "total_s"))
     assert len(t["lido_em"]) == 8 and [i["nome_api"] for i in r["inversores"]] == ["INV 7"]         # o resto da resposta é o de sempre
     assert set(r) == {"plant_id", "data", "inversores", "mediana_usina", "tempos"}
+
+
+def test_a_hora_do_ponto_convertida_fica_guardada(monkeypatch):
+    """19/11/2026: depois da conta por posição, a `_trk_mins` ainda era chamada 383 a 431 mil vezes para os 24 mil
+    pontos de uma usina (16 a 18 vezes por ponto). A resposta de cada texto fica guardada; o guardado é limitado."""
+    monkeypatch.setattr(app, "_TRK_MINS_MEMO", {})
+    assert app._trk_mins("2026-11-18T05:07:33") == 307 and app._TRK_MINS_MEMO == {"2026-11-18T05:07:33": 307}
+    monkeypatch.setitem(app._TRK_MINS_MEMO, "2026-11-18T05:07:33", 999)
+    assert app._trk_mins("2026-11-18T05:07:33") == 999                       # a 2ª vez sai do guardado: nenhuma conta é refeita
+    assert app._trk_mins("abc") is None and "abc" in app._TRK_MINS_MEMO and app._trk_mins("abc") is None   # "sem hora" também fica
+    assert app._trk_mins(datetime.datetime(2026, 11, 18, 5, 7, 33)) == 307 and "2026-11-18 05:07:33" in app._TRK_MINS_MEMO
+    monkeypatch.setattr(app, "_TRK_MINS_MEMO_MAX", 5)                        # encheu, esvazia: nunca cresce sem limite
+    for k in range(20):
+        assert app._trk_mins("2026-11-18T05:%02d:00" % k) == 300 + k
+    assert len(app._TRK_MINS_MEMO) <= 5
+
+
+def _grafico():
+    return {n: [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in d["atual"]] for n, d in _curvas().items()}
+
+
+def test_o_sem_comunicacao_e_calculado_uma_vez_por_analise(monkeypatch):
+    """19/11/2026: o conjunto do "sem comunicação" era calculado duas vezes sobre a mesma curva (uma para promover a
+    parado, dentro da classificação, e outra para rotular): ~0,1 s por usina. Agora é uma conta só, e o resultado é o
+    mesmo."""
+    import inspect
+    g = _grafico()
+    esperado = app._trk_semcom_set(g)
+    assert esperado == {"TRK03"}                                              # o sensor morto em 0,00°
+    antes = [dict(id=n, status="normal") for n in g]
+    app._trk_status_from_curva(antes, g)                                      # a resposta de referência, com a função de verdade
+    real, vezes = app._trk_semcom_set, []
+    monkeypatch.setattr(app, "_trk_semcom_set", lambda g_, jini=6 * 60, jfim=18 * 60: vezes.append((jini, jfim)) or real(g_, jini, jfim))
+    lst = [dict(id=n, status="normal") for n in g]
+    r = app._trk_status_from_curva(lst, g)
+    assert vezes == [(360, 1080)], vezes                                      # uma vez, na janela de sempre
+    assert lst == antes and {t["id"] for t in lst if t["sem_comunicacao"]} == esperado and r[0] >= 1   # o TRK03 é parado e sem comunicação
+    # quem classifica sem ter o conjunto continua calculando por conta própria (os outros caminhos não mudam)
+    vezes.clear()
+    assert app._trk_classifica_curso(g)["TRK03"] == "parado" and len(vezes) == 1
+    # e o conjunto passado é o que vale: com ele vazio, ninguém é promovido por falta de comunicação
+    vezes.clear()
+    sem = app._trk_classifica_curso(g, semcom=set())
+    assert vezes == [] and sem == app._trk_promove_semcom(g, dict(sem), semcom=set())
+    assert "semcom=sc" in inspect.getsource(app._pv_trk_refina_curva)          # o refino da API PV também fazia a conta duas vezes
+
+
+def test_a_mediana_da_usina_sai_das_linhas_da_curva_sem_segunda_consulta(monkeypatch):
+    """19/11/2026: a curva de strings do banco fazia duas consultas sobre a mesma tabela; a 2ª (a mediana da usina) levou
+    de 0,65 a 4,7 s em produção. Com a usina inteira pedida, as linhas da 1ª já têm a resposta (igual à da consulta em
+    19 usinas e 2 dias, conferido no banco)."""
+    from decimal import Decimal
+    ts, ts2 = datetime.datetime(2026, 11, 18, 12, 0), datetime.datetime(2026, 11, 18, 12, 5)
+    D = Decimal
+    linhas = [(7, "INV 7", "Usina X", 1, ts, D("8.00")), (7, "INV 7", "Usina X", 1, ts2, D("9.00")),      # 17,00
+              (7, "INV 7", "Usina X", 2, ts, D("-1.00")), (7, "INV 7", "Usina X", 2, ts2, D("5.00")),    # o negativo vale zero: 5,00
+              (8, "INV 8", "Usina X", 1, ts, D("3.00")),                                                 # 3,00
+              (8, "INV 8", "Usina X", 2, ts, D("4.00"))]                                                 # trancada: fora
+    monkeypatch.setattr(app, "_pg_conn", lambda: _Conexao(linhas))
+    monkeypatch.setattr(app, "_trancadas", {app._str_key(100, 8, "2")})
+    monkeypatch.setattr(app, "_pg_str_med_cache", {})
+
+    def nao(pid, dia):
+        raise AssertionError("fez a 2ª consulta")
+    monkeypatch.setattr(app, "_pg_str_med_usina", nao)
+    r = app._pg_strings_curva(100, "2026-11-18")
+    assert r["mediana_usina"] == 5.0 and r["tempos"]["mediana_de"] == "linhas"      # [3, 5, 17]: o do meio
+    assert app._pg_str_med_cache[(100, "2026-11-18")]["med"] == 5.0                  # fica onde a consulta guardava
+    assert [i["mediana_usina"] for i in r["inversores"]] == [5.0, 5.0]
+    # um inversor só no pedido: as linhas não são a usina inteira, vale a consulta de sempre
+    idas = []
+    monkeypatch.setattr(app, "_pg_str_med_usina", lambda pid, dia: idas.append((pid, dia)) or 9.0)
+    r = app._pg_strings_curva(100, "2026-11-18", inv=7)
+    assert idas == [(100, "2026-11-18")] and r["mediana_usina"] == 9.0 and r["tempos"]["mediana_de"] == "consulta"

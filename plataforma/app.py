@@ -13194,14 +13194,32 @@ def _trk_mins_regex(s):
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
 
+# E A MESMA HORA NÃO É CONVERTIDA DE NOVO (19/11/2026). Depois da conta por posição, a função continuava sendo chamada 383
+# a 431 mil vezes para os 24 mil pontos de uma usina (cada régua relê a hora de cada ponto: 16 a 18 vezes por ponto), e
+# isso ainda era de 0,26 a 0,29 s dos 0,38 a 0,87 s do cálculo. A resposta de cada texto fica guardada (é função só do
+# texto, então o resultado é o mesmo); o guardado é limitado e se esvazia quando enche.
+_TRK_MINS_MEMO: dict = {}
+_TRK_MINS_MEMO_MAX = 100000
+_TRK_MINS_NADA = object()
+
+
 def _trk_mins(x):
     s = x if type(x) is str else str(x)
+    v = _TRK_MINS_MEMO.get(s, _TRK_MINS_NADA)
+    if v is not _TRK_MINS_NADA:
+        return v
+    v = _TRK_MINS_NADA
     # "AAAA-MM-DD" + "T" ou espaço + "HH:MM": sem ":" antes da hora, a 1ª ocorrência de "dígitos:dois dígitos" é ela
     if len(s) >= 16 and s[13] == ":" and s[4] == "-" and s[7] == "-" and (s[10] == "T" or s[10] == " "):
         h, m = s[11:13], s[14:16]
         if h.isdecimal() and m.isdecimal() and s[:4].isdecimal() and s[5:7].isdecimal() and s[8:10].isdecimal():
-            return int(h) * 60 + int(m)
-    return _trk_mins_regex(s)
+            v = int(h) * 60 + int(m)
+    if v is _TRK_MINS_NADA:
+        v = _trk_mins_regex(s)
+    if len(_TRK_MINS_MEMO) >= _TRK_MINS_MEMO_MAX:
+        _TRK_MINS_MEMO.clear()
+    _TRK_MINS_MEMO[s] = v
+    return v
 
 
 # ══ Régua de trackers v2 (fusão: distribuição-por-usina + alvo-real + guardas provadas) ═══════════
@@ -13445,13 +13463,14 @@ def _trk_piso_cobertura(g, cls, jini=6 * 60, jfim=18 * 60, manter=None):
     return cls
 
 
-def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None, manter=None):
+def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None, manter=None, semcom=None):
     """Dispatcher (rótulo por tracker): régua v2 sob flag, senão a legacy freeze-based. Mesma saída
     {tracker: parado|desvio_severo|desvio_leve|normal}. v2 só na janela padrão 06–18h.
     `usina` calibra o teto do MÉDIO por cliente — TEM que ser o mesmo do _trk_classifica_curso_perdas,
     senão overview e detalhe divergem (invariante 'overview == detalhe == disponibilidade').
     Curva curta não dá "parado" (`_trk_piso_cobertura`, 28/09/2026) — nas duas réguas, antes da promoção do
-    sem comunicação."""
+    sem comunicação. `semcom` (19/11/2026) = o `_trk_semcom_set(g, jini, jfim)` que o chamador JÁ calculou: quem também
+    precisa do conjunto para rotular (o `_trk_status_from_curva`, o `_pv_trk_refina_curva`) calculava duas vezes."""
     if TRK_REGUA_V2 and jini == 6 * 60 and jfim == 18 * 60:
         try:
             # JANELA APLICADA EM 22/09/2026. A assinatura promete 06–18 h e a legacy cumpre (recebe
@@ -13472,11 +13491,11 @@ def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None, manter=None)
                 if cl in ("normal", "leve") and tid in med:     # + detecção DIRETA do médio 8–10° nas transições
                     cl = "medio"
                 out[tid] = _REGUA_STATUS_MAP.get(cl, "normal")
-            return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, out, jini, jfim, manter), jini, jfim)
+            return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, out, jini, jfim, manter), jini, jfim, semcom)
         except Exception as e:
             print(f"[regua_v2] curso caiu p/ legacy ({e})")
     return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, _trk_classifica_curso_legacy(g, jini, jfim),
-                                                            jini, jfim, manter), jini, jfim)
+                                                            jini, jfim, manter), jini, jfim, semcom)
 
 
 def _trk_classifica_curso_legacy(g, jini=6 * 60, jfim=18 * 60):
@@ -13562,7 +13581,7 @@ def _trk_semcom_set(g, jini=6 * 60, jfim=18 * 60):
     return out
 
 
-def _trk_promove_semcom(g, cls, jini=6 * 60, jfim=18 * 60):
+def _trk_promove_semcom(g, cls, jini=6 * 60, jfim=18 * 60, semcom=None):
     """Tracker SEM COMUNICAÇÃO parado num ÂNGULO FIXO conta como PARADO (Levi, 08/09/2026).
 
     Até aqui o `_trk_semcom_set` só ROTULAVA — a própria docstring dizia "NÃO muda status nem a contagem".
@@ -13594,7 +13613,8 @@ def _trk_promove_semcom(g, cls, jini=6 * 60, jfim=18 * 60):
         return cls
     _o = sorted(ult.values())
     frota_med = _o[len(_o) // 2]
-    for n in _trk_semcom_set(g, jini, jfim):
+    # `semcom`: o conjunto que o chamador já calculou para esta mesma curva e janela (ver _trk_classifica_curso)
+    for n in (semcom if semcom is not None else _trk_semcom_set(g, jini, jfim)):
         v = cls.get(n)
         if v is None or n not in ult:
             continue                                   # sem leitura na janela = sem ângulo conhecido
@@ -13833,9 +13853,11 @@ def _trk_status_from_curva(lst, g, manter=None):
     """Aplica a régua FREEZE-BASED (`_trk_classifica_curso`, Levi 10/07) à lista de trackers de UMA usina,
     dado o grafico g = {tracker:[{x,y}]}. Sobrescreve t['status'] (parado/severo/medio/leve/normal) e devolve
     (parados, severos, medios, leves). Usado por TODAS as fontes p/ classificar igual."""
-    cls = _trk_classifica_curso(g or {}, usina=_lst_usina(lst), manter=manter)
-    _trk_marca_mov_recente(lst, g)                   # prova de movimento p/ a exoneração "em cima do alvo"
+    # o conjunto do "sem comunicação" é calculado UMA vez (19/11/2026): serve para promover a parado (na classificação)
+    # e para rotular (abaixo). Eram duas contas iguais sobre a mesma curva (~0,1 s por usina de 66 trackers).
     sc = _trk_semcom_set(g or {})                    # comm-morta (sem comunicação) — subconjunto dos parados
+    cls = _trk_classifica_curso(g or {}, usina=_lst_usina(lst), manter=manter, semcom=sc)
+    _trk_marca_mov_recente(lst, g)                   # prova de movimento p/ a exoneração "em cima do alvo"
     _M = {"desvio_severo": "severo", "desvio_leve": "leve", "desvio_medio": "medio"}
     for t in lst:
         c = cls.get(t.get("id"))
@@ -13937,9 +13959,9 @@ def _pv_trk_refina_curva(idusina, lst, date, fetch=False):
     g = _pv_trk_grafico(idusina, date or datetime.now().strftime("%d/%m/%Y"), fetch=fetch)
     if not g:
         return
+    sc = _trk_semcom_set(g)                           # comm-morta (sem comunicação) — p/ a ronda rotular; uma conta só (19/11/2026)
     cls = _trk_classifica_curso(g, usina=_lst_usina(lst),    # STATUS pela régua FREEZE-BASED definitiva (Levi 10/07)
-                                manter=_trk_parados_antes(idusina, date))
-    sc = _trk_semcom_set(g)                           # comm-morta (sem comunicação) — p/ a ronda rotular
+                                manter=_trk_parados_antes(idusina, date), semcom=sc)
     # Trackers que SÓ existem na curva (o snapshot /usinas/trackers veio sem eles) ENTRAM na lista —
     # senão o drill e a linha sub-reportam a frota: Brodowski Skid 2 (07/08) tinha 52 no gráfico e
     # 48 nos chips/linha, com TRK42/43 SEVEROS invisíveis. O status deles sai da mesma régua da
@@ -21480,14 +21502,33 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
     recs = cur.fetchall(); conn.close()
     _t1 = time.time()
 
+    _pedido_inv = inv                              # o filtro do pedido (o laço abaixo reusa o nome `inv`)
     sup, invs = "", {}
     for dev_id, dev_name, pname, snum, ts, curr in recs:
         sup = sup or (pname or "").strip()
         inv = invs.setdefault(dev_id, {"nome_api": (dev_name or f"INV {dev_id}").strip(), "strings": {}})
         inv["strings"].setdefault(str(snum), []).append((ts, float(curr) if curr is not None else 0.0))
 
+    # A MEDIANA DA USINA SAI DAS LINHAS QUE JÁ VIERAM (19/11/2026). A 2ª consulta (`_pg_str_med_usina`) relia a MESMA
+    # tabela para somar a corrente por string: 0,65 a 4,7 s em produção a cada abertura fria. Com a usina inteira pedida
+    # (sem `inv`), as linhas acima já são todas as strings de todos os inversores: a soma por (inversor, string) e a
+    # mediana são as mesmas (conferido no banco em 19 usinas e 2 dias, 38 comparações, soma a soma). A conta é a da
+    # consulta: só leitura não nula, o negativo vale zero, a trancada fica de fora, mediana = o elemento do meio. Fica
+    # guardada onde a consulta guardava (`_pg_str_med_cache`). Com um inversor só no pedido, a consulta de sempre.
     _t2 = time.time()
-    med_usina = _pg_str_med_usina(plant_id, dia)   # referência da USINA (não do inversor)
+    if _pedido_inv is None:
+        _somas = {}
+        for dev_id, _dn, _pn, snum, _ts, curr in recs:
+            if curr is None:
+                continue
+            _k = (dev_id, snum)
+            _somas[_k] = _somas.get(_k, 0) + (curr if curr > 0 else 0)
+        _vals = sorted(float(v) for (dev_id, snum), v in _somas.items()
+                       if _str_key(plant_id, dev_id, str(snum)) not in _trancadas)
+        med_usina = _vals[len(_vals) // 2] if _vals else 0.0
+        _pg_str_med_cache[(plant_id, dia)] = {"ts": time.time(), "med": med_usina}
+    else:
+        med_usina = _pg_str_med_usina(plant_id, dia)   # referência da USINA (não do inversor)
     _t3 = time.time()
     out = []
     for dev_id in sorted(invs):
@@ -21524,6 +21565,7 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
     return {"plant_id": plant_id, "data": dia, "inversores": out,
             "mediana_usina": round(med_usina, 1),
             "tempos": {"consulta_s": round(_t1 - _t0, 2), "mediana_s": round(_t3 - _t2, 2),
+                       "mediana_de": "linhas" if _pedido_inv is None else "consulta",
                        "montagem_s": round((_t4 - _t1) - (_t3 - _t2), 2), "total_s": round(_t4 - _t0, 2),
                        "linhas": len(recs), "lido_em": datetime.now().strftime("%H:%M:%S")}}
 

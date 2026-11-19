@@ -2839,7 +2839,28 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     - **Pacote de falhas (5,4 MB; 321 KB na rede).** Já vai comprimido (gzip para quem pede gzip; zstd no navegador,
       pelo Caddy). A duplicada acabou: a Sala deixa a última leitura dela à vista do quadro (`window.gcSalaBruto`,
       `salaBruto`) e a tela embutida a usa (`daSala`: mesmo mês, menos de 6 min) em vez de baixar de novo; a Sala
-      avisa (`st-dados`) e a tela embutida só redesenha se o pacote do mês for outro. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
+      avisa (`st-dados`) e a tela embutida só redesenha se o pacote do mês for outro.
+    - **O que a subida de 19/11 (01:52, `d6db5c6`) mediu em produção.** Usina da API PV: de 22 a 60 s para 0,2 s (de
+      dia, 123 usinas com leitura: mediana 0,19 s, a mais lenta 0,42 s; a leitura mostrada tem de 5 a 10 min). Trackers
+      do banco: de 4,7 s para 0,06 a 0,17 s; o gráfico, de 2,8 s para 1,1 a 1,4 s. Aba Falhas do mês, no navegador
+      logado pelo Nexus: 1 pedido de 502 bytes no lugar de 330 KB + 7 KB na rede. A usina SEM leitura no dia (linha
+      histórica) não tem detalhe a guardar e segue ao vivo (~1 s). **A tabela depois do reinício:** saiu aos 126 s, de
+      madrugada; isso não prova o caso de dia (o caminho da tabela não mudou; os 19 a 65 min de 18/11 foram com a API
+      PV a 20-60 s por usina). O diário diz o resto: de dia a volta da tabela leva de 112 a 556 s (mediana 270 s), e o
+      detalhe custa de 0,5 a 2,5 s de processador por volta.
+    - **A curva de strings, medida no servidor (os `tempos` da rota):** na abertura fria a consulta principal leva de 12
+      a 14 s (33 a 83 mil linhas) e o Python de 0,1 a 1,0 s; daqui de fora a mesma consulta leva de 1,1 a 4,2 s. O
+      tempo é do banco visto do servidor, não do cálculo. A renovação incremental (o ciclo buscar só o que chegou)
+      ficou para depois de um dia de medição (`C:\GridcoAuto\tmp_sc\amostra_dia.py` guarda uma amostra a cada 30 min).
+    - **Três correções de 19/11 (a varredura do ponto 5; Levi: "Corrigir, com teste primeiro"):** (1) **a hora do ponto
+      não é convertida de novo** (`_TRK_MINS_MEMO`, limitado a 100 mil textos): a `_trk_mins` ainda era chamada 383 a
+      431 mil vezes por usina, 16 a 18 por ponto; (2) **o "sem comunicação" é calculado uma vez por análise** (`semcom=`
+      no `_trk_classifica_curso` e no `_trk_promove_semcom`; o `_trk_status_from_curva` e o `_pv_trk_refina_curva`
+      passam o conjunto que já calcularam); (3) **a mediana da usina sai das linhas da 1ª consulta da curva** quando a
+      usina inteira é pedida (a 2ª consulta, `_pg_str_med_usina`, levava de 0,65 a 4,7 s em produção; igual em 19
+      usinas e 2 dias, soma a soma, `compara_mediana.py`). Com `?inv=`, a consulta de sempre. Em todas, a resposta é a
+      mesma de antes (provado com a curva real, nas duas réguas). O resto da varredura (155 funções com chamada cara
+      em laço) NÃO se mexe sem medição no servidor. Só nas usinas com a marca COS (API PV com logger); as outras da API PV continuam esperando
     a fonte até o detalhe do ciclo voltar (`PV_DET_CICLO`, montado só com cache). Prova: abrir uma usina da API PV com
     a marca COS e ver o quadro antes de a lista de inversores chegar.
   - **17/11, 16h40:** vários dias de trackers são UM gráfico contínuo (`grafJunto`, `o.dias` no `linhas`: a data no
