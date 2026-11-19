@@ -1343,14 +1343,28 @@ function cartaoEntrar() {
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px"><button class="btn2" data-fechar="1">Cancelar</button><button class="btn" data-entrar="1">Entrar</button></div></div></div>`;
 }
 window.gcSalaEntrar = () => { cartaoEntrar(); };      // a tela de entrar do Nexus, aberta dentro da janela do OS Creator, chama
+let ENTRAR_JAN = null;
 function abrirEntrar() {
   const w = window.open("/entrar?next=" + encodeURIComponent("/t/_janela/entrou"), "nexus-entrar", "width=520,height=720");
   const t = $("entrarTxt");
   if (t) t.textContent = w ? "Entre na janela que abriu. Quando terminar, a OS abre aqui." : "O navegador não deixou abrir a janela de entrar: permita janelas (pop-ups) para este endereço e clique de novo.";
+  ENTRAR_JAN = w;
+  // A RESERVA (19/11/2026): o aviso da janela pode não chegar (o login pela Microsoft passa por outro domínio, e o
+  // navegador pode cortar o `window.opener`). Fechada a janela, a Sala confere a sessão ela mesma
+  clearInterval(abrirEntrar.t);
+  if (w) abrirEntrar.t = setInterval(() => { if (!ENTRAR_JAN || ENTRAR_JAN.closed) { clearInterval(abrirEntrar.t); conferirVolta(true); } }, 1000);
+}
+// a volta do login: o aviso da janela, ou a reserva (a janela fechou; a Sala voltou ao foco com ela já fechada)
+async function conferirVolta(fechou) {
+  if (!ENTRAR_DEPOIS) return;
+  if (!fechou && ENTRAR_JAN && !ENTRAR_JAN.closed) return;          // ainda entrando na janela: espera
+  if (!(await sessaoFracttal())) { const t = $("entrarTxt"); if (t && fechou) t.textContent = "A janela de entrar fechou e a sessão ainda não voltou: clique em Entrar de novo."; return; }
+  const d = ENTRAR_DEPOIS; ENTRAR_DEPOIS = null; ENTRAR_JAN = null; clearInterval(abrirEntrar.t); $("modal").innerHTML = ""; atualizaCos(true);
+  if (d) abreJanela(d.p, d.ctx);
 }
 window.addEventListener("message", ev => { if (ev.origin !== location.origin || !ev.data || ev.data.gc !== "nexus-entrou") return;
-  const d = ENTRAR_DEPOIS; ENTRAR_DEPOIS = null; $("modal").innerHTML = ""; atualizaCos(true);
-  if (d) abreJanela(d.p, d.ctx); });
+  if (ENTRAR_DEPOIS) conferirVolta(true); else { $("modal").innerHTML = ""; atualizaCos(true); } });
+window.addEventListener("focus", () => { if (ENTRAR_DEPOIS) conferirVolta(false); });
 const GRAF = new Set();     // os inversores com a CURVA aberta embaixo da linha ("usina|inversor"): vários de uma vez
 const EXPI = new Set();     // os inversores com as strings abertas na lista ("usina|inversor")
 // as strings escolhidas para trancar ou destrancar de uma vez (Levi, 16/11/2026: "É melhor eu selecionar várias de uma

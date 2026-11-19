@@ -1529,7 +1529,12 @@ def test_sem_a_sessao_do_fracttal_o_login_e_um_cartao_na_sala():
     assert 'fetch("/os/_nexus/sessao", {credentials: "same-origin"' in html
     assert 'window.open("/entrar?next=" + encodeURIComponent("/t/_janela/entrou"), "nexus-entrar", "width=520,height=720")' in html
     assert "window.gcSalaEntrar = () => { cartaoEntrar(); };" in html
-    assert 'ev.data.gc !== "nexus-entrou") return;' in html and "if (d) abreJanela(d.p, d.ctx); });" in html
+    assert 'ev.data.gc !== "nexus-entrou") return;' in html and "if (ENTRAR_DEPOIS) conferirVolta(true);" in html
+    # a reserva (19/11/2026): o aviso da janela pode não chegar (o login pela Microsoft passa por outro domínio); fechada a
+    # janela, ou de volta ao foco com ela fechada, a Sala confere a sessão ela mesma e abre a OS
+    assert "if (!ENTRAR_JAN || ENTRAR_JAN.closed) { clearInterval(abrirEntrar.t); conferirVolta(true); }" in html
+    assert 'window.addEventListener("focus", () => { if (ENTRAR_DEPOIS) conferirVolta(false); });' in html
+    assert "if (!fechou && ENTRAR_JAN && !ENTRAR_JAN.closed) return;" in html and "if (d) abreJanela(d.p, d.ctx);" in html
     assert ".modal>div.jan{position:relative;width:96vw;max-width:100%;height:94vh;" in html      # a janela do OS Creator quase a tela toda (a `.modal>div` de 760 px vencia o `.jan`)
 
 

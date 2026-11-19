@@ -2878,7 +2878,12 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     caída, o cartão "Entrar no Fracttal" (`cartaoEntrar`) abre o login do Nexus numa janela pequena
     (`/entrar?next=/t/_janela/entrou`); a janela avisa `{gc: "nexus-entrou"}` e a OS abre de onde parou. Com o OS
     Creator já aberto, a tela de entrar do Nexus chama `window.gcSalaEntrar` em vez de tomar a janela. Sem resposta da
-    conferência (a Sala fora do Nexus), segue.
+    conferência (a Sala fora do Nexus), segue. **Dois casos (achados no lado do Nexus, commit 405e0b16 de lá):** (a) quem
+    entrou no Nexus pela Microsoft tem o `/os/_nexus/sessao` em `ok` mesmo sem o login do Fracttal no OS Creator; aí quem
+    pede login é o `/os/login` do OS Creator, que agora fica DENTRO da janela (maior), quando o `next` traz `janela=1` e
+    `origem=sala-de-controle`, e volta à criação; (b) o aviso `nexus-entrou` pode não chegar (o login pela Microsoft passa
+    por outro domínio na janela à parte e o navegador pode cortar o `window.opener`): a Sala confere a sessão de novo quando
+    a janela fecha (de segundo em segundo) ou quando volta ao foco com ela fechada (`conferirVolta`).
   - **O de-para editável (`linhasDp`, `pedidoDp`, `salvarDp`):** o "Editar o de-para" põe a própria tabela em edição: o
     inversor do Fracttal (INVR), a cabine (CABN) e as strings esperadas. A base é o cadastro do Nexus
     (`/t/base/equipamentos/depara/estado`); grava pelo remendo do Modo de-para (`/salvar`, só administrador, o selo da
