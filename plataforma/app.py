@@ -26646,10 +26646,17 @@ def _prewarm_ordem_etapa3(tarefas):
     return sorted(tarefas, key=lambda t: (t[0] in PREWARM_DEPENDEM_API_PV, t[0] not in _PREWARM_FICARAM))
 
 
-def _prewarm_aba_principal(espera_max=None) -> bool:
+def _prewarm_aba_principal(espera_max=None):
     """ETAPA 2 do _prewarm_loop: a aba da API PV (/api/data) primeiro e sozinha, COM TETO. → True se terminou dentro
     dele. Se não terminou, a thread segue e publica quando acabar; o `_data_refreshing` do _refresh_data_cache impede
-    que a volta seguinte comece uma segunda por cima."""
+    que a volta seguinte comece uma segunda por cima.
+
+    → None se a leitura de uma volta anterior AINDA RODA (19/11/2026, reinício das 16:20 com a API PV lenta: a da volta 1
+    levou 29 min e as voltas 2 e 3 diziam "saiu em 0 s", porque o `_refresh_data_cache` voltava na hora sem fazer nada e a
+    thread "terminava"; o diário anotava "saiu" e os dispositivos que faltam rodavam ao lado da leitura em curso). Não
+    espera por ela: as outras fontes da volta seguem, como seguiam."""
+    if _data_refreshing["on"]:
+        return None
     def _roda():
         try:
             _refresh_data_cache()
@@ -26844,6 +26851,9 @@ def _prewarm_loop():
             _saiu = _prewarm_aba_principal()
             if _saiu:
                 print(f"[prewarm] /api/data aquecido em {_t.time()-t1:.0f}s")
+            elif _saiu is None:
+                print("[prewarm] /api/data: a leitura da volta anterior ainda roda (API PV lenta) — as outras fontes "
+                      "não esperam")
             else:
                 print(f"[prewarm] /api/data passou de {PREWARM_ABA_PRINCIPAL_MAX_S}s (API PV lenta ou fora do ar) — "
                       f"segue em fundo; as outras fontes não esperam")
@@ -26851,7 +26861,8 @@ def _prewarm_loop():
             print(f"[prewarm] /api/data falhou: {e}")
         _ABA_PRINCIPAL_SAIU.set()             # libera a 1ª varredura de trackers (ver _pv_trk_loop)
         if ciclo <= 3:
-            _largada_marca(f"volta {ciclo}: tabela da API PV", saiu=bool(_saiu), s=int(_t.time() - t1))
+            _largada_marca(f"volta {ciclo}: tabela da API PV", saiu=bool(_saiu), s=int(_t.time() - t1),
+                           **({"ja_rodava": True} if _saiu is None else {}))
         if _saiu:                             # a tabela saiu: os dispositivos que faltam, poucos por volta (ver _pv_devs_completa)
             try:
                 _pv_devs_completa(_t.time() - t1)

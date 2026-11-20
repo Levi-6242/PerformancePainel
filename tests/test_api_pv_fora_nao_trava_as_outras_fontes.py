@@ -139,6 +139,27 @@ def test_a_aba_da_api_pv_rapida_segue_em_primeiro_e_sozinha(monkeypatch):
     assert app._prewarm_aba_principal(espera_max=5) is True and feito == [1]
 
 
+def test_com_a_leitura_anterior_ainda_rodando_nao_diz_que_saiu(monkeypatch):
+    """19/11/2026, reinício das 16:20 com a API PV lenta: a leitura da volta 1 levou 29 min e as voltas 2 e 3 marcaram
+    "saiu em 0 s" (o refresh voltava na hora porque o da volta 1 ainda rodava). A volta nova não espera, não começa outra
+    leitura e devolve None: a tabela NÃO saiu."""
+    chamou = []
+    monkeypatch.setattr(app, "_refresh_data_cache", lambda: chamou.append(1))
+    monkeypatch.setitem(app._data_refreshing, "on", True)
+    t0 = time.time()
+    assert app._prewarm_aba_principal(espera_max=5) is None
+    assert time.time() - t0 < 0.5 and chamou == []
+    monkeypatch.setitem(app._data_refreshing, "on", False)
+    assert app._prewarm_aba_principal(espera_max=5) is True and chamou == [1]
+
+
+def test_o_diario_anota_que_a_leitura_anterior_ainda_rodava():
+    src = inspect.getsource(app._prewarm_loop)
+    assert '**({"ja_rodava": True} if _saiu is None else {})' in src
+    # os dispositivos que faltam só depois da tabela sair de verdade (None é falso)
+    assert src.index("elif _saiu is None:") < src.index("if _saiu:                             # a tabela saiu")
+
+
 def test_o_laco_usa_o_teto():
     src = inspect.getsource(app._prewarm_loop)
     assert "_prewarm_aba_principal()" in src and "_refresh_data_cache()" not in src

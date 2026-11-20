@@ -2743,7 +2743,10 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
       idade da leitura. A cópia em disco da tabela já existia (`cache_snapshot.json`); o que demora é a 1ª volta. Para
       saber onde esse tempo vai, o worker escreve o **diário da largada** (`_largada_marca`, `_largada_volta`;
       `/api/sala/largada`): os marcos da subida e as últimas 12 voltas da tabela (duração, usinas sem dado, o que o
-      detalhe custou). Ler isso depois de cada reinício antes de mexer na ordem da largada.
+      detalhe custou). Ler isso depois de cada reinício antes de mexer na ordem da largada. A volta que começa com a
+      leitura da anterior ainda rodando anota `saiu: false, ja_rodava: true` (19/11/2026, reinício das 16:20: a leitura
+      da volta 1 levou 29 min e as voltas 2 e 3 diziam "saiu em 0 s" sem a tabela ter saído; o `_prewarm_aba_principal`
+      agora devolve None nesse caso, e os dispositivos que faltam esperam a tabela sair de verdade).
   - **Os inversores da API PV sem esperar o portal (17/11):** cada abertura baixava de novo o `day_inverter` (o dia
     inteiro, fonte paga): Altair 504 aos 61,7 s e depois 38,9 s, Céu Azul 12,3 s. O ciclo do worker, que já baixa isso
     de 5 em 5 min para a tabela, passou a guardar o detalhe por inversor das MESMAS leituras (`_pv_det_guarda`, cache
