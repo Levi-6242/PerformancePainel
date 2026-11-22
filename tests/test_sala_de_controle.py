@@ -1630,3 +1630,21 @@ def test_a_sala_separa_as_plantas_da_usina_agrupada():
     # o logger do COS: o nome da planta primeiro, a física depois, e aí sem comparar a conta de inversores
     assert "const fx = tr.filter(u => u.fis && u.fis !== u.u && ns.includes(normN(u.fis)));" in html
     assert "if (exato && tot && u.inv && tot !== u.inv)" in html
+
+
+
+def test_o_pacote_do_sino_guarda_o_plant_id_dos_trackers(monkeypatch, tmp_path):
+    """22/11/2026, no ar com o af84d69: a Sala separava a Barretos 2 e o sino seguia com "Barretos" junta, porque o pacote
+    enxuto do sino não guardava o plant_id das linhas de tracker e a troca pela planta não tinha por onde casar."""
+    import json as _json
+    arq = tmp_path / "falhas.json"
+    arq.write_text("{}", encoding="utf-8")
+    pac = {"strings": {"rows": [{"dia": "2026-11-21", "usina": "x"}], "episodios": []},
+           "trackers": {"rows": [{"usina": "Barretos", "plant_id": "297415", "tracker": "TRK7", "inicio": "2026-11-21 10:00", "fim": "", "perda_kwh": 9}]}}
+    monkeypatch.setattr(app, "_falhas_arquivo", lambda mes: str(arq))
+    monkeypatch.setattr(app, "_falhas_bytes", lambda mes: _json.dumps(pac).encode("utf-8"))
+    monkeypatch.setitem(app._sala_pacote_mem, "marca", None)
+    d = app._sala_pacote_do_mes()
+    assert d["trackers"]["rows"] == [{"usina": "Barretos", "plant_id": "297415", "tracker": "TRK7", "inicio": "2026-11-21 10:00", "fim": ""}]
+    r = S.novas_por_usina(d, {}, "2026-11-20 00:00", set(), "2026-11-22", plantas={"297415": "Barretos 2"})
+    assert [(u["usina"], u["trk"]) for u in r] == [("Barretos 2", ["TRK7"])]

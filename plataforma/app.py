@@ -31979,7 +31979,9 @@ def _sala_pacote_do_mes():
         s = p.get("strings") or {}
         _sala_pacote_mem.update(marca=marca, dado={
             "strings": {"rows": [{"dia": r.get("dia")} for r in s.get("rows") or []], "episodios": s.get("episodios") or []},
-            "trackers": {"rows": [{k: r.get(k) for k in ("usina", "tracker", "inicio", "fim")} for r in (p.get("trackers") or {}).get("rows") or []]}})
+            # o plant_id vai junto: é por ele que a linha da planta de uma usina agrupada ganha o nome dela (22/11/2026: sem
+            # ele, o sino seguia com "Barretos" junta depois da separação na Sala)
+            "trackers": {"rows": [{k: r.get(k) for k in ("usina", "plant_id", "tracker", "inicio", "fim")} for r in (p.get("trackers") or {}).get("rows") or []]}})
     return _sala_pacote_mem["dado"]
 
 
