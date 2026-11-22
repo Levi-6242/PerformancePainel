@@ -33894,15 +33894,19 @@ def api_ronda_mural():
     livro, erro, carimbo = _rel_sem_rondas_linhas()
     if livro is None:
         return jsonify({"ok": False, "motivo": f"o livro de rondas do App não abriu ({erro or 'sem leitura ainda'})"}), 503
+    # as respostas sem ronda (App v368, 22/11/2026: o "Ver trackers"): o livro de trackers fora do ar não derruba o mural
+    trk, erro_trk, carimbo_trk = _ronda_trackers_linhas()
     try:
         mt = os.path.getmtime(_falhas_arquivo(mes))
     except OSError:
         mt = None
-    chave = (mes, hoje, mt, carimbo)
+    chave = (mes, hoje, mt, carimbo, carimbo_trk)
     if _ronda_mural_memo["chave"] != chave:
-        _ronda_mural_memo.update(chave=chave, dados=_rmural.montar(livro, _falhas_ler(_falhas_arquivo(mes)) if mt else None, mes, hoje))
+        _ronda_mural_memo.update(chave=chave, dados=_rmural.montar(livro, _falhas_ler(_falhas_arquivo(mes)) if mt else None, mes, hoje,
+                                                                    trackers=trk))
     return jsonify({"ok": True, **_ronda_mural_memo["dados"], "meses": _rmural.meses_do_livro(livro)[-4:],
-                    "livro_em": datetime.fromtimestamp(carimbo).strftime("%H:%M") if carimbo else None, "erro_livro": erro})
+                    "livro_em": datetime.fromtimestamp(carimbo).strftime("%H:%M") if carimbo else None, "erro_livro": erro,
+                    "erro_trackers": None if trk is not None else (erro_trk or "sem leitura ainda")})
 
 
 # ── Observações por usina (ponto 1, Levi 22/07) — o "app" p/ escolher a UFV e escrever a linha que
@@ -35468,20 +35472,36 @@ _REL_SEM_RONDAS_WB = "rondas_app_campo"
 _rel_sem_rondas = {"ts": 0.0, "linhas": None, "erro": None, "carimbo": None}
 
 
-def _rel_sem_rondas_linhas():
-    """→ (linhas como dicts, erro ou None, carimbo da leitura)."""
-    if time.time() - _rel_sem_rondas["ts"] < 1800:
-        return _rel_sem_rondas["linhas"], _rel_sem_rondas["erro"], _rel_sem_rondas["carimbo"]
+def _livro_do_app_linhas(workbook, estado):
+    """Um livro que o App regrava de hora em hora, relido a cada 30 min → (linhas como dicts, erro ou None, carimbo)."""
+    if time.time() - estado["ts"] < 1800:
+        return estado["linhas"], estado["erro"], estado["carimbo"]
     try:
         import bd_api                                        # como nos outros leitores: import no uso
-        aba = next((x for x in bd_api.sheets() if x.get("workbook_key") == _REL_SEM_RONDAS_WB), None)
+        aba = next((x for x in bd_api.sheets() if x.get("workbook_key") == workbook), None)
         if aba is None:
-            raise RuntimeError(f"workbook {_REL_SEM_RONDAS_WB} não está na API")
+            raise RuntimeError(f"workbook {workbook} não está na API")
         linhas = [dict(zip(r.get("headers") or [], r.get("values") or [])) for r in bd_api.linhas_da_aba(aba["id"])]
-        _rel_sem_rondas.update(ts=time.time(), linhas=linhas, erro=None, carimbo=time.time())
+        estado.update(ts=time.time(), linhas=linhas, erro=None, carimbo=time.time())
     except Exception as e:                                   # noqa: BLE001 — fica o que já tinha; tenta de novo em 5 min
-        _rel_sem_rondas.update(ts=time.time() - 1500, erro=f"{type(e).__name__}: {e}")
-    return _rel_sem_rondas["linhas"], _rel_sem_rondas["erro"], _rel_sem_rondas["carimbo"]
+        estado.update(ts=time.time() - 1500, erro=f"{type(e).__name__}: {e}")
+    return estado["linhas"], estado["erro"], estado["carimbo"]
+
+
+def _rel_sem_rondas_linhas():
+    """→ (linhas como dicts, erro ou None, carimbo da leitura)."""
+    return _livro_do_app_linhas(_REL_SEM_RONDAS_WB, _rel_sem_rondas)
+
+
+# Os trackers de cada ronda e as respostas sem ronda (App v360 e v368): o livro `rondas_trackers_app_campo`, aba Trackers.
+# O mural da ronda lê dele só as respostas avulsas (o "Ver trackers"); o resto do mural segue pelo livro de rondas.
+_RONDA_TRK_WB = "rondas_trackers_app_campo"
+_ronda_trk = {"ts": 0.0, "linhas": None, "erro": None, "carimbo": None}
+
+
+def _ronda_trackers_linhas():
+    """→ (linhas como dicts, erro ou None, carimbo da leitura)."""
+    return _livro_do_app_linhas(_RONDA_TRK_WB, _ronda_trk)
 
 
 class _RelSemLeitores:

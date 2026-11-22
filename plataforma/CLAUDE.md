@@ -3338,9 +3338,21 @@ clicável e filtrável; de resto sobe".
   a 2 sem nome; as duas caem na linha do livro (mesmo cliente, mesma usina-base, o número dentro do "1 e 2"; com dois
   candidatos não adivinha). A conta mora
   em `ronda_mural.py` (pura, com teste); a rota só lê e guarda o resultado até o livro ou o pacote mudarem.
-- **O que NÃO chega:** o veredito por tracker (normalizado ou não, motivo, ação, observação) fica só na tabela `rondas`
-  do App; o livro traz só os totais por ronda. O mural mostra a ronda, não o tracker, e diz isso. Pedir ao chat do App
-  a lista por tracker (coluna nova no livro ou POST) é o próximo passo; em 17/11 o chat não estava aberto.
+- **As respostas SEM RONDA contam** (22/11/2026, Levi: "pode fazer as duas e subir"): desde a v368 do App o técnico
+  responde os trackers parados pela Ronda › "Ver trackers", sem começar ronda, e essas respostas só existem no livro
+  `rondas_trackers_app_campo` (aba Trackers, lido pelo `_ronda_trackers_linhas`, também a cada 30 min): "Origem" =
+  avulsa, "ID da linha" começando por "av|", OS e "Início da ronda" vazios. Sem elas, a usina respondida assim seguia
+  como "parado e sem ronda". `ronda_mural.avulsas` conta, por usina e mês, os trackers com veredito (ok, nao, na; o
+  pulado não conta), um dia de um técnico por linha (o nome sai do livro de rondas pelo mesmo HMAC). A usina com parado,
+  sem ronda e com resposta avulsa fica "Respondido sem ronda" (grupo Em dia), e a data que vale para os 7 dias é a mais
+  nova entre a ronda e a resposta; o detalhe lista "Respondidos sem ronda, pelo Ver trackers". O livro de trackers fora
+  do ar não derruba o mural (`erro_trackers`, dito no rodapé). Em 22/11 o livro ainda não tinha linha avulsa (329 de
+  ronda): o mural de novembro ficou igual ao de antes, usina por usina. **Como provar:**
+  `tests/test_ronda_mural_avulsas_22_11.py`.
+- **O que NÃO chega:** o veredito por tracker DAS RONDAS (normalizado ou não, motivo, ação, observação) não entra no
+  mural: ele mostra a ronda (os totais do livro de rondas), não o tracker, e diz isso. O livro por tracker existe desde a
+  v360 (`rondas_trackers_app_campo`, contrato em `C:\GridcoBuild\app-campo-docs\_propostas\rondas-trackers-livro`, com o
+  motivo e a observação cifrados); ler dele o veredito das rondas é o próximo passo.
 - **A tela de antes** (a ronda automática do WhatsApp: chip, envios de cada horário, observações, recorrentes, book de
   causas) segue inteira em `/ronda/monitor?antiga=1`, que a aba "Envio pelo WhatsApp" do mural embute. Sem rota nova
   (o mapa do Nexus é cópia assinada).

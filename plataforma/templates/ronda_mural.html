@@ -91,13 +91,14 @@ let ABA = "m", SIT = null, SEL = null, BUSCA = "", LIM = 80; const ABERTAS = new
 const F = {cli: "", reg: "", inc: false};      // os filtros das listas: cliente, região (das rondas) e só devolutiva incompleta
 
 // a situação de cada usina: o que o gestor precisa ver primeiro
+// a resposta sem ronda (App v368, o "Ver trackers") vale como devolutiva da usina; a data que conta é a mais nova das duas
 function sit(u) {
-  const t = u.ultT;
-  if (u.par && !u.nT) return ["c", "sem", "Sem ronda de trackers no mês"];
+  const t = u.ultT, a = u.ultAv, ult = [t && t.d, a && a.d].filter(Boolean).sort().pop();
+  if (u.par && !u.nT && !u.av) return ["c", "sem", "Sem ronda nem resposta de trackers no mês"];
   if (t && t.rs < t.ap) return ["s", "inc", "Devolutiva incompleta"];
-  if (u.par && t && dias(t.d) > 7) return ["a", "velha", "Última ronda há " + dias(t.d) + " dias"];
-  if (!u.par && !u.nT) return ["n", "nada", "Sem parado e sem ronda de trackers"];
-  return ["o", "ok", u.par ? "Em dia" : "Sem parado agora"];
+  if (u.par && ult && dias(ult) > 7) return ["a", "velha", (t && t.d === ult ? "Última ronda há " : "Última resposta há ") + dias(ult) + " dias"];
+  if (!u.par && !u.nT && !u.av) return ["n", "nada", "Sem parado e sem ronda de trackers"];
+  return ["o", "ok", u.par ? (u.nT ? "Em dia" : "Respondido sem ronda") : "Sem parado agora"];
 }
 const GRUPOS = [["sem", "Parado agora, sem ronda de trackers no mês", "c"], ["inc", "Devolutiva incompleta", "s"], ["velha", "Última ronda há mais de 7 dias", "a"], ["ok", "Em dia", "o"]];
 let US = [];
@@ -123,13 +124,13 @@ function lado() {
 }
 
 function kpis() {
-  const com = D.rondas, ap = com.reduce((a, r) => a + r.ap, 0), rs = com.reduce((a, r) => a + r.rs, 0), comPar = US.filter(u => u.par), sem = comPar.filter(u => !u.nT);
+  const com = D.rondas, ap = com.reduce((a, r) => a + r.ap, 0), rs = com.reduce((a, r) => a + r.rs, 0), comPar = US.filter(u => u.par), sem = comPar.filter(u => !u.nT && !u.av), soAv = comPar.filter(u => !u.nT && u.av);
   const inc = com.filter(r => r.rs < r.ap), tec = new Set(com.map(r => r.tec)).size;
   const on = {rondas: ABA === "r" && !F.inc, devol: ABA === "t", sem: ABA === "m" && SIT === "sem", inc: ABA === "r" && F.inc};
   const k = (id, cls, rot, num, un, sub, dica) => `<button class="kn ${cls}" data-kpi="${id}" aria-pressed="${on[id]}" style="${on[id] ? "outline:1.5px solid var(--verde)" : ""}" title="${esc(dica)}"><small>${rot}</small><div class="num"><b>${num}</b><span>${un}</span></div><div class="sub">${sub}</div></button>`;
   q("#kpis").innerHTML = k("rondas", "", "Rondas com trackers", com.length, "no mês", `de ${D.nRondas} rondas do App · ${tec} de ${D.nTec} técnicos apontaram tracker`, "Abre as rondas com trackers do mês")
     + k("devol", rs / ap >= .95 ? "bom" : "acao", "Devolutiva", ap ? Math.round(rs / ap * 100) + "%" : "—", "dos apontados", `${n0(rs)} respondidos de ${n0(ap)} trackers apontados`, "Abre a devolutiva por técnico, da pior para a melhor")
-    + k("sem", sem.length ? "crit" : "bom", "Parado e sem ronda", sem.length, sem.length === 1 ? "usina" : "usinas", `de ${comPar.length} com tracker ${ag("parado agora", "em aberto no fim do mês")} · ${n0(sem.reduce((a, u) => a + u.par, 0))} trackers parados nessas usinas`, "Filtra o mural: usinas com tracker parado agora e nenhuma ronda de trackers no mês")
+    + k("sem", sem.length ? "crit" : "bom", "Parado e sem ronda", sem.length, sem.length === 1 ? "usina" : "usinas", `de ${comPar.length} com tracker ${ag("parado agora", "em aberto no fim do mês")} · ${n0(sem.reduce((a, u) => a + u.par, 0))} trackers parados nessas usinas${soAv.length ? " · " + pl(soAv.length, "usina") + " respondida" + (soAv.length > 1 ? "s" : "") + " sem ronda" : ""}`, "Filtra o mural: usinas com tracker parado agora, nenhuma ronda de trackers e nenhuma resposta pelo Ver trackers no mês")
     + k("inc", inc.length ? "acao" : "bom", "Devolutiva incompleta", inc.length, inc.length === 1 ? "ronda" : "rondas", inc.length ? inc.slice(0, 2).map(r => curto(r.u) + " (" + r.rs + " de " + r.ap + ", " + dm(r.d) + ")").join(" · ") : "todo tracker apontado teve resposta", "Abre só as rondas em que ficou tracker apontado sem resposta");
 }
 
@@ -137,7 +138,7 @@ function topo() {
   q("#recorte").textContent = SEL ? "· " + curto(SEL) : SIT ? "· " + GRUPOS.find(g => g[0] === SIT)[1].toLowerCase() : "· mural do App de Campo";
   q("#mes").innerHTML = (D.meses && D.meses.length ? D.meses : [D.mes]).slice().sort().reverse().map(m => `<option value="${m}" ${m === D.mes ? "selected" : ""}>${m.slice(5)}/${m.slice(0, 4)}</option>`).join("");
   q("#fresco1").textContent = D.livro_em ? "livro das " + D.livro_em : "";
-  q("#frescor").innerHTML = `Rondas do App de Campo lidas às <b>${esc(D.livro_em || "—")}</b> (o App regrava o livro de hora em hora; a plataforma relê a cada 30 min) · trackers parados pelo pacote de falhas ${D.pacote ? "das <b>" + esc(D.pacote.slice(11)) + "</b> de " + dm(D.pacote.slice(0, 10)) : "<b>ainda não publicado neste mês</b>"}${D.erro_livro ? ` · <b style="color:var(--severo)">a última releitura do livro falhou</b> (vale a anterior)` : ""}`;
+  q("#frescor").innerHTML = `Rondas do App de Campo lidas às <b>${esc(D.livro_em || "—")}</b> (o App regrava o livro de hora em hora; a plataforma relê a cada 30 min) · trackers parados pelo pacote de falhas ${D.pacote ? "das <b>" + esc(D.pacote.slice(11)) + "</b> de " + dm(D.pacote.slice(0, 10)) : "<b>ainda não publicado neste mês</b>"}${D.erro_livro ? ` · <b style="color:var(--severo)">a última releitura do livro falhou</b> (vale a anterior)` : ""}${D.erro_trackers ? ` · <b style="color:var(--severo)">as respostas sem ronda (Ver trackers) não abriram agora</b>` : ""}`;
   const us = US.filter(noRecorte), rd = D.rondas.filter(rondaNoFiltro), tec = new Set(rd.map(r => r.tec)).size;
   q("#abas").innerHTML = [["m", "Mural das usinas", us.filter(u => u.s[0] === "c" || u.s[0] === "s").length], ["r", "Rondas", rd.length], ["t", "Técnicos", tec], ["w", "Envio pelo WhatsApp", null]]
     .map(([a, r, n]) => `<button class="aba ${ABA === a ? "on" : ""}" data-aba="${a}">${r}${n == null ? "" : `<em class="${a === "m" && n ? "s" : ""}">${n}</em>`}</button>`).join("");
@@ -148,6 +149,7 @@ function detalhe(u) {
   const rd = D.rondas.filter(r => r.u === u.u);
   return `<div class="ocx"><div class="det"><div><h4>${ag("Parados agora", "Em aberto no fim do mês")} (${u.par})</h4>${u.trk.length ? u.trk.map(t => `<div class="li"><span><b>${esc(t[0])}</b>${t[2] ? ` <span class="tag n">crônico</span>` : ""}</span><span>parou em ${dm(t[1])}</span></div>`).join("") + (u.par > u.trk.length ? `<div class="mais">e mais ${u.par - u.trk.length}</div>` : "") : `<div class="mais">Nenhum tracker ${ag("parado agora", "em aberto no fim do mês")} pelas falhas do mês.</div>`}</div>
     <div><h4>Rondas com trackers no mês (${rd.length})</h4>${rd.length ? rd.map(r => `<div class="li"><span>${dm(r.d)} · <b>${esc(r.tec)}</b> · ${esc(r.tipo)}${r.falhas ? ` <span class="sub">${esc(r.falhas)}</span>` : ""}</span><span>${barra(r.rs, r.ap)}</span><span style="width:64px;text-align:right">${dur(r.min)}</span></div>`).join("") : `<div class="mais">Nenhuma ronda com tracker apontado nesta usina neste mês${u.n ? " (" + pl(u.n, "ronda") + " sem tracker apontado)" : ""}.</div>`}
+      ${u.av ? `<h4 style="margin-top:12px">Respondidos sem ronda, pelo Ver trackers (${u.av})</h4>` + u.avDias.map(x => `<div class="li"><span>${dm(x.d)} · <b>${esc(x.tec || "técnico sem ronda no livro")}</b></span><span>${pl(x.n, "tracker")}${x.nao ? " · " + x.nao + (x.nao > 1 ? " não normalizados" : " não normalizado") : ""}</span></div>`).join("") : ""}
       <div class="mais" style="margin-top:10px">O que o técnico respondeu em CADA tracker (normalizado ou não, o motivo, a ação e a observação) fica guardado no App e ainda não chega aqui: por isso o mural mostra a ronda, não o tracker.</div></div></div></div>`;
 }
 function corpo() {
@@ -173,7 +175,7 @@ function corpo() {
     <div class="ocl" style="margin-top:12px"><div class="oc m6 cab"><span>Usina</span><span class="d">${ag("Parados agora", "Em aberto")}</span><span>Última ronda com trackers</span><span>Apontados → respondidos (mês)</span><span>Situação</span></div>
     ${us.slice(0, LIM).map(u => { const t = u.ultT, ab = ABERTAS.has(u.u); return `<div class="oc m6 ${u.s[0] === "c" ? "ab" : ""} ${ab ? "on" : ""}" data-oc="${esc(u.u)}" role="button" tabindex="0" aria-expanded="${ab}">
       <span title="${esc(u.u)}"><b>${esc(curto(u.u))}</b><span class="sub">${esc(cliente(u.u))}</span></span><span class="d">${u.par ? `<b style="color:var(--severo)">${u.par}</b>` : `<span class="zero">—</span>`}</span>
-      <span>${t ? `${dm(t.d)} · ${esc(t.tec)}<span class="sub">${dur(t.min)}${u.nT > 1 ? " · " + u.nT + " no mês" : ""}</span>` : `<span class="zero">nenhuma no mês</span>${u.n ? `<span class="sub">${pl(u.n, "ronda")} sem tracker apontado</span>` : ""}`}</span>
+      <span>${t ? `${dm(t.d)} · ${esc(t.tec)}<span class="sub">${dur(t.min)}${u.nT > 1 ? " · " + u.nT + " no mês" : ""}${u.av ? " · " + pl(u.av, "resposta") + " sem ronda" : ""}</span>` : u.ultAv ? `${dm(u.ultAv.d)} · ${esc(u.ultAv.tec || "—")}<span class="sub">${pl(u.av, "tracker respondido", "trackers respondidos")} sem ronda</span>` : `<span class="zero">nenhuma no mês</span>${u.n ? `<span class="sub">${pl(u.n, "ronda")} sem tracker apontado</span>` : ""}`}</span>
       <span>${barra(u.rs, u.ap)}</span><span><span class="tag ${u.s[0]}">${esc(u.s[2])}</span></span></div>${ab ? detalhe(u) : ""}`; }).join("")}</div>
     ${us.length > LIM ? `<div class="mais"><button class="btnl" data-mais="1">Ver mais</button></div>` : ""}
     ${D.semPar.length ? `<div class="mais">Fora deste mural por não ter o nome do Fracttal no cadastro (o livro da ronda usa o nome de lá): ${esc(D.semPar.slice(0, 8).join(", "))}${D.semPar.length > 8 ? " e mais " + (D.semPar.length - 8) : ""}.</div>` : ""}`;
@@ -204,7 +206,7 @@ async function carregar(calada) {
   clearTimeout(tR);
   if (!calada) q("#frescor").textContent = "Lendo o livro de rondas do App e as falhas do mês…";
   try { const d = await pega("/api/ronda/mural" + (MES ? "?mes=" + encodeURIComponent(MES) : ""), 120000);
-    D = d; MES = d.mes; US = D.usinas.filter(u => u.par || u.nT).map(u => Object.assign(u, {s: sit(u)}));
+    D = d; MES = d.mes; US = D.usinas.filter(u => u.par || u.nT || u.av).map(u => Object.assign(u, {s: sit(u)}));
     CLIENTES = [...new Set(US.map(u => cliente(u.u)).concat(D.rondas.map(r => cliente(r.u))).filter(Boolean))].sort(natural);
     REGIOES = [...new Set(D.rondas.map(r => r.reg).filter(Boolean))].sort(natural);
     if (SEL && !US.some(u => u.u === SEL)) SEL = null;

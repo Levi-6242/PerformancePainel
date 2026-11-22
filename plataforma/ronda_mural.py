@@ -9,7 +9,10 @@ Junta duas coisas que já existiam, sem consulta nova a fonte nenhuma:
   (`disponibilidade.usinas`), que é como o livro chama a usina.
 
 O que o técnico respondeu em CADA tracker (normalizado ou não, motivo, ação) fica só na tabela `rondas` do App: não vem
-no livro, e por isso o mural mostra a ronda, não o tracker. Puro: quem lê o livro e o pacote é o app.py."""
+no livro, e por isso o mural mostra a ronda, não o tracker. A exceção são as respostas SEM RONDA (App v368, 22/11/2026: o
+técnico responde pela Ronda › "Ver trackers", sem começar ronda), que só existem no livro `rondas_trackers_app_campo`
+("Origem" = avulsa): sem elas, a usina respondida assim seguia como "parado e sem ronda de trackers". Puro: quem lê os
+livros e o pacote é o app.py."""
 import re
 import unicodedata
 from datetime import datetime
@@ -83,13 +86,47 @@ def nome_no_livro(usina, fracttal, cliente, nomes_do_livro) -> str:
     return cand[0] if len(cand) == 1 else fracttal
 
 
+VEREDITOS = ("ok", "nao", "na")         # vazio = o tracker foi pulado: não é resposta
+
+
+def _e_avulsa(l) -> bool:
+    """A resposta dada pelo "Ver trackers", fora de ronda (o contrato da v368: "Origem" = avulsa e o "ID da linha" começa
+    por "av|"; o ID basta, para o livro de antes da coluna)."""
+    return str(l.get("Origem") or "").strip().lower() == "avulsa" or str(l.get("ID da linha") or "").startswith("av|")
+
+
+def avulsas(trackers, mes, nome_de) -> dict:
+    """{usina do livro: {"av", "avNao", "ultAv", "avDias"}} das respostas sem ronda do mês. Um dia de um técnico numa usina
+    vira uma linha ({d, tec, n, nao}); `nome_de` = código (HMAC) → nome, do livro de rondas ("" se ele não tem ronda lá)."""
+    por, vistos = {}, set()
+    for l in trackers or []:
+        if not _e_avulsa(l) or str(l.get("Data") or "")[:7] != mes:
+            continue
+        v = str(l.get("Veredito") or "").strip().lower()
+        u = str(l.get("Usina") or "").strip()
+        lid = str(l.get("ID da linha") or "")
+        if v not in VEREDITOS or not u or (lid and lid in vistos):
+            continue
+        vistos.add(lid)
+        d, h = str(l["Data"])[:10], str(l.get("Pessoa (HMAC)") or "")
+        x = por.setdefault(u, {}).setdefault((d, h), {"d": d, "tec": nome_de.get(h, ""), "n": 0, "nao": 0})
+        x["n"] += 1
+        x["nao"] += v == "nao"
+    out = {}
+    for u, dias in por.items():
+        ds = sorted(dias.values(), key=lambda x: (x["d"], x["tec"]), reverse=True)
+        out[u] = {"av": sum(x["n"] for x in ds), "avNao": sum(x["nao"] for x in ds), "ultAv": ds[0], "avDias": ds}
+    return out
+
+
 def meses_do_livro(livro) -> list:
     return sorted({str(l.get("Data") or "")[:7] for l in livro or [] if re.match(r"^\d{4}-\d{2}", str(l.get("Data") or ""))})
 
 
-def montar(livro, pacote, mes, hoje) -> dict:
+def montar(livro, pacote, mes, hoje, trackers=None) -> dict:
     """livro = as linhas do `rondas_app_campo` (dicts pelo cabeçalho); pacote = o pacote de falhas de `mes` (ou None);
-    hoje = AAAA-MM-DD. → o que a tela mostra."""
+    hoje = AAAA-MM-DD; trackers = as linhas do `rondas_trackers_app_campo` (ou None: o mural sai sem as respostas sem
+    ronda). → o que a tela mostra."""
     pacote = pacote or {}
     nomes = {l.get("Usina") for l in livro or [] if l.get("Usina")}          # o livro inteiro (90 dias), não só o mês
     frac = {}
@@ -117,13 +154,18 @@ def montar(livro, pacote, mes, hoje) -> dict:
         rondas.append({"d": str(l["Data"])[:10], "u": l.get("Usina") or "", "reg": l.get("Região") or "", "tec": l.get("Técnico") or "", "tipo": l.get("Tipo") or "",
                        "ap": _int(l.get("Trackers apontados")), "rs": _int(l.get("Trackers respondidos")), "nota": l.get("Nota da ronda"), "falhas": l.get("Falhas") or "",
                        "ini": str(l.get("Início") or "")[:16], "min": _minutos(l.get("Início"), l.get("Fim"))})
+    nome_de = {str(l.get("Técnico (HMAC)")): l.get("Técnico") or "" for l in livro or [] if l.get("Técnico (HMAC)")}
+    av = avulsas(trackers, mes, nome_de)
     usinas = []
-    for f in sorted(set(parados) | {r["u"] for r in rondas if r["u"]}):
+    for f in sorted(set(parados) | {r["u"] for r in rondas if r["u"]} | set(av)):
         rs = sorted((r for r in rondas if r["u"] == f), key=lambda r: (r["d"], r["ini"]))
         ct = [r for r in rs if r["ap"]]
         p = parados.get(f) or {"n": 0, "fonte": "", "trk": []}
         usinas.append({"u": f, "fonte": p["fonte"], "par": p["n"], "trk": sorted(p["trk"], key=lambda z: z[1])[:TRK_POR_USINA], "n": len(rs), "nT": len(ct),
-                       "ult": rs[-1]["d"] if rs else None, "ultT": ct[-1] if ct else None, "ap": sum(r["ap"] for r in ct), "rs": sum(r["rs"] for r in ct)})
+                       "ult": rs[-1]["d"] if rs else None, "ultT": ct[-1] if ct else None, "ap": sum(r["ap"] for r in ct), "rs": sum(r["rs"] for r in ct),
+                       "av": (av.get(f) or {}).get("av", 0), "avNao": (av.get(f) or {}).get("avNao", 0), "ultAv": (av.get(f) or {}).get("ultAv"),
+                       "avDias": ((av.get(f) or {}).get("avDias") or [])[:12]})
     com = sorted((r for r in rondas if r["ap"]), key=lambda r: (r["d"], r["ini"]), reverse=True)
     return {"mes": mes, "hoje": hoje, "pacote": pacote.get("gerado_em") or "", "usinas": usinas, "rondas": com, "nRondas": len(rondas),
-            "nTec": len(tecnicos - {""}), "semPar": [u for u, _n in sorted(sem_par.items(), key=lambda z: -z[1])]}
+            "nTec": len(tecnicos - {""}), "semPar": [u for u, _n in sorted(sem_par.items(), key=lambda z: -z[1])],
+            "avulsas": sum(x["av"] for x in av.values()), "nAvUs": len(av)}
