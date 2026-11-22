@@ -2501,6 +2501,16 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   66 com o número repetido (Brodowski e as que juntam usinas; no servidor o cadastro resolve parte), 96 fora do de-para
   da usina (os 66 da Athon), 316 em usina sem de-para (GreenYellow 176, Thopen 52, 2C 50, Assis 30). O de-para inteiro:
   4.745 trackers de 104 usinas, 2.883 casados, 1.430 a confirmar, 432 sem par, atualizado em 21/09/2026.
+- **De-para das usinas que faltavam** (22/11/2026, Levi: "pode fazer as duas, sobe"): 482 trackers novos em
+  `trackers_depara.xlsx` (4.745 → 5.227), todos "(CONFIRMAR)", só onde a contagem da fonte bate com a do Fracttal (foto
+  `nexus_ativos_fracttal` do banco, de 04/11; cada código conferido lá): Araputanga 59, Sete Lagoas 59, Macaíba 1 90 e
+  Santa Bárbara I 52 pelo mesmo número ("por número, mesma contagem"; na Sete Lagoas, os 4 chamados abertos
+  ETKR38/49/51/58.200 eram os Tracker 1.38/1.49/1.51/1.58 parados na API em 21/11); Ipixuna do Pará (49 + 73 = 122, o
+  Fracttal em série única .100) e Tupi Paulista (30 + 30 + 40 = 100, o Fracttal em blocos .101/.102 de 50) "por bloco na
+  serie unica". Castelo do Piauí (128 na fonte x 66), Cedro 1 e 2 (68 x 67 + 67) e Demerval Lobão (126 x 100) NÃO
+  fecham pela contagem: estão nas Pendências da planilha, sem chute. Prova: `tests/test_trackers_depara_planilha_real.py`.
+  Os chamados abertos de tracker em 21/11 (140): 40 ligados; 58 abertos no ativo da usina inteira ("…-ETKR1", não é um
+  tracker: Timon tem 12), que nenhum de-para liga; o resto, palpite a confirmar ou usina sem fonte de trackers.
 - **`parte` e ângulo** (05/11/2026, o retorno do App com o dado do dia): na API PV, cada tracker leva `parte`, o nome da
   usina na fonte quando a linha junta várias (pelo `plant_id`, do `_pv_trk_cache`): a Assis vem "Assis" nos parados, mas
   são quatro skids, cada um com o seu TRK1, sem o inversor; o App juntava os TRK1 num item só. O `usina_fracttal` do
@@ -3993,9 +4003,9 @@ ao servidor. Nenhuma régua, filtro ou limiar novo: tudo reaproveita a régua qu
     o número se repete entre as sub-usinas: em outubro, pelo canônico, 365 dos 1.335 trackers ficavam ambíguos; pelo
     `plant_id`, 1.061 com code e nenhum ambíguo (133 em usina fora do de-para, 141 sem Code Fracttal). Número repetido com
     codes diferentes só vale pelo nome exato; sem o cadastro do `plant_id`, a canônica de várias sub-usinas não chuta.
-    OS = todas as não canceladas do ativo (a OS de tracker é uma por tracker). Sem code (a 2C/owen, fora do de-para — a
-    Sete Lagoas Tracker 1.49 tem a 15481 no SLG200-ETKR49.200, e a regra "Tracker 1.N = ETKR N.200" não está combinada —
-    ou o tracker "sem par") → `ativo: null` com o motivo, sem pedido ao Fracttal.
+    OS = todas as não canceladas do ativo (a OS de tracker é uma por tracker). Sem code (usina fora do de-para ou o tracker
+    "sem par") → `ativo: null` com o motivo, sem pedido ao Fracttal. A 2C entrou no de-para em 22/11/2026 (ver "De-para
+    das usinas que faltavam").
   - **Fracttal sem resposta** (429 da cota, rede, 5xx, token): **502** `{ok: false, fonte_ok: false, motivo: "o Fracttal
     não respondeu (...)"}` — nunca "sem OS" (o card do ticket chama sem `falhas=` e mostra o 429 como "inversor não
     achado"). Nas STRINGS, com OS do mesmo inversor (código + N.M, o cliente pelo prefixo) no índice `os_string` da

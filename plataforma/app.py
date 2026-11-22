@@ -31270,9 +31270,9 @@ def api_painel_falhas_desconsiderar():
 # antes do início da ocorrência), como no card do ticket, para ninguém vincular a OS velha achando que é a desta parada.
 #
 # Trackers: o ativo é o "Code Fracttal" do de-para dos trackers (trackers_depara.xlsx), o mesmo do "Criar OS" de tracker
-# do Monitoramento; OS = todas as não canceladas do ativo (a OS de tracker é uma por tracker). A 2C não está no de-para: a
-# Sete Lagoas Tracker 1.49 tem a OS 15481 no SLG200-ETKR49.200 do Fracttal, e a busca diz "sem de-para" em vez de casar
-# pelo número (a regra Tracker 1.N = ETKR N.200 é pergunta para o Levi, não está combinada).
+# do Monitoramento; OS = todas as não canceladas do ativo (a OS de tracker é uma por tracker). A 2C entrou no de-para em
+# 22/11/2026 (Levi: "pode fazer as duas, sobe"), marcada (CONFIRMAR): a Sete Lagoas Tracker 1.49 é o SLG200-ETKR49.200,
+# a regra Tracker 1.N = ETKR N.200 que os 4 chamados abertos dela confirmaram em 21/11.
 #
 # O Fracttal que não respondeu (429 da cota, rede, 5xx) é 502 com o motivo — nunca "sem OS": a armadilha do card do
 # ticket, que chama sem `falhas=` e mostra um 429 como "inversor não achado".
@@ -31390,8 +31390,7 @@ def _falhas_os_trk_par(fonte, plant_id, usina, tracker):
     nome = _falhas_trk_nome_cadastro(plant_id)
     dp = _trk_depara_usina(fonte, nome or usina)
     if not dp:
-        return None, (f"a usina {nome or usina} ({fonte}) não está no de-para de trackers (trackers_depara.xlsx)"
-                      + (": a 2C ainda não tem de-para" if fonte == "owen" else ""))
+        return None, f"a usina {nome or usina} ({fonte}) não está no de-para de trackers (trackers_depara.xlsx)"
     if not nome and len(dp.get("usinas") or ()) > 1:
         return None, (f"o registro de trackers desta máquina não tem o cadastro do plant_id {plant_id}, e a {usina} tem "
                       f"{len(dp['usinas'])} usinas no de-para com os mesmos números de tracker")
