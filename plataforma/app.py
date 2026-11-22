@@ -6262,7 +6262,7 @@ def _entrada_tempo_real_build() -> dict:
                         uu["trk_com_os"] += 1
                     casou = casou or uu["usina"]
             nome_lista = casou or _macro_usina_nome(r.get("usina") or "") or str(r.get("usina") or "")
-            linha = _campo_trk_linha(r, partes if fonte == "API PV" else None)      # o plant_id é da API PV
+            linha = _campo_trk_linha(r, partes if fonte == "API PV" else None, fonte=fonte)  # o plant_id é da API PV
             listas.setdefault((x["cliente"], x["fonte"], nome_lista), []).append(linha)
     try:
         _campo_parados_guardar(grupos, fontes_trk, listas, lidas_em)
@@ -31376,7 +31376,15 @@ def _falhas_trk_nome_cadastro(plant_id):
 
 
 def _falhas_os_code_tracker(fonte, plant_id, usina, tracker):
-    """O "Code Fracttal" do tracker pelo de-para dos trackers → (code | None, motivo | None). Sem chutar: sem o nome do
+    """O "Code Fracttal" do tracker pelo de-para dos trackers → (code | None, motivo | None). A regra mora em
+    `_falhas_os_trk_par`, que a lista de parados do App também usa (21/11/2026)."""
+    par, motivo = _falhas_os_trk_par(fonte, plant_id, usina, tracker)
+    return (par["code"] if par else None), motivo
+
+
+def _falhas_os_trk_par(fonte, plant_id, usina, tracker):
+    """A linha do de-para dos trackers do tracker → (par | None, motivo | None); o par traz o `code` e a `situacao`
+    ("casado" só quando todas as linhas que o acharam estão casadas; senão "a_confirmar"). Sem chutar: sem o nome do
     cadastro, a usina canônica só vale se o de-para tiver uma usina só com ela; e o número do tracker que se repete com
     codes diferentes só vale pelo nome exato."""
     nome = _falhas_trk_nome_cadastro(plant_id)
@@ -31402,7 +31410,7 @@ def _falhas_os_code_tracker(fonte, plant_id, usina, tracker):
     x = cands[0]
     if not x.get("code"):
         return None, f"o {tracker} está no de-para sem Code Fracttal" + (f" ({x['obs']})" if x.get("obs") else "")
-    return x["code"], None
+    return dict(x, situacao="casado" if all(c.get("situacao") == "casado" for c in cands) else "a_confirmar"), None
 
 
 def _falhas_os_lista(rows, de_string: bool, desde: str | None) -> list:
@@ -36603,7 +36611,25 @@ def _campo_partes() -> dict:
     return out
 
 
-def _campo_trk_linha(r: dict, partes: dict | None = None) -> dict:
+def _campo_trk_fracttal(fonte, r: dict) -> dict:
+    """O ativo do Fracttal do tracker (Estrutura Trackers), para o App conferir o chamado aberto (21/11/2026, Levi pelo
+    chat do App: "eu queria que a gente linkasse tudo que está com chamado aberto com os dados que vêm da API daquelas
+    usinas"). O quadro de chamados do Nexus é chaveado pelo código do ativo; sem ele, o App pedia a plaqueta ao técnico e
+    o tracker já em chamado aparecia como pendência na ronda. A regra é a do Criar OS de tracker (`_falhas_os_trk_par`,
+    sem chute). `cod_a_confirmar`: o par está "a confirmar" no de-para (Levi, 21/11: "a confirmar vai marcado"); o App
+    pede a conferência pela plaqueta. Sem par: `cod_fracttal` null e o motivo. Medido em 21/11 (830 parados): 254
+    casados, 98 a confirmar, 66 com o número repetido, 96 fora do de-para da usina, 316 em usina sem de-para."""
+    f = str(fonte or "").strip().lower()
+    f = _TRK_DEPARA_FONTE.get(f, f)
+    try:
+        par, motivo = _falhas_os_trk_par(f, r.get("plant_id"), r.get("usina") or "", str(r.get("tracker") or ""))
+    except Exception as e:                                   # noqa: BLE001 — o de-para nunca derruba a lista do App
+        par, motivo = None, f"o de-para de trackers não respondeu ({type(e).__name__})"
+    return {"cod_fracttal": par["code"] if par else None,
+            "cod_a_confirmar": bool(par) and par.get("situacao") != "casado", "cod_motivo": motivo}
+
+
+def _campo_trk_linha(r: dict, partes: dict | None = None, fonte=None) -> dict:
     """Um tracker parado como o técnico precisa: o nº (como no /api/campo/ronda), o status, desde quando, o ângulo, o
     inversor (onde achar o tracker na usina), a parte (o nome da usina na fonte, quando a linha junta várias: o skid da
     Assis) e a usina dele no Fracttal, pela parte e, sem ela, pelo nome que a fonte dá ao tracker.
@@ -36620,7 +36646,8 @@ def _campo_trk_linha(r: dict, partes: dict | None = None) -> dict:
             # a cabine do tracker (Levi, 17/11/2026: na ronda do App, os da API PV "venha com qual a cabine antes"): o N do
             # "Inversor N.M" a que o BD_Trackers liga o tracker; sem inversor (ou nome fora do padrão), vazio, nunca chute
             "cabine": (lambda m: f"Cabine {int(m.group(1))}" if m else "")(re.search(r"(\d+)\.\d+\s*$", str(r.get("inversor") or ""))),
-            "usina_fracttal": _campo_fracttal(parte) or _campo_fracttal(r.get("usina"))}
+            "usina_fracttal": _campo_fracttal(parte) or _campo_fracttal(r.get("usina")),
+            **(_campo_trk_fracttal(fonte, r) if fonte else {})}
 
 
 def _campo_fracttal_da_usina(nome: str, parados: list) -> str:

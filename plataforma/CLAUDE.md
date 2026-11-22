@@ -2490,6 +2490,17 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   (Altair = Altair 1 a 5) sai com `usina_fracttal` vazio na linha e o de cada tracker preenchido; nome que aponta para duas
   usinas do Fracttal não resolve (vazio). Medido em 05/11: 93 das 95 usinas pelo nome da linha (sem par: Coração 2;
   ambígua: Rodrigues 2). Mapa em `_campo_fracttal_mapa`, guardado 10 min.
+- **`cod_fracttal`, `cod_a_confirmar`, `cod_motivo`** (21/11/2026, Levi pelo chat do App: "eu queria que a gente
+  linkasse tudo que está com chamado aberto com os dados que vêm da API daquelas usinas"): em cada tracker, o código do
+  ativo do Fracttal (Estrutura Trackers) pelo de-para de trackers (`trackers_depara.xlsx`), com a regra do Criar OS de
+  tracker (`_falhas_os_trk_par`: o nome do cadastro pelo plant_id; o número repetido com ativos diferentes só pelo nome
+  exato; nunca chute). O App confere o chamado aberto pelo código no quadro de chamados do Nexus, em vez de pedir a
+  plaqueta. O par "a confirmar" do de-para vai com o código e `cod_a_confirmar: true` (Levi: "a confirmar vai marcado"):
+  o App pede a conferência pela plaqueta. Sem par: `cod_fracttal` null e o motivo; o de-para quebrado nunca derruba a
+  lista. Medido em 21/11 às 21:40 (830 parados, pela regra vista de fora, sem o cadastro): 254 casados, 98 a confirmar,
+  66 com o número repetido (Brodowski e as que juntam usinas; no servidor o cadastro resolve parte), 96 fora do de-para
+  da usina (os 66 da Athon), 316 em usina sem de-para (GreenYellow 176, Thopen 52, 2C 50, Assis 30). O de-para inteiro:
+  4.745 trackers de 104 usinas, 2.883 casados, 1.430 a confirmar, 432 sem par, atualizado em 21/09/2026.
 - **`parte` e ângulo** (05/11/2026, o retorno do App com o dado do dia): na API PV, cada tracker leva `parte`, o nome da
   usina na fonte quando a linha junta várias (pelo `plant_id`, do `_pv_trk_cache`): a Assis vem "Assis" nos parados, mas
   são quatro skids, cada um com o seu TRK1, sem o inversor; o App juntava os TRK1 num item só. O `usina_fracttal` do

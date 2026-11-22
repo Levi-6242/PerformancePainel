@@ -180,3 +180,66 @@ def test_sem_comunicacao_o_angulo_e_null(entrada):
     assert sc["atual"] is None and sc["alvo"] is None and sc["disparidade"] is None
     parado = next(t for t in _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")["parados"] if t["status"] == "parado")
     assert parado["atual"] == 3.0 and parado["alvo"] == 41.0 and parado["parte"] == ""
+
+
+# ── 21/11/2026: o ativo do Fracttal de cada tracker, para o App conferir o chamado aberto ────────────────────────────
+# Levi, pelo chat do App: "eu queria que a gente linkasse tudo que está com chamado aberto com os dados que vêm da API
+# daquelas usinas". O quadro de chamados do Nexus é chaveado pelo código do ativo; sem ele, o App pedia a plaqueta ao
+# técnico e o tracker já em chamado aparecia como pendência. A regra é a do Criar OS de tracker (sem chute); o par "a
+# confirmar" do de-para vai marcado (Levi, aqui: "a confirmar vai marcado").
+def _depara(entrada, trackers, usinas=("Ipixuna 2",), so_fonte="pg"):
+    vistos = []
+
+    def _dp(fonte, nome):
+        vistos.append((fonte, nome))
+        if fonte != so_fonte:
+            return None
+        return {"usinas": list(usinas), "trackers": [dict(x, usina=usinas[0]) for x in trackers]}
+    entrada.setattr(app, "_trk_depara_usina", _dp)
+    entrada.setattr(app, "_falhas_trk_nome_cadastro", lambda pid: None)
+    return vistos
+
+
+def _trk(nome):
+    return next(t for t in _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")["parados"] if t["nome"] == nome)
+
+
+def test_cada_tracker_leva_o_ativo_do_fracttal_e_o_a_confirmar_vai_marcado(entrada):
+    vistos = _depara(entrada, [{"num": 12, "tracker": "TRK-12", "code": "IPX200-ETKR1.12", "situacao": "casado"},
+                               {"num": 2, "tracker": "TRK-2", "code": "IPX200-ETKR1.2", "situacao": "a_confirmar"}])
+    app._entrada_tempo_real_build()
+    t12, t2 = _trk("TRK-12"), _trk("TRK-2")
+    assert (t12["cod_fracttal"], t12["cod_a_confirmar"], t12["cod_motivo"]) == ("IPX200-ETKR1.12", False, None)
+    assert (t2["cod_fracttal"], t2["cod_a_confirmar"], t2["cod_motivo"]) == ("IPX200-ETKR1.2", True, None)
+    assert ("pg", "Ipixuna 2") in vistos                      # a Thopen do tempo real é a fonte "pg" do de-para
+
+
+def test_sem_de_para_nao_chuta_e_diz_o_motivo(entrada):
+    _depara(entrada, [], so_fonte="nenhuma")
+    app._entrada_tempo_real_build()
+    t = _trk("TRK-12")
+    assert t["cod_fracttal"] is None and t["cod_a_confirmar"] is False
+    assert "não está no de-para de trackers" in t["cod_motivo"]
+
+
+def test_numero_repetido_com_ativos_diferentes_nao_escolhe(entrada):
+    _depara(entrada, [{"num": 12, "tracker": "TRK 12 A", "code": "IPX200-ETKR1.12", "situacao": "casado"},
+                      {"num": 12, "tracker": "TRK 12 B", "code": "IPX200-ETKR2.12", "situacao": "casado"}])
+    app._entrada_tempo_real_build()
+    t = _trk("TRK-12")
+    assert t["cod_fracttal"] is None and "se repete" in t["cod_motivo"]
+
+
+def test_de_para_quebrado_nao_derruba_a_lista(entrada):
+    def _quebra(fonte, nome):
+        raise ValueError("planilha ilegível")
+    entrada.setattr(app, "_trk_depara_usina", _quebra)
+    app._entrada_tempo_real_build()
+    t = _trk("TRK-12")
+    assert t["cod_fracttal"] is None and "não respondeu" in t["cod_motivo"]
+    assert _usina(app._CAMPO_PARADOS["data"], "Ipixuna 2")["n_parados"] == 2
+
+
+def test_o_criar_os_de_tracker_segue_com_o_mesmo_codigo(entrada):
+    _depara(entrada, [{"num": 12, "tracker": "TRK-12", "code": "IPX200-ETKR1.12", "situacao": "a_confirmar"}])
+    assert app._falhas_os_code_tracker("pg", 33, "Ipixuna 2", "TRK-12") == ("IPX200-ETKR1.12", None)
