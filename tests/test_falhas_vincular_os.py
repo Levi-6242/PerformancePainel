@@ -257,10 +257,10 @@ def test_trackers_acha_o_ativo_pelo_cadastro_do_plant_id_e_lista_todas_as_vivas(
 
 def test_tracker_sem_code_diz_por_que_sem_perguntar_ao_fracttal(depara):
     c = app.app.test_client()
-    # a 2C não está no de-para: a Sete Lagoas Tracker 1.49 tem a 15481 no SLG200-ETKR49.200 do Fracttal, mas a regra
-    # "Tracker 1.N = ETKR N.200" não está combinada
+    # usina fora do de-para (aqui, o de-para de teste não tem a Sete Lagoas; o real a tem desde 22/11/2026): diz por quê,
+    # sem pedir ao Fracttal
     j = _busca(c, tipo="trackers", fonte="owen", plant_id="STL", usina="Sete Lagoas", tracker="Tracker 1.49").get_json()
-    assert j["ok"] is True and j["ativo"] is None and "2C" in j["motivo"] and j["os"] == []
+    assert j["ok"] is True and j["ativo"] is None and "não está no de-para" in j["motivo"] and j["os"] == []
     j = _busca(c, tipo="trackers", fonte="pv", plant_id="60062", usina="Altair", tracker="TRK90").get_json()
     assert j["ativo"] is None and "sem Code Fracttal" in j["motivo"] and "excedente" in j["motivo"]
     # o plant_id que o registro desta máquina não conhece: a usina canônica tem duas sub-usinas com o TRK67 — não chuta
