@@ -2681,6 +2681,23 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   lista não coube nas 2048 letras da porta): a Sala aponta o novo da usina pela mesma regra. Usina que não está na
   leitura: aviso na tela. Prova: `test_a_notificacao_do_nexus_abre_na_usina_e_nos_equipamentos` e, com dado real em
   `tmp_sc\prova.py` (22/11), Santarém 1 (4 inversores + Tracker 17) e Aparecida 3 (3 trackers de 51 novos).
+- **As plantas da usina agrupada, cada uma na sua linha, SÓ na Sala e no aviso** (22/11/2026, Levi: "é a Barretos 2,
+  separa e sobe", e na escolha "Só na Sala e no aviso"). O cadastro junta plantas da API PV numa usina física (30 em
+  22/11: Barretos 1 e 2, Indaiatuba 1 a 4, Segredo 1.1 a 1.5…) e a Sala lia só a planta que representa a soma (as
+  strings e os trackers das outras nunca apareciam), e o aviso contava os trackers das duas Barretos juntos (81, TRK42
+  nas duas). Agora: a Entrada manda `partes` em cada usina agrupada (`_entrada_partes`: nome por
+  `sala_controle.plantas_da_usina`, números do rollup, acompanhamento e trackers parados do plant_id de cada uma; o
+  ao vivo atualiza as strings e a situação); a Sala faz de cada planta uma usina (`umaU`, com o pid dela; a estação só
+  na planta que representa a usina) e dá o nome da planta às linhas das falhas pelo plant_id; o `novas_por_usina`
+  troca igual (`plantas_da_entrada`). O nome FÍSICO (`fisU`) segue nas consultas pelo nome: OS, Fracttal, prontuário,
+  falhas por inversor, de-para, aviso de trava, comentário. A idade real e as OS do mês vêm da física (`fis`, `subDe`
+  pelo inversor). O logger do COS casa pelo nome da planta e, sem ele, pelo da física (sem comparar a conta de
+  inversores). Fora da Sala nada mudou: Tempo real, metas, disponibilidade, Fracttal e App seguem com a usina física.
+  Efeito: o card da Thopen · API PV passa a contar plantas (128 linhas em vez de 67). Os vistos antigos da usina
+  física não valem para a planta: o que já tinha sido visto pode voltar uma vez como novo. Prova:
+  `test_a_entrada_manda_as_plantas_da_usina_agrupada`, `test_o_novo_separa_as_plantas_da_usina_agrupada`,
+  `test_a_sala_separa_as_plantas_da_usina_agrupada` e a `tmp_sc\prova.py` com `prova_partes.py` (Barretos 2 com os
+  trackers dela; Segredo 1.1 a 1.5).
 - **A pausa do histórico de trackers do supervisório:** depois de uma falha, o `/historico` daquela usina só é pedido de
   novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
   quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro

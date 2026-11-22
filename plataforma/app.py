@@ -6051,6 +6051,27 @@ def _entrada_trk_do_resumo(inst: str):
     return out
 
 
+def _entrada_partes(u, fonte_id, acomp_de, outros) -> list | None:
+    """As plantas de uma usina AGRUPADA da API PV (o rollup soma as fatias, `_somar_partes_da_usina`), cada uma com o nome
+    (`sala_controle.plantas_da_usina`), os números dela e o acompanhamento do plant_id dela; os trackers parados entram no
+    laço dos trackers. Só a Sala de controle usa (22/11/2026, Levi: "é a Barretos 2, separa e sobe", escolha "Só na Sala e
+    no aviso"): a linha da Entrada continua a da usina física, e o Tempo real não muda. Usina sem fatias: None."""
+    partes = u.get("partes") or []
+    if u.get("fonte") != "API PV" or len(partes) < 2:
+        return None
+    pref = _ENTRADA_VKEY.get(fonte_id, "pv")
+    out = []
+    for p, n in zip(partes, _sala.plantas_da_usina(u.get("usina") or "", partes, outros)):
+        falt = int(p.get("strings_faltando") or 0)
+        ac = acomp_de.get(f"{pref}:{p.get('plant_id')}")
+        ac = int(ac) if isinstance(ac, (int, float)) and ac > 0 else 0
+        out.append({"plant_id": p.get("plant_id"), "nome": n["nome"], "status": p.get("status"), "causa": p.get("causa") or "",
+                    "qtd_inversores": p.get("qtd_inversores"), "inv_off": p.get("inv_off"), "strings_faltando": falt,
+                    "strings_acomp": ac, "strings_nao_rec": max(0, falt - ac), "ultima_leitura": p.get("ultima_leitura"),
+                    "trk_parados": 0, "trk_com_os": 0})
+    return out
+
+
 def _entrada_tempo_real_build() -> dict:
     """Por cliente x fonte, o que o plantao olha: strings faltando e usinas sem comunicacao (rollup do macro),
     ETMs com problema no mes (etm/problemas, com ticket) e trackers parados agora (as rotas de parados de cada
@@ -6082,6 +6103,7 @@ def _entrada_tempo_real_build() -> dict:
 
     rows = [dict(u) for u in ((_macro_cache.get("data") or {}).get("usinas") or [])]
     _trk_geo_annotate(rows)
+    _todos_nomes = {r.get("usina") for r in rows if r.get("usina")}
     chave_de: dict = {}
     chave_pid: dict = {}       # plant_id → card: o nome muda de uma rota para outra ("Sete Lagoa" x "Sete Lagoas"), o id não
     for u in rows:
@@ -6100,6 +6122,9 @@ def _entrada_tempo_real_build() -> dict:
                              "inv_off": u.get("inv_off"), "estado": u.get("estado"), "regiao": u.get("regiao"),
                              "ultima_leitura": u.get("ultima_leitura"), "etm": [], "etm_os": False,
                              "trk_parados": 0, "trk_com_os": 0}
+        _partes = _entrada_partes(u, x["fonte_id"], acomp_de, _todos_nomes - {nome})
+        if _partes:
+            x["usinas"][nome]["partes"] = _partes
         x["strings_faltando"] += falt
         x["strings_nao_rec"] += nao_rec
         st = u.get("status")
@@ -6261,6 +6286,10 @@ def _entrada_tempo_real_build() -> dict:
                     if r.get("ticket_status"):
                         uu["trk_com_os"] += 1
                     casou = casou or uu["usina"]
+                    for _p in uu.get("partes") or []:          # a planta da usina agrupada (a Sala separa), pelo plant_id
+                        if _pid and str(_p.get("plant_id")) == _pid:
+                            _p["trk_parados"] += 1
+                            _p["trk_com_os"] += 1 if r.get("ticket_status") else 0
             nome_lista = casou or _macro_usina_nome(r.get("usina") or "") or str(r.get("usina") or "")
             linha = _campo_trk_linha(r, partes if fonte == "API PV" else None, fonte=fonte)  # o plant_id é da API PV
             listas.setdefault((x["cliente"], x["fonte"], nome_lista), []).append(linha)
@@ -6535,6 +6564,20 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
                 u.update(_entrada_tr_strings_de(r))
             u["strings_acomp"] = _ac(pref, u.get("plant_id"))
             u["strings_nao_rec"] = max(0, int(u.get("strings_faltando") or 0) - u["strings_acomp"])
+            if u.get("partes"):                               # as plantas da usina agrupada (a Sala separa, 22/11/2026)
+                fat = {str(p.get("plant_id")): p for p in ((r or {}).get("partes") or [])}
+                novas = []
+                for p0 in u["partes"]:
+                    p = dict(p0)
+                    f = fat.get(str(p.get("plant_id")))
+                    if f is not None:
+                        p.update(status=f.get("status"), causa=f.get("causa") or "", qtd_inversores=f.get("qtd_inversores"),
+                                 inv_off=f.get("inv_off"), strings_faltando=int(f.get("strings_faltando") or 0),
+                                 ultima_leitura=f.get("ultima_leitura"))
+                    p["strings_acomp"] = _ac(pref, p.get("plant_id"))
+                    p["strings_nao_rec"] = max(0, int(p.get("strings_faltando") or 0) - p["strings_acomp"])
+                    novas.append(p)
+                u["partes"] = novas
             usinas.append(u)
         for (cli, fon, pid), r in vivo.items():                # usina que apareceu depois do build entra sem esperar 30 min
             if (cli, fon) == chave and pid not in vistos:
@@ -18663,7 +18706,8 @@ def _somar_partes_da_usina(item, irmas):
     item["n_partes"] = len(irmas)
     item["partes"] = [{"plant_id": x.get("plant_id"), "usina": x.get("usina_fonte") or x.get("usina"),
                        "status": x.get("status"), "qtd_inversores": x.get("qtd_inversores"),
-                       "strings_faltando": x.get("strings_faltando")} for x in irmas]
+                       "strings_faltando": x.get("strings_faltando"), "inv_off": x.get("inv_off"),
+                       "causa": x.get("causa"), "ultima_leitura": x.get("ultima_leitura")} for x in irmas]
     item["qtd_inversores"] = _soma("qtd_inversores")
     item["inv_off"] = _soma("inv_off")
     item["strings_ativas"] = _soma("strings_ativas")
@@ -31959,7 +32003,8 @@ def api_sala_novas():
             return jsonify({"ok": False, "motivo": "o pacote de falhas do mês ainda não foi publicado"}), 503
         with app.test_request_context("/api/sala/idade"):
             idade = api_sala_idade().get_json() or {}
-        usinas = _sala.novas_por_usina(pacote, idade, desde, vistas, datetime.now().strftime("%Y-%m-%d"))
+        usinas = _sala.novas_por_usina(pacote, idade, desde, vistas, datetime.now().strftime("%Y-%m-%d"),
+                                       plantas=_sala.plantas_da_entrada(_ENTRADA_TR_CACHE.get("data")))
     except (OSError, ValueError) as e:
         return jsonify({"ok": False, "motivo": f"não consegui montar o novo ({type(e).__name__})"}), 500
     return jsonify({"ok": True, "desde": desde, "total": sum(u["strings"] + u["trackers"] for u in usinas), "usinas": usinas[:40],

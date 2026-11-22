@@ -360,7 +360,42 @@ def estacoes_de_agora(mq_usina, com_ok=192) -> list:
 # template): novo = parou depois da 1ª vez que a pessoa abriu a Sala, segue parado e ela ainda não abriu. Quem nunca
 # abriu a Sala não tem "desde": o sino não mostra nada dela (não acorda ninguém com o mês inteiro).
 
-def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
+# ── As plantas de uma usina agrupada, cada uma na sua linha, SÓ na Sala (22/11/2026) ───────────────────────────────
+# Levi, perguntado se a planta 297415 da API PV é a Barretos 2: "é a Barretos 2, separa e sobe", e na escolha "Só na Sala e
+# no aviso". O cadastro junta várias plantas da API PV numa usina física (Barretos 1 e 2, Indaiatuba 1 a 4, Segredo 1.1 a
+# 1.5: 30 usinas da Thopen · API PV em 22/11) e a Sala lia só a planta que representa a soma: as strings e os trackers das outras nunca
+# apareciam lá, e o aviso do sino contava os trackers das duas Barretos juntos (81 trackers, 58 nomes: TRK42 nas duas).
+# Fora da Sala nada muda: o Tempo real, as metas, a disponibilidade, o Fracttal e o App seguem com a usina física.
+def nome_da_planta(nome) -> str:
+    """O nome da planta na fonte sem o "(id)" do fim e sem espaço dobrado: "Barretos 2 (83)" → "Barretos 2"."""
+    return re.sub(r"\s+", " ", re.sub(r"\s*\(\d+\)\s*$", "", str(nome or ""))).strip()
+
+
+def plantas_da_usina(fisica, partes, outros=()) -> list:
+    """[{plant_id, nome}] das plantas de uma usina agrupada, na ordem recebida. O nome vazio, repetido, igual ao da usina
+    física ou ao de outra usina (`outros`) leva " · <id>": duas linhas da Sala nunca podem cair no mesmo nome."""
+    nomes = [nome_da_planta((p or {}).get("usina")) for p in partes or []]
+    out = []
+    for p, n in zip(partes or [], nomes):
+        pid = (p or {}).get("plant_id")
+        if not n or nomes.count(n) > 1 or n == fisica or n in outros:
+            n = f"{n or fisica} · {pid}"
+        out.append({"plant_id": pid, "nome": n})
+    return out
+
+
+def plantas_da_entrada(entrada) -> dict:
+    """{plant_id (texto): nome da planta} das usinas agrupadas que a Entrada separou (`partes` de cada usina)."""
+    out = {}
+    for g in (entrada or {}).get("grupos") or []:
+        for u in g.get("usinas") or []:
+            for p in u.get("partes") or []:
+                if p.get("plant_id") not in (None, "") and p.get("nome"):
+                    out[str(p["plant_id"])] = p["nome"]
+    return out
+
+
+def novas_por_usina(pacote, idade, desde, vistas, hoje, plantas=None) -> list:
     """`pacote` = o pacote de falhas do mês (strings.rows, strings.episodios, trackers.rows); `idade` = o resultado do
     `idade_real` (a data real de quem já vinha parado no dia 1); `desde` = "AAAA-MM-DD HH:MM" da pessoa; `vistas` = as
     chaves que ela já abriu; `hoje` = "AAAA-MM-DD". → [{usina, strings, inversores, trackers, inv, trk}], a com mais
@@ -368,7 +403,10 @@ def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
 
     `inv` e `trk` = QUAIS inversores e trackers, na ordem natural (22/11/2026, Levi, com o print do sino do Nexus: "quando
     eu abrir uma notificação da sala de controle tem que abrir exatamente na usina e nos equipamentos citados, se não, não
-    serve"): o link do sino leva a lista e a Sala abre neles."""
+    serve"): o link do sino leva a lista e a Sala abre neles.
+
+    `plantas` = {plant_id: nome} das usinas agrupadas que a Sala separa (`plantas_da_entrada`): a linha da planta sai com
+    o nome dela, como na tela. A idade real segue pela usina física (é assim que os pacotes antigos a guardam)."""
     if not desde or not isinstance(pacote, dict):
         return []
     st = pacote.get("strings") or {}
@@ -377,6 +415,10 @@ def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
     ult, d1mes = (fechados[-1] if fechados else None), (dias[0] if dias else None)
     real = (idade or {}).get("strings") or {}
     por = {}
+    plantas = plantas or {}
+
+    def nome(x):
+        return plantas.get(str(x.get("plant_id"))) or x.get("usina")
 
     def de(usina):
         return por.setdefault(usina, {"usina": usina, "strings": 0, "inv": set(), "trackers": 0, "trk": set()})
@@ -385,17 +427,17 @@ def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
             continue                                     # já voltou: não é novidade
         r = real.get(_chave_str(e)) if e.get("d0") == d1mes else None
         d0, ini = (r["d0"], r.get("inicio") or r["d0"]) if r else (e.get("d0"), e.get("inicio") or e.get("d0"))
-        k = f"s|{e.get('usina')}|{e.get('inversor')}|{e.get('string')}|{d0}"
+        k = f"s|{nome(e)}|{e.get('inversor')}|{e.get('string')}|{d0}"
         if str(ini) >= desde and k not in vistas:
-            o = de(e.get("usina"))
+            o = de(nome(e))
             o["strings"] += 1
             o["inv"].add(e.get("inversor"))
     for r in (pacote.get("trackers") or {}).get("rows") or []:
         if r.get("fim"):
             continue                                     # o tracker que já voltou não é novidade
         ini = str(r.get("inicio") or "")
-        if ini >= desde and f"t|{r.get('usina')}|{r.get('tracker')}|{ini[:10]}" not in vistas:
-            o = de(r.get("usina"))
+        if ini >= desde and f"t|{nome(r)}|{r.get('tracker')}|{ini[:10]}" not in vistas:
+            o = de(nome(r))
             o["trackers"] += 1
             o["trk"].add(str(r.get("tracker") or ""))
     nat = lambda xs: sorted((str(x) for x in xs if x not in (None, "")), key=_ordem_natural)       # noqa: E731

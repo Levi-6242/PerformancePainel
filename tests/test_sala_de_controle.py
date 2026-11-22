@@ -113,14 +113,14 @@ def test_a_seta_da_fonte_so_abre_e_recolhe():
 
 def test_o_prontuario_da_usina_abre_no_nexus_pelo_nome():
     html = _html()
-    assert 'href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}"' in html and 'target="_blank" rel="noopener"' in html
+    assert 'href="/t/comando/usinas/abrir?nome=${encodeURIComponent(fisU(u))}"' in html and 'target="_blank" rel="noopener"' in html
 
 
 def test_o_que_o_scada_tem_aparece_quando_a_fonte_nao_traz():
     """Levi, 16/11/2026: "Não pode ter informação na API que a gente não tem aqui no tempo real". A leitura do SCADA só é
     pedida quando a aba Trackers ou a ETM não têm o dado da fonte (ou a fonte da usina está fora), e a falha fica marcada."""
     html = _html()
-    assert 'pega("/api/sala/scada?usina=" + encodeURIComponent(u.u) + "&fonte="' in html
+    assert 'pega("/api/sala/scada?usina=" + encodeURIComponent(fisU(u)) + "&fonte="' in html
     assert 'scadaBloco(u, "trk")' in html and 'scadaBloco(u, "etm")' in html
     ler = html[html.index("async function lerScada(u) {"):html.index("function scadaBloco(u, qual) {")]
     assert "if (u.u in D.scada || SCL[u.u]) return;" in ler and "D.scada[u.u] = {erro:" in ler      # sem laço de pedidos
@@ -145,7 +145,7 @@ def test_acompanhamento_e_comentario_gravam_nas_rotas_do_tempo_real():
     assert 'grava("/api/state/tracking", {key: VKEY[u.g] + ":" + u.pid, value: v || null})' in html
     assert '<input class="aci" type="text" inputmode="numeric"' in html      # desde 16/11 (23h30) o campo mora na lateral
     assert "x.sn = Math.max(0, x.sf - v)" in html              # sem acompanhamento = fora - acompanhadas, como a Entrada
-    assert 'grava("/api/state/comment/add", {key: VKEY[u.g] + ":" + u.pid, nick, texto, usina: u.u})' in html
+    assert 'grava("/api/state/comment/add", {key: VKEY[u.g] + ":" + u.pid, nick, texto, usina: fisU(u)})' in html
     assert 'grava("/api/state/comment/del", {key: VKEY[u.g] + ":" + u.pid, ts: x.dataset.delc})' in html
     assert 'localStorage.getItem("gcAnalistaNick")' in html    # o mesmo nome guardado do Tempo real, para quem entra pela senha
 
@@ -203,7 +203,7 @@ def test_a_idade_real_e_o_novo_por_pessoa_entram_na_montagem():
     html = _html()
     assert 'pega("/api/sala/idade", 60000).catch(() => null), pega("/api/sala/visto", 20000).catch(() => null)' in html
     montar = html[html.index("function montar(ent, fal, idr, vis, arr) {"):html.index("let ABX = null")]
-    assert "real[e.usina + \"|\" + e.inversor + \"|\" + e.string]" in montar     # quem vinha parado no dia 1 ganha a data real
+    assert "real[(e.fis || e.usina) + \"|\" + e.inversor + \"|\" + e.string]" in montar     # quem vinha parado no dia 1 ganha a data real
     assert 'k: "s|" + e.usina + "|" + e.inversor + "|" + e.string + "|" + r.d0' in montar   # a chave do visto é a parada real
     assert "if (e.aberta && String(e.ini) >= desde && !meu(e.k))" in montar     # novo = parou depois da 1ª vez, segue parado, não vi
     assert "if (r.fim) return;" in montar                                        # tracker que já voltou não é novidade
@@ -611,7 +611,7 @@ def test_a_aba_etm_mostra_os_sinais_que_a_entrada_conta():
     """16/11/2026, a Gravatá II com 1 na lateral e "Sem análise de estação" na aba: o alarme vem da irradiação gravada no
     mês (a lista `etm` da Entrada), não da leitura de agora da fonte. A aba mostra os dois, e a OS leva os sinais."""
     html = _html()
-    assert "etmL: Array.isArray(u.etm) ? u.etm.map(String) : [], etmA: Array.isArray(u.etm_alarmes) ? u.etm_alarmes.map(String) : []" in html
+    assert "etmL: comEtm && Array.isArray(u.etm) ? u.etm.map(String) : [], etmA: comEtm && Array.isArray(u.etm_alarmes) ? u.etm_alarmes.map(String) : []" in html
     assert "Sinais da estação no mês" in html and 'u.etmA.includes(x) ? "c" : "a"' in html
     assert 'Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length)' in html
     assert ": (u.etmA.length ? u.etmA : u.etmL).slice(0, 4);" in html
@@ -647,7 +647,7 @@ def test_a_curva_vem_do_logger_do_cos_so_onde_a_fonte_e_lenta():
     cd = cd[:cd.index("\n}\n")]
     assert "pt.s[k] / 100" in cd and "buraco" in cd                                               # centésimos de A; o buraco não se liga
     assert "} catch (e) { return null; }" in cc                                                   # qualquer falha: vale a fonte
-    assert 'const n = normN(x.nome), b = n.replace(/\\s+(\\d+|i{1,3}|iv|v)$/, ""); return b !== n ? tr.filter(u => normN(u.u) === b) : [];' in html
+    assert 'const n = normN(x.nome), b = n.replace(/\\s+(\\d+|i{1,3}|iv|v)$/, ""); return b !== n ? tr.filter(u => normN(u.u) === b || (u.fis && u.fis !== u.u && normN(u.fis) === b)) : [];' in html
     assert "if (ex.length) return ex;" in html                                                    # com o nome inteiro, nunca pelo nome curto
     assert 'data-curvafonte="${esc(i.n)}"' in html and "SEM_COS[k] = 1; delete D.curvas[k];" in html        # e dá para ver pela fonte
 
@@ -725,8 +725,8 @@ def test_a_rota_do_arranjo_le_para_todos_e_grava_so_para_quem_administra(cli, mo
 
 def test_a_tela_mostra_o_nome_da_sala_e_junta_os_grupos_sem_somar():
     html = _html()
-    assert 'rot: (arr && arr.nomes[g.fonte_id + "|" + u.plant_id]) || u.usina, gr: (arr && arr.grupos[g.fonte_id + "|" + u.plant_id]) || "",' in html
-    assert "return {u: u.usina, pid: u.plant_id," in html                                    # a chave da usina segue a da fonte
+    assert 'rot: (arr && arr.nomes[g.fonte_id + "|" + pid]) || nome, gr: (arr && arr.grupos[g.fonte_id + "|" + pid]) || "",' in html
+    assert "return {u: nome, fis: u.usina, pid," in html and "nome = p ? p.nome : u.usina" in html                                    # a chave da usina segue a da fonte
     assert 'pega("/api/sala/arranjo", 20000).catch(() => null)' in html and "if (arrL && arrL.nomes) ARR_LIDO.v = arrL;" in html
     assert '<div class="ug">${u.gr ? esc(u.gr) : "Sem grupo"}' in html and "(a.gr ? 0 : 1) - (b.gr ? 0 : 1) || natural(a.gr, b.gr)" in html
     assert 'data-u="${esc(u.u)}" title="${esc(u.rot)}${u.rot !== u.u ? " (na fonte: " + esc(u.u) + ")" : ""}' in html
@@ -818,7 +818,7 @@ def test_as_fontes_que_nao_batem_viram_aviso_ao_lado_da_usina():
     assert 'aba("cf", "Conferir fontes")' not in html
     dv = html[html.index("function calcDvg() {"):html.index("const divergeCos = u =>")]
     assert 'if (x.fonte !== "SCADA Grid") return;' in dv and "if (doScadaGrid(u)) return;" in dv                    # a regra do COS
-    assert "if (tot && u.inv && tot !== u.inv)" in dv and 'const semC = ms.every(m => m.grupo === "sem_comunicacao"), euSem = u.st === "sem_comm";' in dv
+    assert "if (exato && tot && u.inv && tot !== u.inv)" in dv and 'const semC = ms.every(m => m.grupo === "sem_comunicacao"), euSem = u.st === "sem_comm";' in dv
     assert '<span class="dvg" data-dvg="1"' in html and 'ABA = "cf"; desenhar(); scrollTo(0, 0); return; }' in html   # o clique abre o lado a lado
     assert "atualizaCos(true);" in html and "calcDvg();" in html
 
@@ -866,7 +866,7 @@ def test_o_de_para_real_sai_do_cadastro(cli):
     assert {i["esup"] for i in inv} >= set(app.EQUIP_NAMES[chave])
     assert cli.get("/api/sala/depara", query_string={"usina": "Usina Que Não Existe 999"}).get_json()["chaves"] == []
     html = _html()
-    assert 'pega("/api/sala/depara?usina=" + encodeURIComponent(u.u), 30000)' in html and "que a fonte manda e o cadastro não conhece" in html
+    assert 'pega("/api/sala/depara?usina=" + encodeURIComponent(fisU(u)), 30000)' in html and "que a fonte manda e o cadastro não conhece" in html
     assert 'data-dped="1"' in html                                                                                 # o editor fica atrás do botão
 
 
@@ -1606,3 +1606,27 @@ def test_o_editar_do_de_para_poe_a_propria_tabela_em_edicao():
         {"equipamento_supervisorio": "INVERSOR02", "nome": "Inversor 1.2", "cabine_codigo_fracttal": "CABN2", "codigo_fracttal": "INVR1.2"}]}]
     assert len(o["p"]["erros"]) == 2 and "Inversor 1.3: sem o nome na fonte" in o["p"]["erros"][0] and "Sem Usina (13)" in o["p"]["erros"][1]
     assert o["q"]["erros"] == ["INVERSOR01: as strings têm de ser um número inteiro maior que zero"] and o["q"]["itens"] == []   # o esvaziado não vai (não apaga)
+
+
+
+def test_a_sala_separa_as_plantas_da_usina_agrupada():
+    """22/11/2026, Levi: "é a Barretos 2, separa e sobe" (escolha: "Só na Sala e no aviso"). A Entrada manda as plantas da
+    usina agrupada (`partes`); a Sala faz de cada uma uma usina com o pid dela, dá o nome da planta às linhas das falhas
+    (pelo plant_id, a mesma troca do `novas_por_usina`) e segue com o nome FÍSICO nas consultas pelo nome."""
+    html = _html()
+    assert "flatMap(u => Array.isArray(u.partes) && u.partes.length > 1" in html
+    assert "SUBP[String(p.plant_id)] = p.nome; return umaU(g, u, p);" in html
+    assert "const n = SUBP[String(x.plant_id)]; return n && n !== x.usina ? Object.assign({}, x, {usina: n, fis: x.usina}) : x;" in html
+    # a estação fica só com a planta que representa a usina (não conta duas vezes)
+    assert "const comEtm = !p || String(p.plant_id) === String(u.plant_id)" in html
+    # a idade real e as OS do mês são da física
+    assert 'real[(e.fis || e.usina) + "|" + e.inversor + "|" + e.string]' in html and "d.subDe(o.usina, o.inversor)" in html
+    # OS, Fracttal, prontuário e falhas por inversor procuram pelo nome físico
+    for rota in ("/api/os-performance?usina=", "/api/painel/falhas/os?tipo=strings&usina=", "/api/strings/trava-aviso?usina=",
+                 "/api/etm/os/historico?usina=", "/api/sala/depara?usina="):
+        assert rota + '" + encodeURIComponent(fisU(u))' in html, rota
+    assert "/t/comando/usinas/abrir?nome=${encodeURIComponent(fisU(u))}" in html
+    assert 'p.set("usina", u.u)' not in html                     # a OS nunca sai com o nome da planta
+    # o logger do COS: o nome da planta primeiro, a física depois, e aí sem comparar a conta de inversores
+    assert "const fx = tr.filter(u => u.fis && u.fis !== u.u && ns.includes(normN(u.fis)));" in html
+    assert "if (exato && tot && u.inv && tot !== u.inv)" in html

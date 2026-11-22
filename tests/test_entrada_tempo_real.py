@@ -243,3 +243,47 @@ def test_strings_do_card_sao_ao_vivo_e_deixam_fora_usina_sem_comunicacao(monkeyp
         raise RuntimeError("fora")
     monkeypatch.setattr(app, "_portfolio_rollup", _cai)
     assert app._entrada_tr_payload()["grupos"][0]["strings_nao_rec"] == 65
+
+
+
+# ── 22/11/2026: as plantas da usina agrupada da API PV, para a Sala de controle separar ─────────────────────────────
+def test_a_entrada_manda_as_plantas_da_usina_agrupada(entrada, monkeypatch):
+    """Levi: "é a Barretos 2, separa e sobe" (só na Sala e no aviso). A Barretos física junta as plantas 297410 e 297415 da
+    API PV; a Entrada segue com UMA linha (o Tempo real não muda) e manda as plantas em `partes`, cada uma com o nome, os
+    números dela e os trackers parados DELA (pelo plant_id da linha de tracker)."""
+    monkeypatch.setattr(app, "_macro_cache", {"ts": 0.0, "warming": False, "data": {"usinas": [
+        {"usina": "Barretos", "plant_id": 297410, "status": "critico", "strings_faltando": 0, "cliente": "Thopen", "fonte": "API PV",
+         "n_partes": 2, "partes": [{"plant_id": 297410, "usina": "Barretos 1 (83)", "status": "ok", "qtd_inversores": 20, "strings_faltando": 0},
+                                   {"plant_id": 297415, "usina": "Barretos 2 (83)", "status": "critico", "qtd_inversores": 20, "strings_faltando": 0,
+                                    "inv_off": 1, "causa": "1 inversor parado"}]},
+        {"usina": "Altair 1", "plant_id": 22860, "status": "ok", "strings_faltando": 0, "cliente": "Thopen", "fonte": "API PV"}]}})
+    f = entrada["fonte"]
+    monkeypatch.setattr(app, "_pv_parados_rows", f("pv", rows=[
+        {"usina": "Barretos 1 (83)", "plant_id": 297410, "cliente": "Thopen", "tracker": "TRK42"},
+        {"usina": "Barretos 2 (83)", "plant_id": 297415, "cliente": "Thopen", "tracker": "TRK42", "ticket_status": "Aberto"},
+        {"usina": "Barretos 2 (83)", "plant_id": 297415, "cliente": "Thopen", "tracker": "TRK7"}]))
+    monkeypatch.setattr(app, "_pg_parados_rows", f("pg"))
+    monkeypatch.setattr(app, "_owen_parados_rows", f("owen"))
+    monkeypatch.setattr(app, "_sunop_parados_rows", lambda inst=None: [])
+    monkeypatch.setattr(app, "_load_state", lambda: {"tracking": {"pv:297415": 3}})
+    d = app._entrada_tempo_real_build()
+    pv = _grupo(d, "Thopen", "API PV")
+    por = {u["usina"]: u for u in pv["usinas"]}
+    assert set(por) == {"Barretos", "Altair 1"} and por["Barretos"]["trk_parados"] == 3     # o Tempo real segue com a física
+    assert "partes" not in por["Altair 1"]
+    b1, b2 = por["Barretos"]["partes"]
+    assert (b1["plant_id"], b1["nome"], b1["trk_parados"], b1["trk_com_os"]) == (297410, "Barretos 1", 1, 0)
+    assert (b2["plant_id"], b2["nome"], b2["trk_parados"], b2["trk_com_os"], b2["status"], b2["inv_off"]) == (297415, "Barretos 2", 2, 1, "critico", 1)
+    assert b2["causa"] == "1 inversor parado" and b2["strings_acomp"] == 3
+    # a leitura AO VIVO das strings atualiza as plantas pelo rollup e mantém os trackers do build
+    monkeypatch.setattr(app, "_ENTRADA_TR_CACHE", {"ts": time.time(), "building": False, "data": d})
+    monkeypatch.setattr(app, "_ENTRADA_TR_VIVO", {"ts": 0.0, "epoch": None, "data": None})
+    monkeypatch.setattr(app, "_portfolio_rollup", lambda: [
+        {"usina": "Barretos", "plant_id": 297410, "fonte": "API PV", "cliente": "Thopen", "status": "critico", "strings_faltando": 4,
+         "partes": [{"plant_id": 297410, "usina": "Barretos 1 (83)", "status": "critico", "qtd_inversores": 20, "strings_faltando": 4},
+                    {"plant_id": 297415, "usina": "Barretos 2 (83)", "status": "ok", "qtd_inversores": 20, "strings_faltando": 0}]}])
+    v = {u["usina"]: u for u in _grupo(app._entrada_tr_payload(), "Thopen", "API PV")["usinas"]}
+    b1, b2 = v["Barretos"]["partes"]
+    assert (b1["strings_faltando"], b1["status"], b1["trk_parados"]) == (4, "critico", 1)
+    assert (b2["strings_faltando"], b2["status"], b2["trk_parados"], b2["strings_acomp"], b2["strings_nao_rec"]) == (0, "ok", 2, 3, 0)
+    assert por["Barretos"]["partes"][0]["strings_faltando"] == 0          # o cache em si não foi mexido

@@ -236,3 +236,39 @@ def test_a_consulta_do_sino_nao_cria_a_pessoa(tmp_path):
     v.marcar("bia@exemplo.invalid", "Bia", [K2], datetime(2026, 11, 16, 9, 5))
     assert v.consulta("ana@exemplo.invalid") == ("2026-11-16 08:00", {K1})
 
+
+
+# ── 7. as plantas de uma usina agrupada, cada uma na sua linha, SÓ na Sala (22/11/2026) ────────────────────────────
+# Levi: "é a Barretos 2, separa e sobe", e na escolha "Só na Sala e no aviso". O cadastro junta as plantas 297410 e 297415
+# da API PV na Barretos física; a Sala lia só a 297410 e o aviso contava os trackers das duas juntos (81, TRK42 nas duas).
+def test_o_nome_de_cada_planta():
+    assert S.nome_da_planta("Barretos 2 (83)") == "Barretos 2"
+    assert S.nome_da_planta("Assis Chateaubriand  Skid 1 (79)") == "Assis Chateaubriand Skid 1"
+    ps = S.plantas_da_usina("Barretos", [{"plant_id": 297410, "usina": "Barretos 1 (83)"}, {"plant_id": 297415, "usina": "Barretos 2 (83)"}])
+    assert ps == [{"plant_id": 297410, "nome": "Barretos 1"}, {"plant_id": 297415, "nome": "Barretos 2"}]
+    # o nome vazio, repetido, igual ao da usina física ou ao de outra usina da lista leva o id (duas linhas nunca se juntam)
+    ps = S.plantas_da_usina("Fazenda", [{"plant_id": 1, "usina": "Fazenda (9)"}, {"plant_id": 2, "usina": "Outra (3)"},
+                                        {"plant_id": 3, "usina": "X 1"}, {"plant_id": 4, "usina": "X 1 (5)"}, {"plant_id": 5, "usina": ""}],
+                            outros={"Outra"})
+    assert [p["nome"] for p in ps] == ["Fazenda · 1", "Outra · 2", "X 1 · 3", "X 1 · 4", "Fazenda · 5"]
+    ent = {"grupos": [{"usinas": [{"usina": "Barretos", "partes": [{"plant_id": 297410, "nome": "Barretos 1"}, {"plant_id": 297415, "nome": "Barretos 2"}]},
+                                  {"usina": "Altair 1", "plant_id": 22860}]}]}
+    assert S.plantas_da_entrada(ent) == {"297410": "Barretos 1", "297415": "Barretos 2"}
+    assert S.plantas_da_entrada(None) == {} and S.plantas_da_entrada({"aquecendo": True, "grupos": []}) == {}
+
+
+def test_o_novo_separa_as_plantas_da_usina_agrupada():
+    pac = {"strings": {"rows": [{"dia": "2026-11-01"}, {"dia": "2026-11-15"}, {"dia": "2026-11-16"}],
+                       "episodios": [dict(_ep("Indaiatuba", "Inversor 2.1", "ST 03", "2026-11-15", "2026-11-15", "2026-11-15 09:10"), plant_id="21481"),
+                                     dict(_ep("Indaiatuba", "Inversor 1.1", "ST 01", "2026-11-01", "2026-11-15", "2026-11-01 07:00"), plant_id=21480)]},
+           "trackers": {"rows": [{"usina": "Barretos", "plant_id": "297410", "tracker": "TRK42", "inicio": "2026-11-15 13:00", "fim": ""},
+                                 {"usina": "Barretos", "plant_id": "297415", "tracker": "TRK42", "inicio": "2026-11-15 13:00", "fim": ""},
+                                 {"usina": "Barretos", "plant_id": "297415", "tracker": "TRK7", "inicio": "2026-11-15 14:00", "fim": ""}]}}
+    # a idade real é da usina FÍSICA (o pacote do mês anterior não sabe da separação): a ST 01 vinha de outubro, não é nova
+    idade = {"strings": {"Indaiatuba|Inversor 1.1|ST 01": {"d0": "2026-10-17", "inicio": "2026-10-17 09:40", "antes": False}}}
+    plantas = {"297410": "Barretos 1", "297415": "Barretos 2", "21480": "Indaiatuba 1", "21481": "Indaiatuba 2"}
+    r = S.novas_por_usina(pac, idade, "2026-11-14 18:00", {"t|Barretos 1|TRK42|2026-11-15"}, "2026-11-16", plantas=plantas)
+    assert r == [{"usina": "Barretos 2", "strings": 0, "inversores": 0, "trackers": 2, "inv": [], "trk": ["TRK7", "TRK42"]},
+                 {"usina": "Indaiatuba 2", "strings": 1, "inversores": 1, "trackers": 0, "inv": ["Inversor 2.1"], "trk": []}]
+    # sem o mapa (a Entrada aquecendo), como era: a usina física
+    assert [u["usina"] for u in S.novas_por_usina(pac, idade, "2026-11-14 18:00", set(), "2026-11-16")] == ["Barretos", "Indaiatuba"]
