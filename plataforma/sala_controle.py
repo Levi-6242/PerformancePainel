@@ -363,8 +363,12 @@ def estacoes_de_agora(mq_usina, com_ok=192) -> list:
 def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
     """`pacote` = o pacote de falhas do mês (strings.rows, strings.episodios, trackers.rows); `idade` = o resultado do
     `idade_real` (a data real de quem já vinha parado no dia 1); `desde` = "AAAA-MM-DD HH:MM" da pessoa; `vistas` = as
-    chaves que ela já abriu; `hoje` = "AAAA-MM-DD". → [{usina, strings, inversores, trackers}], a com mais novidade
-    primeiro. Sem `desde`, lista vazia."""
+    chaves que ela já abriu; `hoje` = "AAAA-MM-DD". → [{usina, strings, inversores, trackers, inv, trk}], a com mais
+    novidade primeiro. Sem `desde`, lista vazia.
+
+    `inv` e `trk` = QUAIS inversores e trackers, na ordem natural (22/11/2026, Levi, com o print do sino do Nexus: "quando
+    eu abrir uma notificação da sala de controle tem que abrir exatamente na usina e nos equipamentos citados, se não, não
+    serve"): o link do sino leva a lista e a Sala abre neles."""
     if not desde or not isinstance(pacote, dict):
         return []
     st = pacote.get("strings") or {}
@@ -375,7 +379,7 @@ def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
     por = {}
 
     def de(usina):
-        return por.setdefault(usina, {"usina": usina, "strings": 0, "inv": set(), "trackers": 0})
+        return por.setdefault(usina, {"usina": usina, "strings": 0, "inv": set(), "trackers": 0, "trk": set()})
     for e in st.get("episodios") or []:
         if not ult or (e.get("d1") or "") < ult:
             continue                                     # já voltou: não é novidade
@@ -391,8 +395,12 @@ def novas_por_usina(pacote, idade, desde, vistas, hoje) -> list:
             continue                                     # o tracker que já voltou não é novidade
         ini = str(r.get("inicio") or "")
         if ini >= desde and f"t|{r.get('usina')}|{r.get('tracker')}|{ini[:10]}" not in vistas:
-            de(r.get("usina"))["trackers"] += 1
-    out = [{"usina": o["usina"], "strings": o["strings"], "inversores": len(o["inv"]), "trackers": o["trackers"]} for o in por.values()]
+            o = de(r.get("usina"))
+            o["trackers"] += 1
+            o["trk"].add(str(r.get("tracker") or ""))
+    nat = lambda xs: sorted((str(x) for x in xs if x not in (None, "")), key=_ordem_natural)       # noqa: E731
+    out = [{"usina": o["usina"], "strings": o["strings"], "inversores": len(o["inv"]), "trackers": o["trackers"],
+            "inv": nat(o["inv"]), "trk": nat(o["trk"])} for o in por.values()]
     return sorted(out, key=lambda x: (-(x["strings"] + x["trackers"]), str(x["usina"])))
 
 

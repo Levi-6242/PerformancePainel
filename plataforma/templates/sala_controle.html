@@ -1981,8 +1981,8 @@ function detalhe(u, bx) {
   // O PULSO SEGUE ATÉ O PROBLEMA (Levi, 17/11/2026: "se for tracker ou ETM pulsa a parte de trackers ou ETM até eu clicar e
   // ser levado para o problema"). A aba que guarda a novidade pulsa enquanto não é a aberta: Strings e Trackers pelas
   // ocorrências novas (as mesmas que fazem a fonte e a usina pulsar); a ETM pelo alarme sem OS, até o clique nela.
-  const novoNaAba = id => id === "str" ? novasS(u.u).length : id === "trk" ? novasT(u.u).length : id === "etm" ? (u.ea && !u.eo && !CLICADAS.has("e|" + u.u) ? 1 : 0) : 0;
-  const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""} ${ABA !== id && novoNaAba(id) ? "pulsa" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length) : ""}</button>`;
+  const novoNaAba = id => id === "str" ? novasS(u.u).length : id === "trk" ? novasT(u.u).length || (FOCO.trk && FOCO.u === u.u ? 1 : 0) : id === "etm" ? (u.ea && !u.eo && !CLICADAS.has("e|" + u.u) ? 1 : 0) : 0;
+  const aba = (id, t, n) => `<button class="aba ${ABA === id ? "on" : ""} ${ABA !== id && novoNaAba(id) ? "pulsa" : ""}" data-aba="${id}">${t}${n == null ? "" : `<em class="${n ? "s" : ""}">${n}</em>`}${id === "str" ? pill(novasS(u.u).length) : id === "trk" ? pill(novasT(u.u).length || (FOCO.trk && FOCO.u === u.u ? (NOVT[u.u] || []).length : 0)) : ""}</button>`;
   let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}${aba("fal", "Falhas do mês")}${PODE ? botaoCriarOS() : ""}<a class="btnl" style="margin-left:${PODE ? "8px" : "auto"};align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(u.u)}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
   if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
@@ -2037,7 +2037,7 @@ function detalhe(u, bx) {
           const k = u.u + "|" + i.n, cri = CRIADAS[k], o = osRecentes(u.u, i.n)[0], qv = quemViu(u.u, i.n), extra = [];
           if (tr1) extra.push(tr1 + " trancada" + (tr1 > 1 ? "s" : "")); if (qv) extra.push(qv); if (cri) extra.push("<b>OS criada por você</b> às " + cri); else if (o) extra.push("<b>OS " + esc(o.os) + "</b> há " + diasAte(o.criada) + " dias · " + esc(o.status));
           const sit = (i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : i.at === 0 ? "Sem geração agora" : "Todas gerando") + (bx1 && !i.desl && !i.fc ? " · " + bx1 + " com corrente baixa" : "");
-          return `<div class="il ${cls} ${gr ? "on" : ""} ${nv.length ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
+          return `<div class="il ${cls} ${gr ? "on" : ""} ${nv.length || (FOCO.u === u.u && FOCO.inv.has(i.n)) ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
             <span><input type="checkbox" class="selinv" data-sel="${esc(i.n)}" ${MARC.has(i.n) ? "checked" : ""} title="Escolher para criar OS" aria-label="Escolher ${esc(i.n)} para criar OS"></span>
             <span class="n">${esc(i.n)}${nv.length ? '<span class="nv">nova</span>' : ""}${osDe(i.n).length || osRecentes(u.u, i.n).length || cri ? `<button class="ferr" data-os="${esc(i.n)}" title="OS de performance deste inversor" aria-label="OS de performance deste inversor"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></button>` : ""}</span>
             <span>${i.kw == null ? "—" : nf(i.kw, 1) + " kW"}</span><span>${i.eday == null ? "—" : nf(i.eday) + " kWh"}</span>
@@ -2276,12 +2276,40 @@ function irAoNovo() {
   if (ABA === "str") IR_NOVO = null;
   if (e) e.scrollIntoView({block: ABA === "str" ? "center" : "start"});
 }
+// A NOTIFICAÇÃO ABRE NO QUE CITA (22/11/2026, Levi, com o print do sino do Nexus "Segredo · 120 strings em 8 inversores ·
+// 1 tracker": "quando eu abrir uma notificação da sala de controle tem que abrir exatamente na usina e nos equipamentos
+// citados, se não, não serve"). O link do sino do topo do Nexus traz `?usina=&aba=&inv=&trk=` (as listas saem da plataforma,
+// `sala_controle.novas_por_usina`, a mesma regra desta tela); o sino de dentro da Sala usa a mesma entrada. Abre a usina e
+// as strings de CADA inversor citado (o 1º com a curva), que pulsam até o clique; os trackers citados ficam apontados e, se
+// a usina abriu nas strings, a aba Trackers pulsa até o clique. Abrir pela notificação é ver: o citado sai do sino.
+const FOCO = {u: null, inv: new Set(), trk: false};
+const PEDIDO = (() => { const p = new URLSearchParams(location.search), u = (p.get("usina") || "").trim();
+  return u ? {u, g: p.get("g") || "", aba: p.get("aba") === "trk" ? "trk" : "str", inv: p.getAll("inv"), trk: p.getAll("trk")} : null; })();
+function irParaNovo(g, u, aba, invs, trks) {
+  const achadas = todas().filter(x => x.u === u), nv = D.novas.s.concat(D.novas.t).find(x => x.u === u);
+  const esta = achadas.find(x => x.g === g) || (nv && achadas.find(x => x.g === nv.g)) || achadas[0];
+  if (!esta) { toast("A usina " + u + " não está na Sala nesta leitura (a fonte dela não respondeu): abra de novo em alguns minutos."); return false; }
+  const inv = [...new Set((invs || []).map(String).filter(Boolean))], trk = [...new Set((trks || []).map(String).filter(Boolean))];
+  abrirUsina(esta.g, u); CLICADAS.add("u|" + u); CLICADAS.add("g|" + esta.g);
+  FOCO.u = u; FOCO.inv = new Set(inv);
+  inv.forEach(i => { EXPI.add(u + "|" + i); verS(u, i); });
+  if (inv[0]) { INV = inv[0]; GRAF.add(u + "|" + inv[0]); }
+  // os trackers apontados são EXATAMENTE os citados (o outro novo da usina segue novo e aparece no clique da aba)
+  if (trk.length) { const cit = new Set(trk), nt = D.novas.t.filter(x => x.u === u && cit.has(String(x.tk)));
+    marcaVisto(nt);
+    NOVT[u] = trk.map(k => { const n = nt.find(x => String(x.tk) === k), r = n ? null : D.trkRows.find(r => r.usina === u && String(r.tracker) === k && !r.fim);
+      return {tk: k, d: n ? n.d : r ? String(r.inicio).slice(0, 10) : HOJE}; }); }
+  ABA = inv.length && aba !== "trk" ? "str" : trk.length ? "trk" : "str";
+  FOCO.trk = ABA === "str" && trk.length > 0;
+  IR_NOVO = ABA === "str" && inv.length ? u : null;
+  return true;
+}
 const verT = u => { const l = D.novas.t.filter(x => x.u === u && !VISTO.has(x.k)); if (l.length) NOVT[u] = (NOVT[u] || []).filter(a => !l.some(b => b.tk === a.tk)).concat(l.map(x => ({tk: String(x.tk), d: x.d}))); marcaVisto(D.novas.t.filter(x => x.u === u)); };
 // quem já viu as strings paradas deste inversor (para todos: evita OS em dobro)
 const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.aberta).flatMap(e => D.vis.vistos[e.k] || []); if (!l.length) return "";
   const q = x => dm(x.quando.slice(0, 10)) + " às " + x.quando.slice(11, 16), eu = l.filter(x => x.eu).sort((a, b) => b.quando.localeCompare(a.quando))[0], ou = [...new Set(l.filter(x => !x.eu).map(x => x.nome))];
   return [eu ? "visto por <b>você</b> em " + q(eu) : "", ou.length ? "visto por <b>" + esc(lst(ou)) + "</b>" : ""].filter(Boolean).join(" · "); };
-const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); MARCT.clear(); MARCB.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };
+const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); FOCO.u = null; FOCO.inv = new Set(); FOCO.trk = false; INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); MARCT.clear(); MARCB.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };
 
 function desenhar() {
   if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(() => { if (IR_NOVO && SEL.u === IR_NOVO) irAoNovo(); }, 0);
@@ -2380,9 +2408,9 @@ document.addEventListener("click", e => {
   if ((x = q("[data-criaros-topo]"))) { criarOSTopo(); return; }
   if ((x = q("[data-entrar]"))) { abrirEntrar(); return; }
   if ((x = q("[data-limpam]"))) { ({trk: MARCT, bx: MARCB}[x.dataset.limpam] || MARC).clear(); desenhar(); return; }
-  if ((x = q(".nt[data-nu]"))) { abrirUsina(x.dataset.ng, x.dataset.nu); CLICADAS.add("u|" + x.dataset.nu); CLICADAS.add("g|" + x.dataset.ng); ABA = x.dataset.na;
-    if (ABA === "trk") verT(SEL.u); else { const n1 = novasS(SEL.u)[0]; if (n1) { INV = n1.i; GRAF.add(SEL.u + "|" + INV); verS(SEL.u, INV); } }
-    $("sino").open = false; desenhar(); scrollTo(0, 0); return; }
+  if ((x = q(".nt[data-nu]"))) { const u = x.dataset.nu;      // todos os inversores e trackers que o aviso cita, não só o 1º
+    irParaNovo(x.dataset.ng, u, x.dataset.na, [...new Set(novasS(u).map(n => n.i))], novasT(u).map(n => String(n.tk)));
+    $("sino").open = false; desenhar(); scrollTo(0, 0); irAoNovo(); return; }
   if ((x = q("[data-denovo2]"))) { const k = x.dataset.denovo2, u = usinas()[0];
     if (k === "ger" && u) delete GERF[u.u]; else if (k === "pot" && u) delete POTF[u.u]; else if (k === "pot2") D.pot = {usina: null}; else if (k === "cf" && u) delete D.conf.usinas[u.u]; else if (k === "abx") { ABX_ERRO = ""; lerAbaixo(); } else if (k === "disp") DISP_ERRO = ""; else if (k === "scada" && u) delete D.scada[u.u]; else if (k === "raiox") RAIOX = null; else if (k === "cos") { COS = null; lerCos(); } else if (k === "cosi") { COSI = null; COSI_EM = 0; lerCosInv(); }
     desenhar(); return; }
@@ -2472,7 +2500,7 @@ document.addEventListener("click", e => {
   if ((x = q("tr[data-bx]"))) { if (!SEL.u && x.dataset.bg === "?") { toast("A " + x.dataset.bu + " não está no Tempo real com este nome: não há usina para abrir"); return; }
     if (!SEL.u) { abrirUsina(x.dataset.bg === "?" ? SEL.g : x.dataset.bg, x.dataset.bu); ABA = "bx"; BXA = x.dataset.bx; scrollTo(0, 0); } else BXA = BXA === x.dataset.bx ? null : x.dataset.bx; desenhar(); return; }
   if (q("[data-etmdenovo]")) { Object.keys(ETMD.dias).forEach(d => { if (ETMD.dias[d] && ETMD.dias[d].erro) delete ETMD.dias[d]; }); desenhar(); return; }
-  if ((x = q(".aba"))) { const pulsava = x.classList.contains("pulsa"); ABA = x.dataset.aba; IR_NOVO = null; if (ABA === "trk") verT(SEL.u); if (ABA === "etm") CLICADAS.add("e|" + SEL.u);
+  if ((x = q(".aba"))) { const pulsava = x.classList.contains("pulsa"); ABA = x.dataset.aba; IR_NOVO = null; if (ABA === "trk") { verT(SEL.u); FOCO.trk = false; } if (ABA === "etm") CLICADAS.add("e|" + SEL.u);
     desenhar(); if (pulsava) irAoNovo(); return; }
   if ((x = q("[data-expi]"))) { const n = x.dataset.expi, u = usinas()[0], dr = D.drill[u.u];
     if (n === "*") { const todos = dr.inv.every(i => EXPI.has(u.u + "|" + i.n)); dr.inv.forEach(i => { if (todos) EXPI.delete(u.u + "|" + i.n); else EXPI.add(u.u + "|" + i.n); }); }
@@ -2480,6 +2508,7 @@ document.addEventListener("click", e => {
     desenhar(); return; }
   if ((x = q("tr[data-cosinv]"))) { const k = SEL.u + "|" + x.dataset.cosinv; if (GRAFC.has(k)) GRAFC.delete(k); else GRAFC.add(k); desenhar(); return; }      // a curva do inversor DO LOGGER, no quadro de enquanto a fonte não responde
   if ((x = q(".il[data-inv]"))) { const n = x.dataset.inv, k = SEL.u + "|" + n;        // abre ou fecha a curva DESTE inversor; os outros ficam como estão
+    FOCO.inv.delete(n);                                                                  // o citado pela notificação para de pulsar no clique
     if (novasS(SEL.u, n).length) { EXPI.add(k); GRAF.add(k); INV = n; verS(SEL.u, n); }      // o que pulsava: abre a curva, as strings ficam abertas e ele é dado como visto
     else if (GRAF.has(k)) GRAF.delete(k); else { GRAF.add(k); INV = n; verS(SEL.u, n); }
     desenhar(); return; }
@@ -2538,6 +2567,9 @@ async function ligar(primeira) {
     const hh = /^(\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(D.fresco.lido || "")), tRes = hh ? new Date().setHours(+hh[1], +hh[2], +(hh[3] || 0), 0) : 0;
     Object.keys(D.drill).forEach(nome => { const dr = D.drill[nome]; if (dr && dr.em && dr.g && dr.em > tRes) recontaStrings(nome, dr.g, dr.inv); });
     calcDvg();
+    // sem lista no link (não coube no limite da porta), o novo da usina pela mesma regra
+    if (PEDIDO && !PEDIDO.feito) { PEDIDO.feito = true; const P = PEDIDO, sem = !P.inv.length && !P.trk.length;
+      irParaNovo(P.g, P.u, P.aba, sem ? [...new Set(novasS(P.u).map(n => n.i))] : P.inv, sem ? novasT(P.u).map(n => String(n.tk)) : P.trk); }
     if (primeira) desenhar(); else redesenhar();
     atualizaCos(true);                                          // a lista do COS, para o selo e o aviso das fontes que não batem
     if (!ABX || Date.now() - ABX_EM > 18e5) lerAbaixo();          // a conta do mês muda com a subida dos BDs: de 30 em 30 min basta

@@ -2670,6 +2670,17 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   tela, agrupada por usina). O Nexus pergunta pela ponte de leitura dizendo a pessoa (`?pessoa=<e-mail>`); a sessão comum
   só vê o dela. Quem nunca abriu a Sala não tem "desde" e não recebe nada (`Vistos.consulta` não cria a pessoa). No
   Nexus: `nexus/performance/sala_novas.py` (cópia de 2 min por pessoa, lida por trás) e `casca._perf_do_sino`.
+- **O aviso abre NO QUE CITA** (22/11/2026, Levi, com o print do sino "Segredo · 120 strings em 8 inversores · 1
+  tracker": "quando eu abrir uma notificação da sala de controle tem que abrir exatamente na usina e nos equipamentos
+  citados, se não, não serve"). Antes o link era a Sala em geral. Agora `novas_por_usina` devolve também `inv` e `trk`
+  (QUAIS, na ordem natural), o Nexus põe no link (`/painel/sala-de-controle?usina=&aba=&inv=&trk=`, pelo `?p=` da moldura)
+  e a Sala lê ao abrir (`PEDIDO` → `irParaNovo`, aplicado uma vez depois da 1ª leitura): abre a usina, as strings de
+  CADA inversor citado (o 1º com a curva), que pulsam até o clique (`FOCO`); aponta EXATAMENTE os trackers citados
+  (`NOVT`), e a aba Trackers pulsa até o clique quando a usina abriu nas strings. Abrir pelo aviso marca o citado como
+  visto (sai do sino). O sino de dentro da Sala usa a mesma entrada (antes abria só o 1º inversor). Link sem lista (a
+  lista não coube nas 2048 letras da porta): a Sala aponta o novo da usina pela mesma regra. Usina que não está na
+  leitura: aviso na tela. Prova: `test_a_notificacao_do_nexus_abre_na_usina_e_nos_equipamentos` e, com dado real em
+  `tmp_sc\prova.py` (22/11), Santarém 1 (4 inversores + Tracker 17) e Aparecida 3 (3 trackers de 51 novos).
 - **A pausa do histórico de trackers do supervisório:** depois de uma falha, o `/historico` daquela usina só é pedido de
   novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
   quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro

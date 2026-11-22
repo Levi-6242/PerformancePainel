@@ -488,8 +488,30 @@ def test_rota_do_novo_para_o_sino_do_nexus(cli, monkeypatch):
     d = cli.get("/api/sala/novas").get_json()
     assert d["ok"] and d["desde"] == "2026-11-16 08:00"
     if hoje > "2026-11-16":                      # com o dia 16 fechado, a string aberta nele e o tracker são o novo
-        assert d["usinas"] == [{"usina": "Usina A", "strings": 1, "inversores": 1, "trackers": 0},
-                               {"usina": "Usina B", "strings": 0, "inversores": 0, "trackers": 1}] and d["total"] == 2
+        assert d["usinas"] == [{"usina": "Usina A", "strings": 1, "inversores": 1, "trackers": 0, "inv": ["Inversor 1.2"], "trk": []},
+                               {"usina": "Usina B", "strings": 0, "inversores": 0, "trackers": 1, "inv": [], "trk": ["Tracker 09"]}] and d["total"] == 2
+
+
+def test_a_notificacao_do_nexus_abre_na_usina_e_nos_equipamentos():
+    """22/11/2026, Levi, com o print do sino do Nexus ("Segredo · 120 strings em 8 inversores · 1 tracker"): "quando eu
+    abrir uma notificação da sala de controle tem que abrir exatamente na usina e nos equipamentos citados, se não, não
+    serve". O link do sino traz `?usina=&aba=&inv=&trk=`; a Sala abre a usina, abre as strings de CADA inversor citado
+    (destacados até o clique) e aponta os trackers citados; o sino de dentro da Sala faz o mesmo."""
+    html = _html()
+    assert "const PEDIDO = (() => { const p = new URLSearchParams(location.search)" in html
+    assert 'p.getAll("inv")' in html and 'p.getAll("trk")' in html
+    # aplicado uma vez, assim que a 1ª leitura monta a tela (antes do 1º desenho)
+    assert "if (PEDIDO && !PEDIDO.feito) { PEDIDO.feito = true; const P = PEDIDO, sem = !P.inv.length && !P.trk.length;" in html
+    # o link sem lista (o Nexus tira a lista que não cabe no limite da porta): o novo da usina pela mesma regra
+    assert "irParaNovo(P.g, P.u, P.aba, sem ? [...new Set(novasS(P.u).map(n => n.i))] : P.inv, sem ? novasT(P.u).map(n => String(n.tk)) : P.trk); }" in html
+    # o sino de dentro da Sala abre todos os inversores citados, não só o 1º
+    nt = html[html.index('if ((x = q(".nt[data-nu]")))'):]
+    assert nt[:400].count("irParaNovo(") == 1
+    # cada inversor citado fica aberto e destacado; a aba de trackers citada pulsa até o clique
+    assert "FOCO.inv.has(i.n)" in html and "FOCO.trk" in html
+    # os trackers apontados são exatamente os citados, não todos os novos da usina (prova de 22/11: a Aparecida 3 com 3
+    # citados mostrava 51)
+    assert "const cit = new Set(trk), nt = D.novas.t.filter(x => x.u === u && cit.has(String(x.tk)));" in html and "NOVT[u] = trk.map(" in html
 
 
 def test_a_ponte_do_nexus_le_o_novo_e_nao_marca_visto():
@@ -1209,7 +1231,8 @@ def test_o_pulso_segue_ate_o_problema():
     pulsa a parte de trackers ou ETM até eu clicar e ser levado para o problema!"."""
     html = _html()
     # o inversor com ocorrência nova: linha pulsando e as strings já abertas
-    assert '${nv.length ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv=' in html
+    # (22/11/2026: e o inversor citado pela notificação, até o clique: ver test_a_notificacao_do_nexus_abre_na_usina_e_nos_equipamentos)
+    assert '${nv.length || (FOCO.u === u.u && FOCO.inv.has(i.n)) ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv=' in html
     assert 'ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n || nv.length > 0' in html
     assert ".tela .il.pulsa{animation:pulsoL 1.8s ease-in-out infinite}" in html
     # o clique nele abre a curva, mantém as strings abertas e marca como visto

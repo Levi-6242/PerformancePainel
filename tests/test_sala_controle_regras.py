@@ -206,6 +206,7 @@ def test_o_novo_por_usina_e_a_mesma_regra_da_tela():
                        "episodios": [
                            _ep("Usina A", "Inversor 1.2", "ST 04", "2026-11-15", "2026-11-15", "2026-11-15 09:10"),      # nova
                            _ep("Usina A", "Inversor 1.2", "ST 05", "2026-11-15", "2026-11-15", "2026-11-15 09:12"),      # nova
+                           _ep("Usina A", "Inversor 1.10", "ST 03", "2026-11-15", "2026-11-15", "2026-11-15 09:30"),     # nova (1.10 depois do 1.2)
                            _ep("Usina A", "Inversor 1.3", "ST 01", "2026-11-15", "2026-11-15", "2026-11-15 11:00"),      # nova, já vista
                            _ep("Usina A", "Inversor 1.4", "ST 02", "2026-11-14", "2026-11-14", "2026-11-14 10:00"),      # já voltou
                            _ep("Usina B", "Inversor 2.1", "ST 09", "2026-11-13", "2026-11-15", "2026-11-13 10:00"),      # de antes da 1ª vez
@@ -216,8 +217,10 @@ def test_o_novo_por_usina_e_a_mesma_regra_da_tela():
     idade = {"strings": {"Usina C|Inversor 3.1|ST 07": {"d0": "2026-10-17", "inicio": "2026-10-17 09:40", "antes": False}}}
     vistas = {"s|Usina A|Inversor 1.3|ST 01|2026-11-15"}
     r = S.novas_por_usina(pac, idade, "2026-11-14 18:00", vistas, "2026-11-16")
-    assert r == [{"usina": "Usina A", "strings": 2, "inversores": 1, "trackers": 0},
-                 {"usina": "Usina B", "strings": 0, "inversores": 0, "trackers": 1}]
+    # 22/11/2026, Levi, com o print do sino do Nexus: "quando eu abrir uma notificação da sala de controle tem que abrir
+    # exatamente na usina e nos equipamentos citados, se não, não serve" — além da conta, QUAIS inversores e trackers
+    assert r == [{"usina": "Usina A", "strings": 3, "inversores": 2, "trackers": 0, "inv": ["Inversor 1.2", "Inversor 1.10"], "trk": []},
+                 {"usina": "Usina B", "strings": 0, "inversores": 0, "trackers": 1, "inv": [], "trk": ["Tracker 09"]}]
     assert S.novas_por_usina(pac, idade, None, set(), "2026-11-16") == []       # quem nunca abriu a Sala não tem novidade
     # sem a idade real, a string que vinha de outubro pareceria ter parado no dia 1 (e, com um "desde" de antes, seria nova)
     assert [u["usina"] for u in S.novas_por_usina(pac, {}, "2026-10-31 00:00", set(), "2026-11-16")] == ["Usina A", "Usina B", "Usina C"]
