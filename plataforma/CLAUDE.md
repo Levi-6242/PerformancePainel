@@ -2508,7 +2508,10 @@ endereço público `https://app.gridco.com.br/api/campo/parados` (o Caddy já ma
   ETKR38/49/51/58.200 eram os Tracker 1.38/1.49/1.51/1.58 parados na API em 21/11); Ipixuna do Pará (49 + 73 = 122, o
   Fracttal em série única .100) e Tupi Paulista (30 + 30 + 40 = 100, o Fracttal em blocos .101/.102 de 50) "por bloco na
   serie unica". Castelo do Piauí (128 na fonte x 66), Cedro 1 e 2 (68 x 67 + 67) e Demerval Lobão (126 x 100) NÃO
-  fecham pela contagem: estão nas Pendências da planilha, sem chute. Prova: `tests/test_trackers_depara_planilha_real.py`.
+  fecham pela contagem: estão nas Pendências da planilha, sem chute. Depois (Levi: "faz a Rio do Peixe e sobe"): a Rio do
+  Peixe I e II NÃO fecha (96 na fonte numa série só, 192 no Fracttal: APOL-RDP100 .101 e .102, e a fonte não diz o bloco)
+  e a Iramaia II também não (45 x 48): Pendências; a Gravatá II fecha (48 = 48) e entrou. Prova:
+  `tests/test_trackers_depara_planilha_real.py`.
   Os chamados abertos de tracker em 21/11 (140): 40 ligados; 58 abertos no ativo da usina inteira ("…-ETKR1", não é um
   tracker: Timon tem 12), que nenhum de-para liga; o resto, palpite a confirmar ou usina sem fonte de trackers.
 - **`parte` e ângulo** (05/11/2026, o retorno do App com o dado do dia): na API PV, cada tracker leva `parte`, o nome da

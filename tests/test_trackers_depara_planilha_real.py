@@ -35,6 +35,7 @@ def planilha(monkeypatch):
     ("owen", "Tupi Paulista", "Tracker 2.20", "TPP100-ETKR50.101"),
     ("greenyellow", "Macaiba 1", "5", "MCB100-ETKR5.100"),
     ("pg", "(311) Santa Bárbara I", "Tracker 18", "STB100-ETKR18.100"),  # chamado aberto
+    ("apolo", "Gravatá II", "48", "APOL-GVT200-ETKR48.100"),             # 22/11, "faz a Rio do Peixe": a Gravatá fecha (48 = 48)
 ])
 def test_as_usinas_novas_ligam_e_vao_a_confirmar(planilha, fonte, usina, tracker, code):
     par, motivo = app._falhas_os_trk_par(fonte, None, usina, tracker)
@@ -46,9 +47,13 @@ def test_as_que_nao_fecham_pela_contagem_ficam_nas_pendencias(planilha):
     assert app._trk_depara_usina("greenyellow", "Castelo do Piauí") is None
     txt = " ".join(" ".join(p.values()) for p in d["pendencias"])
     assert "Castelo do Piauí" in txt and "Cedro" in txt and "Demerval" in txt
+    # 22/11/2026, Levi: "faz a Rio do Peixe e sobe" — não fecha: 96 trackers na fonte numa série só, 192 no Fracttal (96 no
+    # bloco .101 e 96 no .102), e a fonte não diz de qual bloco é cada um; a Iramaia II, 45 x 48
+    assert app._trk_depara_usina("apolo", "Rio do Peixe I e II") is None and app._trk_depara_usina("apolo", "Iramaia II") is None
+    assert "Rio do Peixe" in txt and "Iramaia" in txt
 
 
 def test_o_que_ja_havia_continua(planilha):
     par, motivo = app._falhas_os_trk_par("pv", None, "Altair 1 (73)", "TRK1")
     assert motivo is None and par["code"] == "ALT100-ETKR1.101" and par["situacao"] == "casado"
-    assert app._trk_depara_carregar()["n"] == 4745 + 482
+    assert app._trk_depara_carregar()["n"] == 4745 + 482 + 48
