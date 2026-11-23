@@ -647,7 +647,7 @@ function montar(ent, fal, idr, vis, arr) {
   if (fal && fal.strings && Object.keys(SUBP).length) { const ren = x => { const n = SUBP[String(x.plant_id)]; return n && n !== x.usina ? Object.assign({}, x, {usina: n, fis: x.usina}) : x; };
     fal = Object.assign({}, fal, {strings: Object.assign({}, fal.strings, {rows: (fal.strings.rows || []).map(ren), episodios: (fal.strings.episodios || []).map(ren)}),
       trackers: Object.assign({}, fal.trackers, {rows: ((fal.trackers || {}).rows || []).map(ren)})}); }
-  const d = {fresco: {ttl_s: ent.ttl_s, lido: ent.cache_ts || ""}, grupos, falhas_em: "", dias: [], serie: [], perda: [], idade: [], baixos: [], eps: {}, sdI: {}, drill: {}, curvas: {}, etmG: {}, scada: {}, estado: {acomp: {}, coment: {}, os: {}, osErro: {}},
+  const d = {fresco: {ttl_s: ent.ttl_s, lido: ent.cache_ts || ""}, grupos, falhas_em: "", dias: [], serie: [], perda: [], idade: [], baixos: [], eps: {}, sdI: {}, drill: {}, curvas: {}, etmG: {}, scada: {}, sdS: {}, estado: {acomp: {}, coment: {}, os: {}, osErro: {}},
     trkc: {usina: null, dias: {}}, trkp: [], trkRows: [], novas: {desde: "", s: [], t: []}, osHist: {}, osHistFalhou: [], osHistMotivo: {}, curva: {usina: null, dia: "", inv: {}}, curvaDias: {}, conf: {usinas: {}, scada_total: 0, scada_nomes: []}, depara: {usina: null}, ger: {usina: null}, pot: {usina: null}, insp: {usina: null, eps: {}, paradas: {}, abertas: []}};
   if (!fal || !fal.strings) return d;
   // a linha que só sabe a usina física (as OS do mês, o abaixo dos demais) vai para a planta pelo inversor, quando só uma
@@ -686,7 +686,7 @@ function montar(ent, fal, idr, vis, arr) {
   const sdU = {};
   (fal.strings.episodios || []).forEach(e => { if (e.d1 !== hoje) return; const k = e.usina + "|" + e.inversor, r = rowHoje[k];
     const conta = e.d0 === hoje ? (e.h_sol || 0) >= 2 : !!(r && (r.dur_h || 0) >= 2 && String(r.strings || "").split(", ").includes(e.string));
-    if (conta) { sdU[e.usina] = (sdU[e.usina] || 0) + 1; d.sdI[k] = (d.sdI[k] || 0) + 1; } });
+    if (conta) { sdU[e.usina] = (sdU[e.usina] || 0) + 1; d.sdI[k] = (d.sdI[k] || 0) + 1; (d.sdS[k] = d.sdS[k] || []).push(String(e.string)); } });
   grupos.forEach(g => g.usinas.forEach(u => { u.sd = sdU[u.u] || 0; }));
   d.idadeAte = (idr && idr.ate) || d1mes || ""; d.osMes = oss; d.donoDe = u => dono[u] || "?";
   (fal.strings.episodios || []).forEach(e => { const r = re0(e); (d.eps[e.usina + "|" + e.inversor] = d.eps[e.usina + "|" + e.inversor] || []).push({s: e.string, d0: r.d0, d1: e.d1, ini: r.ini, antes: r.antes, dias: e.dias || 0, kwh: e.perda_kwh || 0, aberta: !!ult && e.d1 >= ult, fim: e.fim || "", g: grupo(e), k: "s|" + e.usina + "|" + e.inversor + "|" + e.string + "|" + r.d0}); });
@@ -870,7 +870,17 @@ let ADM = null;
 async function lerEu() { if (lerEu.indo || ADM) return; lerEu.indo = true; try { ADM = await pega("/api/eu", 20000); } catch (e) { ADM = {abre_admin: false, erro: true}; } finally { lerEu.indo = false; if (SEL.u && ABA === "dp") redesenhar(); } }
 // redesenha sem atropelar quem está digitando (o comentário, o acompanhamento) nem o editor do de-para aberto
 const digitando = () => { const a = document.activeElement; return !!(a && /INPUT|TEXTAREA/.test(a.tagName) && a.closest("#corpo") && a.value && a.id !== "acomp"); };
-function redesenhar() { if (digitando()) { arvore(); sino(); return; } desenhar(); }
+function redesenhar() { if (digitando()) { recontaSd(); arvore(); sino(); return; } desenhar(); }
+// A STRING TRANCADA NÃO CONTA NO "+2 H HOJE" NEM NA COLUNA STR. (Levi, 23/11/2026, na Nova Iguaçu 2.2: "na diferença tem
+// tudo zerado. Porém, esse mais de 2 horas hoje tem 3 [...] parece que tem string fora e não tem"; "assim que eu tranco [...]
+// tem que atualizar esse valor"). O pacote das falhas só deixa a trava de fora no ciclo seguinte (e naquela hora estava
+// parado desde as 10:28); a tela tira na hora o que ela sabe trancado: a leitura da usina aberta e a trava recém-gravada.
+const numStr = n => String(n).replace(/^\D+/, "").replace(/^0+(?=\d)/, "");
+function trancadaAgora(uu, inv, sid) { const n = numStr(sid), dr = D && D.drill[uu], iv = dr && (dr.inv || []).find(i => i.n === inv), s = iv && iv.s.find(x => numStr(x[0]) === n);
+  if (!s) return false; const k = uu + "|" + inv + "|" + s[0]; return k in TRANCA ? !!TRANCA[k] : s[2] === "trancada"; }
+function recontaSd() { if (!D || !D.sdS) return; const por = {};
+  Object.entries(D.sdS).forEach(([k, l]) => { const j = k.indexOf("|"), uu = k.slice(0, j), inv = k.slice(j + 1), n = l.filter(sid => !trancadaAgora(uu, inv, sid)).length; D.sdI[k] = n; por[uu] = (por[uu] || 0) + n; });
+  D.grupos.forEach(g => g.usinas.forEach(u => { u.sd = por[u.u] || 0; })); }
 // ── a usina: lida só quando abre (as rotas da fonte dela), e guardada enquanto a tela está aberta
 const LENDO = {}, FALHOU = {}, ETMS = {};
 let ESTADO = null;
@@ -2032,7 +2042,8 @@ function detalhe(u, bx) {
       const cv = bruta && Object.keys(bruta.s).length ? bruta : null;
       if (!cv) return `<div class="gi"><p>${!bruta ? "Lendo a curva…" : bruta.erro ? "Não consegui ler a curva: " + esc(bruta.erro) : "A fonte não trouxe curva por string deste inversor neste dia."}</p></div>`;
       const stDe = {}; i.s.forEach(s => { stDe[numS(s[0])] = est(i, s); });
-      const ser = Object.keys(cv.s).map(n => { const e = stDe[numS(n)] || (cv.e[n] && cv.e[n][2] === false ? "sem_corrente" : ""), ruim = e === "sem_corrente" || e === "baixa_perf";
+      // a trancada sai do gráfico na hora em que é trancada (Levi, 23/11/2026: "assim que eu tranco já é para sumir do gráfico")
+      const ser = Object.keys(cv.s).filter(n => stDe[numS(n)] !== "trancada").map(n => { const e = stDe[numS(n)] || (cv.e[n] && cv.e[n][2] === false ? "sem_corrente" : ""), ruim = e === "sem_corrente" || e === "baixa_perf";
         return {nome: n, sn: numS(n), x: cv.s[n][0].map(mm), y: cv.s[n][1], cor: e === "sem_corrente" ? "var(--critico)" : e === "baixa_perf" ? "var(--severo)" : "var(--neutro)", forte: ruim, larg: ruim ? 2.2 : 1.1, op: ruim ? 1 : .6}; });
       // sem a legenda das strings no gráfico (elas estão logo abaixo, com a corrente): só o que as cores dizem
       return `<div class="gi">${linhas(ser, "Curva por string · " + i.n, cv.un || "A", Object.assign({alto: 210}, SOLAR ? {x0: 360, x1: 1080} : {x0: 0, x1: 1440}))}
@@ -2339,6 +2350,7 @@ const quemViu = (u, i) => { const l = (D.eps[u + "|" + i] || []).filter(e => e.a
 const abrirUsina = (g, u) => { SEL = {g, u}; ABERTOS.add(g); FOCO.u = null; FOCO.inv = new Set(); FOCO.trk = false; INV = null; GRAF.clear(); DIA = null; TDIA = null; TSEL = null; BXA = null; OSINV = null; GI = null; MARC.clear(); MARCT.clear(); MARCB.clear(); SELS.clear(); TRK.soUm = null; TRK.ini = TRK.fim = null; TRK.hide = {}; TRK.filtro = "todos"; POT.ini = POT.fim = null; POT.corr = false; ETMH.ini = ETMH.fim = null; ETMD.usina = null; ETMD.dias = {}; };
 
 function desenhar() {
+  recontaSd();
   if (IR_NOVO && SEL.u === IR_NOVO && ABA === "str") setTimeout(() => { if (IR_NOVO && SEL.u === IR_NOVO) irAoNovo(); }, 0);
   CH.length = 0;
   const us = usinas(), bx = D.baixos.filter(b => (!SEL.g || b.g === SEL.g) && (!SEL.u || b.u === SEL.u));

@@ -5191,6 +5191,21 @@ def _pv_det_guarda(pid, records) -> None:
     _persist_mark()
 
 
+def _pv_det_com_travas(pid, invs) -> list:
+    """O detalhe do ciclo com as travas DE AGORA (23/11/2026, Levi, na Nova Iguaçu 2.2: "tava destrancado, quando eu
+    tranquei ainda continua aparecendo"). O detalhe é montado na volta da tabela; a string trancada depois dela seguia
+    "sem corrente" até a volta seguinte, e ao recarregar a Sala a trava parecia não ter gravado (medido: o Inversor 2.1
+    com 13 travas no estado e nenhuma no detalhe das 15:35). A mesma reaplicação do ramo do banco no sino de strings. Só
+    a trava: a string destrancada espera a volta seguinte, que é quem a classifica pela corrente. Não muda o original."""
+    out = []
+    for inv in invs or []:
+        ss = inv.get("strings") or []
+        nova = [dict(s, status="trancada", ativa=False, trancada=True)
+                if not s.get("trancada") and _str_trancada(pid, inv.get("id"), str(s.get("id"))) else s for s in ss]
+        out.append(dict(inv, strings=nova) if any(a is not b for a, b in zip(nova, ss)) else inv)
+    return out
+
+
 def _pv_det_da_tabela(pid):
     """O detalhe que o ciclo publicou para a usina, se ainda vale: {"ts", "inversores"} ou None. Vale o que é da volta da
     tabela que o processo está servindo (ou da anterior: `PV_DET_FOLGA_S` antes do começo dela) e tem menos de 2 h."""
@@ -5766,7 +5781,7 @@ def api_plant_detail(plant_id):
     if flask_request.args.get("tabela") == "1" and flask_request.args.get("force") != "1":
         det = _pv_det_da_tabela(plant_id)
         if det:
-            return jsonify({"plant_id": plant_id, "inversores": det["inversores"], "da_tabela": True,
+            return jsonify({"plant_id": plant_id, "inversores": _pv_det_com_travas(plant_id, det["inversores"]), "da_tabela": True,
                             "idade_s": int(time.time() - float(det["ts"])),
                             "lido_em": time.strftime("%H:%M", time.localtime(float(det["ts"])))})
     try:

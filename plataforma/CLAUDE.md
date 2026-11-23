@@ -2703,6 +2703,14 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   pela leitura dela, e a aba Strings da planta sem comunicação avisa "Sem leitura nova da fonte"; a linha sem contagem de
   strings (`strings_ativas` nulo) não diz mais "Todas gerando". Naquele dia a tabela da Thopen · API PV estava parada
   desde as 11:09 (61 de 70 usinas em "Telemetria parada"), sem reinício: a Cipó-Guaçu era uma delas.
+- **A trava vale na hora, na tela e na leitura** (23/11/2026, Levi, na Nova Iguaçu 2.2: "na diferença tem tudo zerado.
+  Porém, esse mais de 2 horas hoje tem 3 [...] parece que tem string fora e não tem" e "quando eu tranquei ainda
+  continua aparecendo [...] já é para sumir do gráfico"). Três furos: (1) o detalhe da API PV do ciclo (`?tabela=1`)
+  só via a trava na volta seguinte (o Inversor 2.1 com 13 travas no estado e nenhuma no detalhe das 15:35):
+  `_pv_det_com_travas` reaplica as travas de agora na leitura (só a trava; a destrava espera a volta); (2) o "+2 h hoje"
+  e a coluna Str. da lateral (`u.sf || u.sd`) vêm do pacote de falhas, que só tira a trava no ciclo seguinte: a tela
+  guarda QUAIS strings contam (`sdS`) e `recontaSd` tira, a cada desenho, as que ela sabe trancadas (a leitura da usina
+  e a `TRANCA` recém-gravada); (3) a curva desenhava a trancada em cinza: agora ela sai do gráfico.
 - **A pausa do histórico de trackers do supervisório:** depois de uma falha, o `/historico` daquela usina só é pedido de
   novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
   quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro

@@ -1657,3 +1657,33 @@ def test_a_fonte_calada_nao_diz_todas_gerando():
     html = _html()
     assert 'if (u.st === "sem_comm") h += `<div class="aviso" style="border-left:3px solid var(--critico)"><b>Sem leitura nova da fonte</b>' in html
     assert 'i.at == null && i.s.length ? (u.st === "sem_comm" ? "Sem leitura nova da fonte" : "Strings sem contagem agora") : "Todas gerando"' in html
+
+
+
+def test_a_string_trancada_sai_do_mais_de_2h_e_do_grafico():
+    """23/11/2026, Levi, na Nova Iguaçu 2.2: a diferença toda em zero e a coluna "+2 h hoje" (e a Str. da lateral) com 3,
+    que eram strings trancadas; e a trancada seguia no gráfico depois de trancar. O pacote das falhas só tira a trava no
+    ciclo seguinte; a tela tira na hora o que ela sabe trancado (a leitura da usina aberta e a trava recém-gravada)."""
+    html = _html()
+    assert '(d.sdS[k] = d.sdS[k] || []).push(String(e.string));' in html
+    assert 'return k in TRANCA ? !!TRANCA[k] : s[2] === "trancada"; }' in html
+    assert "function desenhar() {\n  recontaSd();" in html.replace("\r\n", "\n")
+    assert "if (digitando()) { recontaSd(); arvore(); sino(); return; }" in html
+    assert 'const ser = Object.keys(cv.s).filter(n => stDe[numS(n)] !== "trancada").map(' in html
+
+
+
+def test_o_detalhe_da_api_pv_vem_com_as_travas_de_agora(cli, monkeypatch):
+    """23/11/2026, Levi, na Nova Iguaçu 2.2: "quando eu tranquei ainda continua aparecendo". O detalhe do ciclo (das
+    15:35) não tinha nenhuma das 13 travas do Inversor 2.1 que estavam no estado: a trava passa a valer na leitura."""
+    det = {"ts": 0, "inversores": [{"nome": "Inversor 2.1", "id": 359554, "str_esp": 15, "strings_ativas": 15, "strings": [
+        {"id": "Ipv1", "corrente": 8.1, "status": "ativa", "ativa": True, "trancada": False},
+        {"id": "Ipv13", "corrente": 0.0, "status": "sem_corrente", "ativa": False, "trancada": False}]}]}
+    monkeypatch.setattr(app, "_pv_det_da_tabela", lambda pid: det)
+    monkeypatch.setattr(app, "_trancadas", {"18747256|359554|Ipv13"})
+    monkeypatch.setattr(app, "_TRANC_INV", set())
+    d = cli.get("/api/plant/18747256?tabela=1").get_json()
+    s = {x["id"]: x for x in d["inversores"][0]["strings"]}
+    assert d["da_tabela"] is True and (s["Ipv13"]["status"], s["Ipv13"]["trancada"]) == ("trancada", True)
+    assert s["Ipv1"]["status"] == "ativa"
+    assert det["inversores"][0]["strings"][1]["status"] == "sem_corrente"          # o que o ciclo guardou não é mexido
