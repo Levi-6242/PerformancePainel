@@ -3399,6 +3399,19 @@ quero que avalie como está e deixe ao estilo sala de controle"; aprovado pelo m
 tela `performance/strings-trackers` no mapa do Nexus); **a tela de 20/10 segue no mesmo endereço com `?antiga=1`** (o
 link "Tela anterior"; sem rota nova, porque o mapa do Nexus é cópia assinada), com o que a nova ainda não tem: Vincular OS, o dia a dia da ocorrência, a sombra e os filtros dela.
 
+**Abre com o mês inteiro (23/11/2026).** A Performance, na Rodrigues 2: "strings e tracker não mostra o histórico, só o
+que está em aberto no momento. É necessário que haja essa visualização". O histórico do mês já estava lá, mas a tela
+abria com o "Só parados agora" ligado. O Levi escolheu abrir com todas as ocorrências do mês, as que voltaram e as
+abertas (`SO_AB = false`); o botão segue para filtrar. Prova: `tests/test_strings_trackers_abre_no_mes_23_11.py`.
+
+**O caso que trouxe isso, para lembrar da trava** (23/11/2026): na Rodrigues 2 (API PV, planta 18749548), a Ipv22 dos
+inversores 2.1 e 2.2 caiu de 15,8 A de pico em 11/11 para 0,05 A em 12/11, o dia da recomposição de string, e assim
+ficou. Ao mesmo tempo as entradas Ipv5, Ipv10, Ipv12 e Ipv15 dos dois, trancadas como "sem string", geravam 5 a 6 A: a
+recomposição mudou as strings de entrada e as travas não acompanharam. O detector viu a Ipv22 zerada todo dia (2,2 MWh
+de perda que não houve). Com o OK do Levi: a Ipv22 dos dois foi trancada e os dois episódios de 12/11 saíram da conta;
+as quatro entradas trancadas que geram ficam para o analista conferir com o campo. **Depois de recomposição, conferir as
+travas do inversor.**
+
 - **Para que serve:** o mês de falhas de string e de tracker com a navegação da Sala: fontes e usinas na lateral
   (strings paradas agora, trackers parados agora, perda do mês), a ocorrência numa linha e a curva dela abrindo ali.
 - **De onde vem o dado (nada novo no servidor):** `/api/entrada/tempo-real` (as fontes e as usinas, como a Sala) e

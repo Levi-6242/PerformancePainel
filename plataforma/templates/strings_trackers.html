@@ -122,7 +122,7 @@ async function pega(url, ms) {
 }
 
 let D = null, US = {};
-const SEL = {g: null, k: null}; let ABA = "s", SO_AB = true, SEM_CRON = false, LIM = 60, BUSCA = "", MES = "", GAVETA = false;
+const SEL = {g: null, k: null}; let ABA = "s", SO_AB = false, SEM_CRON = false, LIM = 60, BUSCA = "", MES = "", GAVETA = false;
 const ABERTAS = new Set(), MARC = new Set(), FECH = new Set(), DIAD = {};      // DIAD: o dia escolhido no detalhe de cada ocorrência
 const CURVAS = {}, TRKC = {}, INVS = {};                                     // o que já foi lido das rotas da Sala, por chave
 const idS = o => "s|" + o.k + "|" + o.inv + "|" + o.ini, idT = o => "t|" + o.k + "|" + o.trk + "|" + o.ini;
