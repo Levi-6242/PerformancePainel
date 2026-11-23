@@ -94,3 +94,22 @@ def test_a_hora_em_que_o_sol_baixou():
     # sem estado no cadastro: a janela fixa (18h)
     assert app._sol_baixou_em({"usina": "Usina Sem Cadastro"}, datetime(2026, 11, 5, 19, 5)) == \
         datetime(2026, 11, 5, 18, 0)
+
+
+
+def test_o_guarda_vale_para_cada_fatia_da_usina_agrupada(freeze_now):
+    """23/11/2026, Levi: "Cipó guaçu não está aparecendo as strings na sala de controle". A API PV calou às 10:54/11:01; a
+    usina física saía "Telemetria parada", mas a Sala (que mostra cada planta desde 22/11) lia a situação de cada fatia do
+    retrato tirado antes do guarda: as três "ok". Agora cada fatia passa pela mesma régua, pela leitura dela."""
+    freeze_now("2026-11-23 14:30:00")
+    fresca = {"usina": "A", "status": "ok", "sev": 5, "ultima_leitura": "2026-11-23 14:25:00", "strings_faltando": 0}
+    cipo = {"usina": "Cipó Guaçu", "status": "ok", "sev": 5, "ultima_leitura": "2026-11-23 11:01:00", "strings_faltando": 0,
+            "partes": [{"plant_id": 18751488, "status": "ok", "ultima_leitura": "2026-11-23 11:01:00", "strings_faltando": 0},
+                       {"plant_id": 18751489, "status": "ok", "ultima_leitura": "2026-11-23 10:54:00", "strings_faltando": 3},
+                       {"plant_id": 9, "status": "ok", "ultima_leitura": "2026-11-23 14:20:00", "strings_faltando": 2}]}
+    app._guarda_telemetria_parada([fresca, cipo])
+    assert cipo["status"] == "sem_comm"
+    p1, p2, p3 = cipo["partes"]
+    assert p1["status"] == p2["status"] == "sem_comm" and p2["strings_faltando"] == 0
+    assert p2["causa"] == "Telemetria parada (última leitura 2026-11-23 10:54:00)"
+    assert p3["status"] == "ok" and p3["strings_faltando"] == 2          # a fatia que segue lendo fica como estava

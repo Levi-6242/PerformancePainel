@@ -1648,3 +1648,12 @@ def test_o_pacote_do_sino_guarda_o_plant_id_dos_trackers(monkeypatch, tmp_path):
     assert d["trackers"]["rows"] == [{"usina": "Barretos", "plant_id": "297415", "tracker": "TRK7", "inicio": "2026-11-21 10:00", "fim": ""}]
     r = S.novas_por_usina(d, {}, "2026-11-20 00:00", set(), "2026-11-22", plantas={"297415": "Barretos 2"})
     assert [(u["usina"], u["trk"]) for u in r] == [("Barretos 2", ["TRK7"])]
+
+
+
+def test_a_fonte_calada_nao_diz_todas_gerando():
+    """23/11/2026, a Cipó-Guaçu (API PV calada desde as 11:01): a linha do inversor sem contagem de strings dizia "Todas
+    gerando". Agora a aba Strings avisa que a fonte não manda leitura nova e a linha diz o que é."""
+    html = _html()
+    assert 'if (u.st === "sem_comm") h += `<div class="aviso" style="border-left:3px solid var(--critico)"><b>Sem leitura nova da fonte</b>' in html
+    assert 'i.at == null && i.s.length ? (u.st === "sem_comm" ? "Sem leitura nova da fonte" : "Strings sem contagem agora") : "Todas gerando"' in html

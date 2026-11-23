@@ -2698,6 +2698,11 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   `test_a_entrada_manda_as_plantas_da_usina_agrupada`, `test_o_novo_separa_as_plantas_da_usina_agrupada`,
   `test_a_sala_separa_as_plantas_da_usina_agrupada` e a `tmp_sc\prova.py` com `prova_partes.py` (Barretos 2 com os
   trackers dela; Segredo 1.1 a 1.5).
+  **A fatia calada (23/11/2026, a Cipó-Guaçu: "não está aparecendo as strings"):** o retrato das fatias é tirado antes
+  do `_guarda_telemetria_parada`; as plantas da usina calada saíam "ok" na Sala. Agora o guarda vale para cada fatia,
+  pela leitura dela, e a aba Strings da planta sem comunicação avisa "Sem leitura nova da fonte"; a linha sem contagem de
+  strings (`strings_ativas` nulo) não diz mais "Todas gerando". Naquele dia a tabela da Thopen · API PV estava parada
+  desde as 11:09 (61 de 70 usinas em "Telemetria parada"), sem reinício: a Cipó-Guaçu era uma delas.
 - **A pausa do histórico de trackers do supervisório:** depois de uma falha, o `/historico` daquela usina só é pedido de
   novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
   quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro

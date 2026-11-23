@@ -18611,6 +18611,14 @@ def _guarda_telemetria_parada(usinas):
             u["sev"] = 3
             u["causa"] = f"Telemetria parada (última leitura {u.get('ultima_leitura')})"
             u["strings_faltando"] = 0
+        # as fatias da usina agrupada, cada uma pela leitura DELA (23/11/2026): a Sala de controle mostra cada planta, e o
+        # retrato delas é tirado antes deste guarda. A Cipó-Guaçu calou às 11:01 e as três plantas seguiam "ok" na Sala.
+        for p in u.get("partes") or []:
+            ap = _macro_idade_h(p.get("ultima_leitura"))
+            if (ap is not None and ap > 2 and p.get("status") not in ("sem_comm", "sem_producao", "desligada")
+                    and not _calou_com_o_sol(p)):
+                p.update(status="sem_comm", causa=f"Telemetria parada (última leitura {p.get('ultima_leitura')})",
+                         strings_faltando=0)
 
 
 def _macro_idade_h(s):
