@@ -1687,3 +1687,13 @@ def test_o_detalhe_da_api_pv_vem_com_as_travas_de_agora(cli, monkeypatch):
     assert d["da_tabela"] is True and (s["Ipv13"]["status"], s["Ipv13"]["trancada"]) == ("trancada", True)
     assert s["Ipv1"]["status"] == "ativa"
     assert det["inversores"][0]["strings"][1]["status"] == "sem_corrente"          # o que o ciclo guardou não é mexido
+
+
+
+def test_todas_as_fontes_em_preto_e_o_cliente_em_maiusculas():
+    """24/11/2026, Levi: "esse botão todas as fontes fosse um pouquinho maior [...] uns 20%, e ele fosse [...] arredondado e
+    preto [...] para mostrar que não é igual"; "o nome dos clientes fosse todos em caps lock"."""
+    html = _html()
+    assert 'let h = `<div class="f todas"><div class="g ${!SEL.g ? "on" : ""}" data-g="">' in html
+    assert ".lado .f.todas{background:#000;border-color:#000;" in html and ".lado .f.todas .g{padding:14px 12px;" in html
+    assert '<span class="cli">${esc(cl)}</span>' in html and ".lado .gn .cli{text-transform:uppercase;" in html

@@ -442,6 +442,18 @@
      rótulo, o número e o "de N" numa linha só, e menos respiro: o cartão da fonte cai de ~100 para ~60 px */
   .lado .f{margin-bottom:6px}.lado .f .g{padding:8px 12px}
   .lado .tri{margin-top:5px}
+  /* "TODAS AS FONTES" NÃO É UMA FONTE (Levi, 24/11/2026: "um pouquinho maior, um pouquinho mais alto, uns 20%, e ele fosse
+     quadrado e preto, ou arredondado e preto [...] para dar uma sensação de contraste com os demais, para mostrar que não é
+     igual"): preto nos dois temas, arredondado como os outros, ~20% mais alto pelo respiro de cima e de baixo. O cartão
+     leva a paleta do tema escuro, para a letra e os números lerem sobre o preto também no tema claro */
+  .lado .f.todas{background:#000;border-color:#000;
+    --tinta:#e9eef6;--mudo:#94a3b8;--fraco:#7d889c;--verde:#a3d900;--ok:#4ade80;--alerta:#ffd83d;--severo:#ff8f3c;--critico:#ff5b6e;--info:#7cb7ff}
+  .lado .f.todas .g{padding:14px 12px;color:var(--tinta)}
+  .lado .f.todas .g:hover{background:rgba(255,255,255,.06)}
+  .lado .f.todas .g.on{background:transparent}
+  .lado .f.todas:has(>.g.on){border-color:var(--verde)}
+  /* o nome do cliente em maiúsculas (Levi, 24/11/2026: "o nome dos clientes fosse todos em caps lock"); a fonte não */
+  .lado .gn .cli{text-transform:uppercase;letter-spacing:.02em}
   .lado .tri div{display:flex;align-items:baseline;justify-content:center;gap:5px;white-space:nowrap;font-size:9.5px}
   .lado .tri b{display:inline;font-size:15px;line-height:1.2}
   .lado .tri i{font-size:10.5px}
@@ -1466,12 +1478,12 @@ function arvore() {
     return `<div class="tri">${str}${c("Trackers", tp - soma(l, "to"), tp ? "de " + nf(tp) : "")}${c("ETM", l.filter(u => u.ea).length, "")}</div>`; };
   const v = n => n ? `<b>${n}</b>` : '<span class="zero">—</span>';
   const totS = z => z.sf || z.sd, rkS = z => !totS(z) ? 2 : z.sa === totS(z) ? 1 : 0;
-  let h = `<div class="f"><div class="g ${!SEL.g ? "on" : ""}" data-g=""><div class="l1"><b>Todas as fontes</b><small>${D.grupos.length} fontes · ${todas().length} usinas</small></div>${tri(todas())}</div></div>`;
+  let h = `<div class="f todas"><div class="g ${!SEL.g ? "on" : ""}" data-g=""><div class="l1"><b>Todas as fontes</b><small>${D.grupos.length} fontes · ${todas().length} usinas</small></div>${tri(todas())}</div></div>`;
   D.grupos.forEach(g => {
     const us = g.usinas.filter(u => !q || u.u.toLowerCase().includes(q) || u.rot.toLowerCase().includes(q) || u.gr.toLowerCase().includes(q) || NOME[g.id].toLowerCase().includes(q));
     if (!us.length) return;
     const aberto = ABERTOS.has(g.id) || (q && us.length < g.usinas.length);
-    h += `<div class="f ${aberto ? "aberto" : ""} ${nNovas(g.usinas) && !CLICADAS.has("g|" + g.id) ? "pulsa" : ""}"><div class="g ${SEL.g === g.id && !SEL.u ? "on" : ""}" data-g="${g.id}"><div class="l1"><span class="seta" title="Abrir ou recolher as usinas desta fonte, sem sair da tela">›</span><b><span class="gn" title="Ver só esta fonte na tela">${esc(NOME[g.id])}</span>${pill(nNovas(g.usinas))}</b><small>${g.usinas.length} usinas</small></div>${tri(g.usinas)}</div>` +
+    h += `<div class="f ${aberto ? "aberto" : ""} ${nNovas(g.usinas) && !CLICADAS.has("g|" + g.id) ? "pulsa" : ""}"><div class="g ${SEL.g === g.id && !SEL.u ? "on" : ""}" data-g="${g.id}"><div class="l1"><span class="seta" title="Abrir ou recolher as usinas desta fonte, sem sair da tela">›</span><b><span class="gn" title="Ver só esta fonte na tela">${(([cl, ...fo]) => `<span class="cli">${esc(cl)}</span>${fo.length ? " · " + esc(fo.join(" · ")) : ""}`)(NOME[g.id].split(" · "))}</span>${pill(nNovas(g.usinas))}</b><small>${g.usinas.length} usinas</small></div>${tri(g.usinas)}</div>` +
       `<div class="us"><div class="uc"><span>Usina</span><span title="Todas as strings sem corrente (ou, sem nenhuma fora agora, as que ficaram mais de 2 h sem corrente hoje). Azul = o acompanhamento é igual às zeradas (a regra do Tempo real); laranja = os dois números não batem">Str.</span><span title="Strings em acompanhamento: quantas das que estão fora já estão sendo tratadas${PODE ? ". Clique no número para mudar" : ""}">Ac.</span><span>Trk.</span><span>ETM</span></div>` +
       // os grupos da engrenagem primeiro (em ordem de nome), cada um com o cabeçalho dele; dentro, a ordem de sempre.
       // O grupo só JUNTA: cada usina segue com os números dela (Levi: "cada usina diferente!")

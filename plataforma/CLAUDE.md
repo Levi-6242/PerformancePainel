@@ -2711,6 +2711,12 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
   e a coluna Str. da lateral (`u.sf || u.sd`) vêm do pacote de falhas, que só tira a trava no ciclo seguinte: a tela
   guarda QUAIS strings contam (`sdS`) e `recontaSd` tira, a cada desenho, as que ela sabe trancadas (a leitura da usina
   e a `TRANCA` recém-gravada); (3) a curva desenhava a trancada em cinza: agora ela sai do gráfico.
+- **"Todas as fontes" não é uma fonte** (24/11/2026, Levi: "um pouquinho mais alto, uns 20%, e ele fosse quadrado e preto,
+  ou arredondado e preto [...] para mostrar que não é igual"; e "o nome dos clientes fosse todos em caps lock"). O cartão
+  (`.lado .f.todas`) é preto nos dois temas, arredondado como os outros, e ~20% mais alto pelo respiro (medido na prévia:
+  75 px contra 63 das fontes); ele leva a paleta do tema escuro nas variáveis dele, para ler sobre o preto no tema claro.
+  O nome do cliente na lateral vem num `<span class="cli">` em maiúsculas por CSS (`NOME` não muda: busca e títulos
+  seguem iguais); a fonte depois do " · " fica como está.
 - **A pausa do histórico de trackers do supervisório:** depois de uma falha, o `/historico` daquela usina só é pedido de
   novo 30 min depois (`SG_TRK_HIST_PAUSA_S`); até lá vale o agora. O pedido pesado que não responde ocupa o SCADA por
   quase um minuto e as chamadas seguintes também falham: no pacote das 17:25 de 16/11 a Irecê 2, a Macaíba e a Cedro
