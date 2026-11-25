@@ -1850,6 +1850,39 @@ a tarde de 25/09): o parcial não zerava string nenhuma (0 inativas falsas em 1.
 1 e 8 na Colíder 2, contra 0 e 0 com o quarto fechado. A última leitura da RenoGrid fica ~15 min atrás, e é de propósito.
 Na tela, `curvaSVG(..., unit)` recebe 'W' na RenoGrid e 'A' nas outras.
 
+## Athon pelo scadaGridco, com a SunOp de reserva (25/11/2026)
+
+Levi: "no SCADA da Grid agora tem as usinas da ATHON. Eu gostaria que todos os gráficos de string fossem puxados desses
+dados da API do SCADA da Grid. E caso caia, aí vai ter de backup a API ali do SunOp"; "vai ter que ter o de para do SCADA
+da Grid, para tá batendo a informação de string esperada e tudo mais"; "tem que abrir rápido, carregar rápido e ser fácil
+de utilizar".
+
+- **Não é aba nova.** O scadaGridco entra POR BAIXO da Athon, no lugar do `/v2/last_values` e do histórico analógico da
+  SunOp, nos pathnames dela (`CPP100.INV_3.MEDIDAS.STR.I_PV7`): `_sunop_last_values_multi` (a linha da usina, só quando o
+  pedido é o da tabela de strings — a ETM e o resto seguem pela SunOp), `_sunop_plant_build` (o drill) e
+  `_sunop_strings_curva` (a curva, com a referência da usina na chave própria da `str_med_cache`: a amostra de 1 min do
+  supervisório não se compara com a da SunOp). As esperadas (`ESPERADO_INV`), as strings trancadas, os tickets e o
+  acompanhamento seguem pela chave da Athon (INV_N, I_PVn). A linha, o drill e a curva levam `fonte_strings`
+  ("scadaGridco" ou "SunOp"); o log diz quando uma usina troca de fonte (`[Athon] CPP100: strings pelo ...`).
+- **O de-para** (`scadagridco.FONTES["athonscada"]`): equipamento do supervisório → inversor do cadastro, fechado PELO
+  VALOR (a energia do dia de cada equipamento contra o kWh do inversor na aba do BD_Performance, 23 e 24/11/2026, ao
+  centavo); o inversor do cadastro → INV_N da SunOp pelo `EQUIP_NAMES`. O decidido na tela De-para vence
+  (`_sg.nome_inversor`). Entraram CPP100 (14), SMP100 (20), TIM200 (20; o 5 é o 2.4 e o 8 é o 2.1, fora da ordem da SunOp)
+  e MAB200 (50; 11, 19 e 26 desligados, pela ordem). Ficam na SunOp: JCD100 (o 14 não fecha), MRO100 (22 equipamentos
+  para 25, só 10 com dado), TIM100 (19 para 50, sem dado), MAB100, MTS100 e MTS200 (fora do supervisório). Entram quando
+  fecharem pelo valor: rodar a conta de novo (o roteiro está na conversa de 25/11/2026) e acrescentar a usina na lista.
+- **A reserva:** a usina vai pela SunOp, no mesmo pedido, quando o de-para não cobre TODOS os inversores da metadata, o
+  scadaGridco não respondeu (o 502 de 25/11/2026 à tarde), ou não há leitura boa de nenhum inversor nos últimos 30 min.
+  `ATHON_SCADA=0` no ambiente desliga tudo (volta a SunOp inteira). A metadata (os pathnames) continua vindo da SunOp,
+  uma vez por dia; sem ela a usina sai sem dados, como antes.
+- **Velocidade e cota:** um pedido ao supervisório por usina (`/api/mqtt/<usina>`, 0,1 a 0,4 s medido em 25/11/2026)
+  no lugar dos lotes do last_values; a usina do scadaGridco não gasta cota da SunOp. A curva de hoje vem aos pedaços
+  (`_sg_curvas`, um pedido por inversor só na 1ª vez do dia, depois só o que chegou).
+- **Medido em 25/11/2026 17:37** (dado real, a SunOp proibida no teste): as quatro pelo scadaGridco, 14/14, 20/20, 20/20 e
+  50/50 inversores, leitura de 2 min antes; a SunOp do servidor estava parada desde as 14:50.
+- Prova: `tests/test_athon_scadagridco_25_11.py` (a linha e o drill sem pedir a SunOp, o de-para fora da ordem, a curva
+  sem a trancada, e a reserva quando o supervisório cai, fica sem leitura boa, o de-para não cobre ou o `ATHON_SCADA=0`).
+
 ## GreenYellow, Sal Energia e Apolo pelo scadaGridco (06/10/2026; Apolo 29/10/2026)
 
 Levi: "OS para tempo real e histórico das UFVs da Green Yellow", "separe green yellow e sal energia", tempo real "igual

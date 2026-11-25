@@ -8767,7 +8767,168 @@ def _sunop_paths_tabela(meta: dict) -> list:
     return ps
 
 
+# ── A Athon pelo scadaGridco, com a SunOp de reserva (25/11/2026) ───────────────────────────────────────────────────
+#   Levi: "no SCADA da Grid agora tem as usinas da ATHON. Eu gostaria que todos os gráficos de string fossem puxados desses
+#   dados da API do SCADA da Grid. E caso caia, aí vai ter de backup a API ali do SunOp"; "vai ter que ter o de para do
+#   SCADA da Grid, para tá batendo a informação de string esperada e tudo mais"; "tem que abrir rápido, carregar rápido".
+#   O scadaGridco entra por BAIXO, no lugar do last_values e do histórico analógico da SunOp, nos pathnames dela
+#   ("CPP100.INV_3.I_PV7"): a linha da usina (process_plant_sunop), o drill (_sunop_plant_build) e a curva
+#   (_sunop_strings_curva) não mudam, e as esperadas (ESPERADO_INV), as strings trancadas, os tickets e o acompanhamento
+#   seguem pela chave da Athon. O equipamento do supervisório vira o inversor do cadastro pelo de-para fechado PELO VALOR
+#   (scadagridco.FONTES["athonscada"]; o decidido na tela De-para vence, `_sg.nome_inversor`) e o inversor do cadastro
+#   vira o INV_N da SunOp pelo EQUIP_NAMES. A usina vai pela SunOp, no mesmo pedido, quando: não está na lista, o de-para
+#   não cobre TODOS os inversores da metadata, o scadaGridco não respondeu (o 502 de 25/11/2026 à tarde) ou não tem
+#   leitura boa de nenhum inversor nos últimos 30 min. Um pedido ao supervisório por usina (o /api/mqtt/<usina>), em vez
+#   dos lotes do /v2/last_values: a usina do scadaGridco não gasta cota da SunOp. `ATHON_SCADA=0` desliga (tudo pela SunOp).
+ATHON_SG_FONTE = "athonscada"
+ATHON_SG_VELHA_S = 30 * 60
+_athon_sg_estado = {}      # plant_name -> {"ts", "fonte": "scadaGridco" | "SunOp", "motivo"}
+
+
+def _athon_sg_cfg(plant_name, inst: str = "gridco"):
+    """A usina da Athon no scadaGridco (a lista fixa, com o de-para pelo valor), ou None."""
+    if inst != "gridco" or os.environ.get("ATHON_SCADA", "1").strip() == "0" or not _sg.configurado():
+        return None
+    return next((c for c in (_sg.FONTES.get(ATHON_SG_FONTE) or {}).get("usinas") or []
+                 if c.get("usina") == plant_name), None)
+
+
+def _athon_sg_mapa(plant_name, cfg, meta):
+    """{INV_N da SunOp: equipamento do supervisório} para TODOS os inversores da metadata; None se algum fica sem par
+    (a usina inteira vai pela SunOp: foto pela metade não vira número)."""
+    por_nome = {}
+    for equip in (cfg.get("inversores") or {}):
+        nome = _sg.nome_inversor(cfg, equip)
+        if nome:
+            por_nome[nome] = str(equip)
+    out = {}
+    for inv in (meta or {}).get("inv_strings") or {}:
+        eq = por_nome.get(_sunop_inv_display(plant_name, inv))
+        if eq is None:
+            return None
+        out[inv] = eq
+    return out or None
+
+
+def _athon_sg_marca(plant_name, fonte, motivo=""):
+    ant = (_athon_sg_estado.get(plant_name) or {}).get("fonte")
+    _athon_sg_estado[plant_name] = {"ts": time.time(), "fonte": fonte, "motivo": motivo}
+    if ant != fonte:
+        print(f"[Athon] {plant_name}: strings pelo {fonte}" + (f" ({motivo})" if motivo else ""))
+
+
+def _athon_fonte(plant_name, inst: str = "gridco") -> str:
+    """De onde vieram as strings da usina na última leitura (vai na linha e no drill)."""
+    if inst != "gridco":
+        return "SunOp"
+    return (_athon_sg_estado.get(plant_name) or {}).get("fonte") or "SunOp"
+
+
+def _athon_sg_ts(ts) -> str:
+    """epoch -> 'AAAA-MM-DDTHH:MM:SS' na hora das usinas: o formato do timestamp do last_values com use_plant_timezone."""
+    return datetime.fromtimestamp(ts, _sg.TZ).strftime("%Y-%m-%dT%H:%M:%S") if ts else ""
+
+
+def _athon_sg_valores(plant_name, meta, pathnames=None):
+    """[{pathname, value, timestamp}] no formato do /v2/last_values da SunOp, tirados do scadaGridco; None = vai pela
+    SunOp (ver o topo). `pathnames` = só estes (os que o chamador pediu)."""
+    cfg = _athon_sg_cfg(plant_name)
+    if not cfg or not meta:
+        return None
+    mapa = _athon_sg_mapa(plant_name, cfg, meta)
+    if not mapa:
+        _athon_sg_marca(plant_name, "SunOp", "o de-para do scadaGridco não cobre todos os inversores")
+        return None
+    try:
+        leit = {str(x.get("equip")): x for x in _sg.leituras(ATHON_SG_FONTE, cfg["id"])}
+    except Exception as e:                                      # noqa: BLE001 — 502, rede, token: a SunOp segura
+        _athon_sg_marca(plant_name, "SunOp", f"o scadaGridco não respondeu ({type(e).__name__})")
+        return None
+    agora = time.time()
+    boas = {eq: x for eq, x in leit.items() if x.get("ok") and x.get("ts") and agora - x["ts"] < ATHON_SG_VELHA_S}
+    if not any(eq in boas for eq in mapa.values()):
+        _athon_sg_marca(plant_name, "SunOp", "o scadaGridco sem leitura boa nos últimos 30 min")
+        return None
+    vals = []
+
+    def poe(path, v, ts):
+        if path and isinstance(v, (int, float)) and not isinstance(v, bool):
+            vals.append({"pathname": path, "value": v, "timestamp": _athon_sg_ts(ts)})
+    nossos = []
+    for inv, eq in mapa.items():
+        x = boas.get(eq)
+        if not x:
+            continue                                            # inversor sem leitura: o path não volta (desconhecido)
+        nossos.append(x)
+        for path in meta["inv_strings"].get(inv) or []:
+            t = path.rsplit("I_PV", 1)[-1]
+            if t.isdigit():
+                poe(path, (x.get("strings") or {}).get(int(t)), x["ts"])
+        oth = (meta.get("inv_other") or {}).get(inv) or {}
+        poe(oth.get("P"), x.get("pot_kw"), x["ts"])
+        poe(oth.get("EPD"), x.get("eday"), x["ts"])
+        poe(oth.get("TEMP_INT"), x.get("temp"), x["ts"])
+    pp = meta.get("plant_paths") or {}
+    ts = max(x["ts"] for x in nossos)
+    pots = [x["pot_kw"] for x in nossos if isinstance(x.get("pot_kw"), (int, float))]
+    if pots:
+        poe(pp.get("LOGGER.TOT.P"), round(sum(pots), 3), ts)
+        poe(pp.get("InvsProduzindo"), sum(1 for v in pots if v > 0), ts)
+        poe(pp.get("InvsParados"), sum(1 for v in pots if v <= 0), ts)
+    edays = [x["eday"] for x in nossos if isinstance(x.get("eday"), (int, float))]
+    if edays:
+        poe(pp.get("LOGGER.EPD"), round(sum(edays), 3), ts)
+    poe(pp.get("InvsFalhaComunicacao"), sum(1 for eq in mapa.values() if eq not in boas), ts)
+    if pathnames is not None:
+        q = set(pathnames)
+        vals = [v for v in vals if v["pathname"] in q]
+    _athon_sg_marca(plant_name, "scadaGridco")
+    return vals
+
+
+def _athon_sg_hist(plant_name, meta, dia):
+    """{pathname: [(AAAA-MM-DDTHH:MM:00, A)]} de TODAS as strings da usina no dia, pelo scadaGridco (o formato do histórico
+    analógico da SunOp); None = vai pela SunOp. A curva de hoje vem aos pedaços (`_sg_curvas`: só o que chegou depois)."""
+    cfg = _athon_sg_cfg(plant_name)
+    if not cfg or not meta or dia < (datetime.now() - timedelta(days=SG_HIST_DIAS)).strftime("%Y-%m-%d"):
+        return None
+    mapa = _athon_sg_mapa(plant_name, cfg, meta)
+    if not mapa:
+        return None
+    out = {}
+    try:
+        for inv, eq in mapa.items():
+            c = _sg_curvas.curva(ATHON_SG_FONTE, cfg["id"], eq, dia)
+            for path in meta["inv_strings"].get(inv) or []:
+                t = path.rsplit("I_PV", 1)[-1]
+                serie = (c.get("strings") or {}).get(int(t)) if t.isdigit() else None
+                if serie:
+                    out[path] = [(f"{dia}T{hhmm}:00", v) for hhmm, v in serie]
+    except Exception as e:                                      # noqa: BLE001 — a SunOp segura a curva
+        _athon_sg_marca(plant_name, "SunOp", f"a curva do scadaGridco não veio ({type(e).__name__})")
+        return None
+    return out or None
+
+
 def _sunop_last_values_multi(pedidos: dict, inst: str = "gridco", timeout: int = 30) -> dict:
+    """{usina: [pathnames]} → {usina: (valores, lotes_falhos)}. A usina da Athon que está no scadaGridco lê de lá
+    (`_athon_sg_valores`, só quando o pedido é o da tabela de strings); o resto, e ela quando o scadaGridco cai, pela
+    SunOp (`_sunop_last_values_api`)."""
+    sg = {}
+    if inst == "gridco":
+        for u, ps in pedidos.items():
+            meta = _si(inst)["meta"].get(u)
+            if meta and _athon_sg_cfg(u) and set(ps) <= set(_sunop_paths_tabela(meta)):
+                v = _athon_sg_valores(u, meta, ps)
+                if v is not None:
+                    sg[u] = (v, 0)
+    resto = {u: ps for u, ps in pedidos.items() if u not in sg}
+    out = _sunop_last_values_api(resto, inst, timeout) if resto else {}
+    out.update(sg)
+    return out
+
+
+def _sunop_last_values_api(pedidos: dict, inst: str = "gridco", timeout: int = 30) -> dict:
     """{usina: [pathnames]} → {usina: (valores, lotes_falhos)}, em lotes de SUNOP_LV_LOTE que atravessam usinas.
 
     Cada usina recebe só os valores dos pathnames que ELA pediu. Lote que falha conta para toda usina que tinha pathname
@@ -8959,6 +9120,7 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco", _lv=None) -> dict
         "ultima_leitura": ts_max or None,
         "sem_dados": False,
         "falha_comunicacao": falha_comm,
+        "fonte_strings": _athon_fonte(plant_name, inst),     # scadaGridco ou SunOp (25/11/2026)
     }
 
 
@@ -9135,7 +9297,11 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
     data_url = _si(inst)["data"]        # (H web removido: não era usado e custava um check_token)
     all_vals = []
     lotes_falhos = 0
-    for i in range(0, len(pathnames), 500):
+    # a Athon do scadaGridco (25/11/2026): um pedido ao supervisório no lugar dos lotes; caiu, a SunOp abaixo
+    sg_vals = _athon_sg_valores(plant_name, meta, pathnames) if inst == "gridco" else None
+    if sg_vals is not None:
+        all_vals = sg_vals
+    for i in range(0, len(pathnames) if sg_vals is None else 0, 500):
         r = _sunop_req("POST", f"{data_url}/v2/last_values?use_plant_timezone=true", inst,
                        json={"pathnames": pathnames[i:i+500]}, timeout=30)
         try:
@@ -9299,7 +9465,8 @@ def api_sunop_plant(plant_name):
         # formato de sempre; o Raio-X do Painel NOC já trata o não-2xx como "não respondeu".
         return jsonify({"plant_id": plant_name, "inversores": [], "error": "falha", "erro": falha[1],
                         "fonte": "SunOp", "fonte_ok": False}), 502
-    out = {"plant_id": plant_name, "inversores": inversores}
+    out = {"plant_id": plant_name, "inversores": inversores,
+           "fonte_strings": _athon_fonte(plant_name, inst)}       # scadaGridco ou SunOp (a Athon, 25/11/2026)
     ent = _so_plant_cache.get((inst, plant_name))
     if inversores and ent and ent.get("inversores") is inversores:
         # o SWR serve o último drill bom: a hora dele vai junto, e, se a última releitura falhou, o porquê (a tela mostra
@@ -10454,7 +10621,8 @@ def _sunop_analog_history_api(pathnames: list, start: str, end: str, inst: str =
 _sunop_str_med_cache = {}   # (plant_name, dia) -> {"ts","med"} — mediana das strings da USINA inteira
 
 
-def _sunop_str_med_ent(plant_name: str, dia: str, inst: str = "gridco", hist: dict = None) -> dict:
+def _sunop_str_med_ent(plant_name: str, dia: str, inst: str = "gridco", hist: dict = None,
+                       fonte: str = "sunop") -> dict:
     """Entrada cacheada {med, curva} da mediana das strings da USINA (todos os inversores):
       • med   = mediana da energia (∫corrente no dia) de todas as strings — referência p/ comparar
                 inversores ENTRE si (pega o inversor inteiro em baixa).
@@ -10470,7 +10638,9 @@ def _sunop_str_med_ent(plant_name: str, dia: str, inst: str = "gridco", hist: di
     em rajada, que é justamente o que abre o disjuntor da borda (ver _sunop_edge_block). `{}` é
     resposta legítima ("baixei e não veio nada"), por isso o teste é `is None` e não `if not hist`."""
     cache = _si(inst)["str_med_cache"]
-    key = (plant_name, dia)
+    # o dado do scadaGridco (a Athon, 25/11/2026) tem a chave própria: a soma da amostra de 1 min não se compara com a
+    # da SunOp, e a referência de uma não pode servir à outra
+    key = (plant_name, dia) if fonte == "sunop" else (plant_name, dia, fonte)
     ent = cache.get(key)
     if ent and (time.time() - ent["ts"]) < SUNOP_TTL and "curva" in ent:
         return ent
@@ -10658,6 +10828,11 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridc
     # `hist` já pronto = veio da baixa ÚNICA de todas as usinas (_sunop_str_hist_varias). O teste é
     # `is None` e não a verdade do dicionário: {} é resposta legítima ("usina sem leitura"), e
     # tratá-lo como ausente faria a usina ser rebaixada sozinha, desfazendo o lote conjunto.
+    # a Athon do scadaGridco (25/11/2026): o dia de TODAS as strings de lá (a referência da usina sai do mesmo dado, com a
+    # chave própria na cache dela: a amostra de 1 min do supervisório não se compara com a da SunOp); caiu, a SunOp
+    sg_hist = _athon_sg_hist(plant_name, meta, dia) if (hist is None and inst == "gridco") else None
+    if sg_hist is not None:
+        hist = sg_hist if inv is None else {p: sg_hist[p] for p in allp if p in sg_hist}
     if hist is None:
         hist = (_sunop_str_hist_do_dia(plant_name, dia, allp, inst) if inv is None
                 else _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59", inst))
@@ -10665,8 +10840,11 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridc
     # buscaria — passá-la evita repetir ceil(strings/40) POSTs por usina (ver _sunop_str_med_ent).
     # Com `inv`, o pedido é 1 inversor e a referência segue vindo do cache dela (baixa só se frio),
     # que é o desenho original do botão "Curva do dia" por inversor.
-    med_ent = _sunop_str_med_ent(plant_name, dia, inst,       # referência da USINA (escalar + curva real)
-                                 hist=hist if inv is None else None)
+    if sg_hist is not None:
+        med_ent = _sunop_str_med_ent(plant_name, dia, inst, hist=sg_hist, fonte="scadaGridco")
+    else:
+        med_ent = _sunop_str_med_ent(plant_name, dia, inst,       # referência da USINA (escalar + curva real)
+                                     hist=hist if inv is None else None)
     med_usina = med_ent["med"]
 
     def _invnum(x):                       # ordena gridco (INV_1) e axis (SKID_1.LVDB_1.INV_3)
@@ -10707,7 +10885,8 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridc
     _marca_inv_sub(out)
     return {"plant_id": plant_name, "data": dia, "inversores": out,
             "mediana_usina": round(med_usina, 1),
-            "mediana_usina_curva": med_ent.get("curva")}   # mediana REAL da usina por instante
+            "mediana_usina_curva": med_ent.get("curva"),   # mediana REAL da usina por instante
+            "fonte_strings": "scadaGridco" if sg_hist is not None else "SunOp"}
 
 
 _sunop_curva_cache = {}   # (plant_name, dia, inv) -> {"ts", "payload"} — curva por inversor/dia

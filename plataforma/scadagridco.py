@@ -146,6 +146,45 @@ FONTES["axisscada"] = {
 }
 
 
+# Athon pelo scadaGridco, com a SunOp de RESERVA (25/11/2026, Levi: "no SCADA da Grid agora tem as usinas da ATHON. Eu
+# gostaria que todos os gráficos de string fossem puxados desses dados da API do SCADA da Grid. E caso caia, aí vai ter de
+# backup a API ali do SunOp"; e "a gente já tem o de para do SunOp, vai ter que ter o de para do SCADA da Grid, para tá
+# batendo a informação de string esperada e tudo mais"). Não é uma aba nova: o app.py lê o scadaGridco NO LUGAR do
+# last_values e do histórico da SunOp (`_athon_sg_valores`, `_athon_sg_hist`), com os pathnames dela ("CPP100.INV_3.I_PV7"),
+# e tudo o que a Athon tem (as esperadas do cadastro, as strings trancadas, os tickets, o acompanhamento) segue pela chave
+# de sempre. O caminho: equipamento do supervisório → inversor do cadastro (aqui) → INV_N da SunOp (EQUIP_NAMES).
+# O DE-PARA É PELO VALOR: a energia do dia de cada equipamento (daily_active_energy no fim do dia) contra o kWh do dia de
+# cada inversor na aba do BD_Performance, em 23 e 24/11/2026, ao centavo nos dois dias. CPP100 14 de 14 e SMP100 20 de 20
+# (= a ordem da SunOp); TIM200 20 de 20, com o 5 = Inversor 2.4 e o 8 = Inversor 2.1 (FORA da ordem da SunOp); MAB200 47
+# de 50 pelo valor e os três desligados nos dois dias (11, 19 e 26 no 23/11) pela ordem, que bateu nos outros 47.
+# Ficam na SunOp, por ora: JCD100 (o equipamento 14 não fecha com nenhum inversor nos dois dias; o 19 e o 20 trocados
+# em relação à SunOp), MRO100 (22 equipamentos para 25 inversores, só 10 com dado), TIM100 (19 equipamentos para 50, sem
+# dado) e MAB100, MTS100 e MTS200 (fora do supervisório). Entram quando fecharem pelo valor.
+FONTES["athonscada"] = {
+    "rotulo": "Athon",
+    "via": "mqtt",
+    "usinas": [
+        {"id": "cpp_100", "usina": "CPP100",
+         "inversores": {str(i): f"Inversor {(i + 1) // 2}.{2 - i % 2}" for i in range(1, 15)}},
+        {"id": "smp_100", "usina": "SMP100",
+         "inversores": {"1": "Inversor 1.1", "2": "Inversor 1.2", "3": "Inversor 1.3", "4": "Inversor 1.4",
+                        "5": "Inversor 2.1", "6": "Inversor 2.2", "7": "Inversor 3.1", "8": "Inversor 3.2",
+                        "9": "Inversor 3.3", "10": "Inversor 3.4", "11": "Inversor 4.1", "12": "Inversor 4.2",
+                        "13": "Inversor 5.1", "14": "Inversor 5.2", "15": "Inversor 6.1", "16": "Inversor 6.2",
+                        "17": "Inversor 7.1", "18": "Inversor 7.2", "19": "Inversor 7.3", "20": "Inversor 7.4"}},
+        {"id": "tim_200", "usina": "TIM200",
+         "inversores": {"1": "Inversor 1.1", "2": "Inversor 1.2", "3": "Inversor 1.3", "4": "Inversor 1.4",
+                        "5": "Inversor 2.4", "6": "Inversor 2.2", "7": "Inversor 2.3", "8": "Inversor 2.1",
+                        "9": "Inversor 3.1", "10": "Inversor 3.2", "11": "Inversor 3.3", "12": "Inversor 3.4",
+                        "13": "Inversor 4.1", "14": "Inversor 4.2", "15": "Inversor 4.3", "16": "Inversor 4.4",
+                        "17": "Inversor 5.1", "18": "Inversor 5.2", "19": "Inversor 5.3", "20": "Inversor 5.4"}},
+        {"id": "mab_200", "usina": "MAB200",
+         "inversores": {str(i): f"Inversor {(i - 1) // 10 + 1}.{(i - 1) % 10 + 1}" for i in range(1, 51)},
+         "provisorio": "MAB200: 11, 19 e 26 desligados em 23/11/2026, pela ordem (os outros 47 fecharam pelo valor)"},
+    ],
+}
+
+
 # Usinas DESCOBERTAS na API (11/10/2026, Levi: "Na API que está puxando as UFVs da GreenYellow não está aparecendo todas
 # as UFVs"): a lista acima era fixa, e o supervisório já tinha a Castelo do Piauí (16 inversores) e a "Cedro 1 e 2" (20)
 # lendo. O app classifica cada usina de `/api/usinas` pelo CLIENTE do cadastro (Info Geral) e pendura aqui as que não estão
