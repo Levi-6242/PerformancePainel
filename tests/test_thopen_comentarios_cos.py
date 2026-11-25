@@ -35,10 +35,10 @@ def test_o_relato_do_cos_por_usina_e_dia():
     assert operacao_mes.cos_por_dia({}, "Usina A", 2026, 10) == {}
 
 
-def test_a_aba_do_cos_entra_na_leitura_so_com_as_tres_colunas():
+def test_a_aba_do_cos_entra_na_leitura_so_com_as_colunas_do_relato():
     k, campos = fonte_operacao.ABAS[("nexus_cos_normalizacoes", "fato_comentario_dia")]
-    assert k == "comentario_cos_dia" and campos == ("usina_id", "dia", "relato_do_dia")
-    assert fonte_operacao.VERSAO_CACHE >= 13       # o cache antigo, sem a aba, não serve
+    assert k == "comentario_cos_dia" and campos == ("usina_id", "dia", "relato_do_dia", "registros")
+    assert fonte_operacao.VERSAO_CACHE >= 15       # o cache antigo, sem os registros, não serve
 
 
 @pytest.fixture
@@ -222,7 +222,82 @@ def test_o_dia_a_100_leva_a_parada_fora_do_sol_e_o_dia_com_perda_nao(_card, monk
 def test_a_aba_das_ocorrencias_entra_so_com_as_colunas_sem_nome():
     k, campos = fonte_operacao.ABAS[("nexus_cos_normalizacoes", "fato_normalizacao")]
     assert k == "ocorrencia_cos" and "os_aberta_por" not in campos and "tecnico" not in campos
+    assert "registro" in campos                    # a ponte da linha do relato com a tag do equipamento (a parte)
     assert fonte_operacao.VERSAO_CACHE >= 14
+
+
+# ── a parte da usina: o relato do ORB100 dividido entre as Ouro Branco I a V (25/11/2026) ─────────────────────────────
+# Só a IV está no de-para (como na produção); as outras quatro leem o relato pelo id dela
+OB = 105
+DE_PARA_OB = [{"usina_id": OB, "chave_externa": "Ouro Branco IV"}]
+L_CAB4 = "Cabine 4 desligada de 27/10 às 06:07 a 27/10 às 08:20."
+L_SKID3 = "Usina desligada de 27/10 às 09:00 a 27/10 às 09:30."          # o texto diz usina; a tag é do SKID 3
+L_ESTM = "Perda de comunicação com a estação solarimétrica do complexo de 27/10 às 10:05 a 27/10 às 10:42."
+L_INV12 = "Inversor 1.2 desligado desde 27/10 às 11:00, em atendimento pelo COS."   # aberta: não está nas ocorrências
+OCORR_OB = [{"registro": "r-cab4", "usina_id": str(OB), "equipamentos_codigos": "THPN-ORB100-CABN4"},
+            {"registro": "r-skid3", "usina_id": str(OB), "equipamentos_codigos": "THPN-ORB100-SKID3"},
+            {"registro": "r-estm", "usina_id": str(OB), "equipamentos_codigos": "THPN-ORB100-ESTM1"}]
+D27 = dt.date(2026, 10, 27)
+
+
+def _ob(registros):
+    return {"de_para": DE_PARA_OB, "ocorrencia_cos": OCORR_OB, "comentario_cos_dia": [
+        {"usina_id": str(OB), "dia": "2026-10-27", "relato_do_dia": "\n".join([L_CAB4, L_SKID3, L_ESTM, L_INV12]),
+         "registros": registros}]}
+
+
+@pytest.mark.parametrize("codigos, partes", [
+    ("THPN-ORB100-INVR3.2", {3}), ("THPN-ORB100-CABN4", {4}), ("THPN-ORB100-QGBT4;THPN-ORB100-SKID4", {4}),
+    ("THPN-ORB100-PECN3;THPN-ORB100-CABN4", {3, 4}), ("THPN-ORB100-DTRF3", {3}), ("THPN-ORB100-DINV1.1", {1}),
+    ("THPN-ORB100-ESTM1", set()), ("THPN-ORB100-MDFV", set()), ("", set()), (None, set())])
+def test_a_parte_pela_tag_do_equipamento(codigos, partes):
+    assert operacao_mes.partes_da_tag(codigos) == partes
+
+
+@pytest.mark.parametrize("linha, partes", [
+    ("Inversor 3.2 desligado de 04/10 às 10:00 a 04/10 às 13:00.", {3}),
+    ("Continuação: QGBT 4 desligado de 11/10 às 06:00 a 11/10 às 10:15.", {4}),
+    ("Cabine 1, Cabine 2 e Ponto de Entrega 5 desligadas de 29/10 às 11:00 a 29/10 às 11:10.", {1, 2, 5}),
+    ("Cabines 2 e 4 desligadas de 01/10 às 08:00 a 01/10 às 09:00.", {2, 4}),
+    ("Inversores 1.1 e 5.2 desligados desde 01/11 às 07:00, em atendimento pelo COS.", {1, 5}),
+    ("Perda de comunicação com a Cabine 4 de 24/11 às 05:01 a 24/11 às 11:53.", {4}),
+    (L_CAB4, {4}), (L_SKID3, set()), (L_ESTM, set()), (L_INV12, {1}),
+    ("Perda de comunicação com a usina de 07/08 às 15:41 a 07/08 às 16:10.", set())])
+def test_a_parte_pelo_equipamento_citado_na_linha(linha, partes):
+    assert operacao_mes.partes_do_texto(linha) == partes
+
+
+@pytest.mark.parametrize("nome, esperado", [
+    ("Ouro Branco IV", [L_CAB4, L_ESTM]), ("Ouro Branco III", [L_SKID3, L_ESTM]),
+    ("Ouro Branco I", [L_ESTM, L_INV12]), ("Ouro Branco II", [L_ESTM]), ("Ouro Branco V", [L_ESTM])])
+def test_cada_ouro_branco_fica_com_a_linha_do_equipamento_dela_e_a_da_usina_inteira(nome, esperado):
+    """O caso que criou a regra: em 27/10 o dashboard punha a cabine 4 (OS 17603) e a estação no OB IV e deixava as
+    outras quatro sem comentário. A tag da ocorrência vence o texto ("Usina desligada" com a tag SKID3 é só da III); a
+    aberta, que não está nas ocorrências, vai pelo equipamento citado."""
+    dados = _ob("r-cab4;r-skid3;r-estm;r-inv12")
+    assert operacao_mes.cos_por_dia(dados, nome, 2026, 10) == {D27: esperado}
+
+
+def test_sem_os_registros_a_parte_vai_pelo_texto_de_cada_linha():
+    # o cache de antes da coluna (ou um relato com mais linhas que registros): a linha "Usina ..." vale para todas
+    dados = _ob("")
+    assert operacao_mes.cos_por_dia(dados, "Ouro Branco IV", 2026, 10) == {D27: [L_CAB4, L_SKID3, L_ESTM]}
+    assert operacao_mes.cos_por_dia(dados, "Ouro Branco II", 2026, 10) == {D27: [L_SKID3, L_ESTM]}
+
+
+def test_a_usina_que_nao_e_parte_fica_com_o_relato_inteiro():
+    dados = {"de_para": DE_PARA, "ocorrencia_cos": [], "comentario_cos_dia": [
+        {"usina_id": "7", "dia": "2026-10-27", "relato_do_dia": f"{L_CAB4}\n{L_SKID3}", "registros": "a;b"}]}
+    assert operacao_mes.cos_por_dia(dados, "Usina A", 2026, 10) == {D27: [L_CAB4, L_SKID3]}
+
+
+def test_a_parada_fora_do_sol_da_parte_so_com_o_equipamento_dela():
+    dados = {"de_para": DE_PARA_OB, "ocorrencia_cos": [
+        _oc("2026-10-27T01:30:00-03:00", "2026-10-27T05:00:00-03:00", usina_id=str(OB), tipo="DESLIGAMENTO_CABINE",
+            equipamentos_codigos="THPN-ORB100-CABN4", os="17603"),
+        _oc("2026-10-28T02:00:00-03:00", "2026-10-28T04:00:00-03:00", usina_id=str(OB), os="17604")]}
+    assert sorted(operacao_mes.fora_do_sol_por_dia(dados, "Ouro Branco IV", 2026, 10)) == [D27, dt.date(2026, 10, 28)]
+    assert sorted(operacao_mes.fora_do_sol_por_dia(dados, "Ouro Branco I", 2026, 10)) == [dt.date(2026, 10, 28)]
 
 
 # ── a janela: Disponibilidade Thopen | Comentário | Disponibilidade Grid (16/11/2026) ─────────────────────────────────

@@ -656,20 +656,79 @@ def os_por_dia(dados, nome, ano, mes, trips=None, pot_kwp=None):
     return dict(out)
 
 
+# A PARTE DA LINHA DO RELATO (25/11/2026, Willian, COS). O Levi conferiu o dashboard às 14:30 de 25/11: o comentário do
+# ORB100 caía todo na Ouro Branco IV (a única parte ligada no de-para), e a I, a II, a III e a V ficavam sem ele (27/10:
+# a cabine 4, OS 17603, é só da IV; o inversor 3.2, OS 17537, é da III; a estação, de todas). Na Ronda COS o primeiro
+# número do equipamento é o da parte (INVR3.2 → III, CABN4/SKID4/QGBT4 → IV), conferido no catálogo (1.x e 2.x com 9
+# inversores, 3.x a 5.x com 4) e no histórico de alarmes da PV Operation ("Ouro Branco 3 (774)" INVERSOR 2 = INVR3.2).
+# Pela tag do equipamento da ocorrência (fato_normalizacao, `registro`); sem a ocorrência (a aberta, que não está lá),
+# pelo equipamento citado no começo da linha. Sem número (a usina inteira, a estação, o relé geral): todas as partes
+_NUM_TAG = re.compile(r"-(?:INVR|DINV|CABN|SKID|QGBT|PECN|DTRF)(\d+)(?:\.\d+)?(?=-|$)")
+_NUM_TEXTO = re.compile(r"\b(?:cabines?|skids?|qgbts?|inversor(?:es)?|pontos? de entrega|transformador(?:es)?)\s+"
+                        r"(\d+(?:\.\d+)?(?:\s*(?:,|e)\s*\d+(?:\.\d+)?)*)", re.I)
+_INV_TEXTO = re.compile(r"\b(\d+)\.\d+\b")
+_FIM_SUJEITO = re.compile(r"\s+(?:desligad|offline|sem |parad|n[aã]o |voltou|ficou|desde |de \d|das \d)", re.I)
+
+
+def _partes_irmas(nome):
+    """As partes do 5080 da mesma usina do Gerencial que `nome` (as cinco Ouro Branco), ou [] se não é parte."""
+    k = next((k for k in PARTES if chave(k) == chave(nome)), None)
+    return [x for x, v in PARTES.items() if v[0] == PARTES[k][0]] if k else []
+
+
+def partes_da_tag(codigos):
+    """{números de parte} pelas tags do equipamento ("...-INVR3.2" → 3, "...-CABN4" e "...-PECN4" → 4; várias, ";");
+    vazio = sem número (a usina inteira, a estação, o módulo): vale para todas as partes."""
+    out = set()
+    for c in str(codigos or "").split(";"):
+        m = _NUM_TAG.search(c.strip().upper())
+        if m:
+            out.add(int(m.group(1)))
+    return out
+
+
+def partes_do_texto(linha):
+    """{números de parte} pelo equipamento citado no começo da linha, como a Ronda COS escreve ("Inversor 3.2 desligado"
+    → 3; "Cabine 1, Cabine 2 e Ponto de Entrega 5 desligadas" → 1, 2 e 5; "Perda de comunicação com a Cabine 4" → 4);
+    a usina, a estação e o que não cita número: vazio (todas)."""
+    t = re.sub(r"^continua[çc][ãa]o:\s*", "", str(linha or "").strip(), flags=re.I)
+    t = re.sub(r"^perda de comunica[çc][ãa]o com (?:[ao]s? )?", "", t, flags=re.I)
+    if re.match(r"(?i)usina\b", t):
+        return set()
+    sujeito = _FIM_SUJEITO.split(t, maxsplit=1)[0]
+    nums = {int(x) for m in _NUM_TEXTO.finditer(sujeito) for x in re.findall(r"(\d+)(?:\.\d+)?", m.group(1))}
+    return nums | {int(m.group(1)) for m in _INV_TEXTO.finditer(sujeito)}
+
+
 def cos_por_dia(dados, nome, ano, mes):
     """{dia: [linhas do relato]} do comentário que o COS escreveu para o cliente (fato_comentario_dia do Nexus, 09/11/2026:
     "Eu só preciso que os comentários cheguem ao cliente pra explicar corretamente porque a disponibilidade está baixa
     naquele dia"). Pelo usina_id do de-para (Primavera junta as duas; várias paradas no dia, uma por linha, na ordem do
-    COS). {} sem relato."""
-    ids = ids_da_usina((dados or {}).get("de_para") or [], nome)
+    COS). {} sem relato. A PARTE de uma usina (Ouro Branco I a V, 25/11/2026) lê o relato da usina inteira pelo id de
+    qualquer parte e fica só com a linha do equipamento dela e a da usina inteira (`partes_da_tag`/`partes_do_texto`)."""
+    de_para = (dados or {}).get("de_para") or []
+    irmas = _partes_irmas(nome)
+    p = parte(nome) if irmas else None
+    ids = set().union(*(ids_da_usina(de_para, x) for x in irmas)) if irmas else ids_da_usina(de_para, nome)
+    tags = ({str(o.get("registro") or ""): o.get("equipamentos_codigos") for o in (dados or {}).get("ocorrencia_cos") or []
+             if o.get("registro")} if p else {})
     out = defaultdict(list)
     for r in (dados or {}).get("comentario_cos_dia") or []:
         d = _no_mes(r.get("dia"), ano, mes)
         if not d or _int(r.get("usina_id")) not in ids:
             continue
-        for linha in str(r.get("relato_do_dia") or "").splitlines():
+        linhas = str(r.get("relato_do_dia") or "").splitlines()
+        regs = [x.strip() for x in str(r.get("registros") or "").split(";")]
+        for i, linha in enumerate(linhas):
             linha = linha.strip()
-            if linha and linha not in out[d]:
+            if not linha:
+                continue
+            if p:
+                reg = regs[i] if len(regs) == len(linhas) else ""
+                nums = partes_da_tag(tags[reg]) if reg in tags else partes_do_texto(linha)
+                if nums and p[1] not in nums:
+                    continue
+            if linha not in out[d]:
                 out[d].append(linha)
     return dict(out)
 
@@ -683,12 +742,18 @@ def fora_do_sol_por_dia(dados, nome, ano, mes):
     tiraram hora da disponibilidade (16/11/2026, a Ana: "essa ocorrência não está aparecendo na plataforma... Colorado 1
     aparece como disponibilidade 100%, mesmo havendo esta ocorrência"; a OS 18809, desligamento de 01:30 a 06:46 de 07/11;
     Levi: "Mostrar a parada a 100%"). Pelas ocorrências normalizadas e com hora real (`ocorrencia_cos`), pelo usina_id do
-    de-para, como o relato do COS (cos_por_dia)."""
-    ids = ids_da_usina((dados or {}).get("de_para") or [], nome)
+    de-para, como o relato do COS (cos_por_dia); a parte (Ouro Branco I a V, 25/11/2026) só com a do equipamento dela e a
+    da usina inteira."""
+    de_para = (dados or {}).get("de_para") or []
+    irmas = _partes_irmas(nome)
+    p = parte(nome) if irmas else None
+    ids = set().union(*(ids_da_usina(de_para, x) for x in irmas)) if irmas else ids_da_usina(de_para, nome)
     out = defaultdict(list)
     for r in (dados or {}).get("ocorrencia_cos") or []:
         tipo = str(r.get("tipo_falha") or "").strip().upper()
         if _int(r.get("usina_id")) not in ids or not (tipo in ROTULO_PARADA or tipo.startswith("DESLIG")):
+            continue
+        if p and (nums := partes_da_tag(r.get("equipamentos_codigos"))) and p[1] not in nums:
             continue
         if not _sim(r.get("normalizada")) or not _sim(r.get("hora_real")):
             continue
