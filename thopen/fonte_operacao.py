@@ -27,8 +27,9 @@ COOLDOWN = 60                                                 # s sem tentar de 
 CACHE = os.environ.get("THOPEN_OPERACAO_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cache_operacao.json.gz")
 SISTEMA_5080 = "BD_Thopen · Dados Gerais Usinas"
-VERSAO_CACHE = 15       # 25/11/2026: `registros` no comentário e `registro` nas ocorrências do COS, para a parte da
-# usina (Ouro Branco I a V) ficar com a linha do equipamento dela (14: a parada fora do período solar, 16/11/2026)
+VERSAO_CACHE = 16       # 25/11/2026, 16:30: `usina_codigo` no comentário e nas ocorrências do COS — a parte (Ouro
+# Branco I a V) não tem usina_id no de-para e acha o relato pelo código da usina inteira (15: `registros` e `registro`, a
+# linha do equipamento da parte; 14: a parada fora do período solar, 16/11/2026)
 # (workbook, aba) → (chave em `dados`, campos que ficam)
 ABAS = {
     ("falhas_performance", "strings_episodios"): ("strings_episodios",
@@ -85,14 +86,15 @@ ABAS = {
     # subiram no dashboard thopen"): o Nexus monta o relato da Ronda COS por usina × dia (regras fixas, sem o texto livre
     # do time; nexus/cos/normalizacoes_banco.comentarios_do_dia) e o 5080 só mostra (operacao_mes.cos_por_dia)
     # `registros` (25/11/2026): os registros da Ronda COS de cada linha do relato, na mesma ordem (";"), para a parte de
-    # uma usina (a Ouro Branco I a V) ficar só com a linha do equipamento dela (operacao_mes.cos_por_dia)
-    ("nexus_cos_normalizacoes", "fato_comentario_dia"): ("comentario_cos_dia", ("usina_id", "dia", "relato_do_dia",
-                                                                              "registros")),
+    # uma usina (a Ouro Branco I a V) ficar só com a linha do equipamento dela (operacao_mes.cos_por_dia); `usina_codigo`
+    # (o código da Ronda COS, "THPN-ORB100"): a parte acha o relato da usina inteira sem usina_id no de-para
+    ("nexus_cos_normalizacoes", "fato_comentario_dia"): ("comentario_cos_dia", ("usina_id", "usina_codigo", "dia",
+                                                                              "relato_do_dia", "registros")),
     # as ocorrências normalizadas da Ronda COS (16/11/2026): a parada que ficou toda fora do período solar não tira hora
     # e a plataforma não a publica; o dia a 100% a mostra assim mesmo (operacao_mes.fora_do_sol_por_dia; o Colorado 1 em
     # 07/11, desligado de 01:30 a 06:46, aparecia a 100% sem nada). Só tipo, hora, OS e a tag do equipamento: nenhum nome
-    ("nexus_cos_normalizacoes", "fato_normalizacao"): ("ocorrencia_cos", ("registro", "os", "usina_id", "tipo_falha",
-                                                                         "equipamentos_codigos", "inicio",
+    ("nexus_cos_normalizacoes", "fato_normalizacao"): ("ocorrencia_cos", ("registro", "os", "usina_id", "usina_codigo",
+                                                                         "tipo_falha", "equipamentos_codigos", "inicio",
                                                                          "normalizado_em", "normalizada", "hora_real")),
 }
 _lock = threading.Lock()

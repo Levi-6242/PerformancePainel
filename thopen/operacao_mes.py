@@ -656,8 +656,9 @@ def os_por_dia(dados, nome, ano, mes, trips=None, pot_kwp=None):
     return dict(out)
 
 
-# A PARTE DA LINHA DO RELATO (25/11/2026, Willian, COS). O Levi conferiu o dashboard às 14:30 de 25/11: o comentário do
-# ORB100 caía todo na Ouro Branco IV (a única parte ligada no de-para), e a I, a II, a III e a V ficavam sem ele (27/10:
+# A PARTE DA LINHA DO RELATO (25/11/2026, Willian, COS). O Levi conferiu o dashboard às 14:30 de 25/11: em 27/10 só a
+# Ouro Branco IV tinha comentário (a frase da OS da cabine 4 pelo site, `_itens_da_parte`; nenhuma parte tem usina_id no
+# de-para, então o relato do COS não chegava a nenhuma), e a I, a II, a III e a V ficavam sem ele (27/10:
 # a cabine 4, OS 17603, é só da IV; o inversor 3.2, OS 17537, é da III; a estação, de todas). Na Ronda COS o primeiro
 # número do equipamento é o da parte (INVR3.2 → III, CABN4/SKID4/QGBT4 → IV), conferido no catálogo (1.x e 2.x com 9
 # inversores, 3.x a 5.x com 4) e no histórico de alarmes da PV Operation ("Ouro Branco 3 (774)" INVERSOR 2 = INVR3.2).
@@ -670,10 +671,32 @@ _INV_TEXTO = re.compile(r"\b(\d+)\.\d+\b")
 _FIM_SUJEITO = re.compile(r"\s+(?:desligad|offline|sem |parad|n[aã]o |voltou|ficou|desde |de \d|das \d)", re.I)
 
 
+# O código da usina inteira na Ronda COS, por usina do Gerencial que tem PARTES (25/11/2026, 16:20, o Levi: as cinco Ouro
+# Branco estão sem usina_id no de-para; o ORB100 é o usina_id 105 do Nexus e nenhuma parte é ligada a ele, então pelo id
+# a parte não achava o relato). A parte acha o relato e as ocorrências pelo código, que vem em `usina_codigo` das duas
+# abas do Nexus, sem mexer no de-para (ligar as cinco ao 105 levaria a disponibilidade e as rondas do complexo inteiro
+# para cada parte)
+CODIGO_COS = {"Ouro Branco": "THPN-ORB100"}
+
+
 def _partes_irmas(nome):
     """As partes do 5080 da mesma usina do Gerencial que `nome` (as cinco Ouro Branco), ou [] se não é parte."""
     k = next((k for k in PARTES if chave(k) == chave(nome)), None)
     return [x for x, v in PARTES.items() if v[0] == PARTES[k][0]] if k else []
+
+
+def _linhas_do_cos(dados, nome):
+    """(parte, casa): a parte (`parte(nome)`, ou None) e o filtro das linhas do Nexus da usina — pelo usina_id do de-para
+    (o de qualquer irmã, na parte) e, na parte, também pelo código da usina inteira (`CODIGO_COS`)."""
+    de_para = (dados or {}).get("de_para") or []
+    irmas = _partes_irmas(nome)
+    if not irmas:
+        ids = ids_da_usina(de_para, nome)
+        return None, lambda r: _int(r.get("usina_id")) in ids
+    ids = set().union(*(ids_da_usina(de_para, x) for x in irmas))
+    cods = {CODIGO_COS[PARTES[irmas[0]][0]]} if PARTES[irmas[0]][0] in CODIGO_COS else set()
+    return parte(nome), lambda r: (_int(r.get("usina_id")) in ids
+                                   or str(r.get("usina_codigo") or "").strip().upper() in cods)
 
 
 def partes_da_tag(codigos):
@@ -704,18 +727,16 @@ def cos_por_dia(dados, nome, ano, mes):
     """{dia: [linhas do relato]} do comentário que o COS escreveu para o cliente (fato_comentario_dia do Nexus, 09/11/2026:
     "Eu só preciso que os comentários cheguem ao cliente pra explicar corretamente porque a disponibilidade está baixa
     naquele dia"). Pelo usina_id do de-para (Primavera junta as duas; várias paradas no dia, uma por linha, na ordem do
-    COS). {} sem relato. A PARTE de uma usina (Ouro Branco I a V, 25/11/2026) lê o relato da usina inteira pelo id de
-    qualquer parte e fica só com a linha do equipamento dela e a da usina inteira (`partes_da_tag`/`partes_do_texto`)."""
-    de_para = (dados or {}).get("de_para") or []
-    irmas = _partes_irmas(nome)
-    p = parte(nome) if irmas else None
-    ids = set().union(*(ids_da_usina(de_para, x) for x in irmas)) if irmas else ids_da_usina(de_para, nome)
+    COS). {} sem relato. A PARTE de uma usina (Ouro Branco I a V, 25/11/2026) lê o relato da usina inteira pelo código
+    dela na Ronda COS (`CODIGO_COS`) e fica só com a linha do equipamento dela e a da usina inteira
+    (`partes_da_tag`/`partes_do_texto`)."""
+    p, casa = _linhas_do_cos(dados, nome)
     tags = ({str(o.get("registro") or ""): o.get("equipamentos_codigos") for o in (dados or {}).get("ocorrencia_cos") or []
              if o.get("registro")} if p else {})
     out = defaultdict(list)
     for r in (dados or {}).get("comentario_cos_dia") or []:
         d = _no_mes(r.get("dia"), ano, mes)
-        if not d or _int(r.get("usina_id")) not in ids:
+        if not d or not casa(r):
             continue
         linhas = str(r.get("relato_do_dia") or "").splitlines()
         regs = [x.strip() for x in str(r.get("registros") or "").split(";")]
@@ -743,15 +764,12 @@ def fora_do_sol_por_dia(dados, nome, ano, mes):
     aparece como disponibilidade 100%, mesmo havendo esta ocorrência"; a OS 18809, desligamento de 01:30 a 06:46 de 07/11;
     Levi: "Mostrar a parada a 100%"). Pelas ocorrências normalizadas e com hora real (`ocorrencia_cos`), pelo usina_id do
     de-para, como o relato do COS (cos_por_dia); a parte (Ouro Branco I a V, 25/11/2026) só com a do equipamento dela e a
-    da usina inteira."""
-    de_para = (dados or {}).get("de_para") or []
-    irmas = _partes_irmas(nome)
-    p = parte(nome) if irmas else None
-    ids = set().union(*(ids_da_usina(de_para, x) for x in irmas)) if irmas else ids_da_usina(de_para, nome)
+    da usina inteira (pelo código da usina inteira, como em cos_por_dia)."""
+    p, casa = _linhas_do_cos(dados, nome)
     out = defaultdict(list)
     for r in (dados or {}).get("ocorrencia_cos") or []:
         tipo = str(r.get("tipo_falha") or "").strip().upper()
-        if _int(r.get("usina_id")) not in ids or not (tipo in ROTULO_PARADA or tipo.startswith("DESLIG")):
+        if not casa(r) or not (tipo in ROTULO_PARADA or tipo.startswith("DESLIG")):
             continue
         if p and (nums := partes_da_tag(r.get("equipamentos_codigos"))) and p[1] not in nums:
             continue

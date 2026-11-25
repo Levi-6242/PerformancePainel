@@ -475,9 +475,13 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
   real: a IV com 63,2%, 88,2% e 81,5% nos três dias (a geração deu 62%, 94% e 85% da possível). A UG 04 tem 1.016,6
   kWp na aba Equipamentos e a Ouro Branco IV, 0,6 MWp no registro do 5080 (a diferença pesa na conta do site). Prova:
   `tests/test_thopen_partes.py`.
-  - **O relato do COS dividido por parte (25/11/2026**, Willian, COS; o Levi conferiu às 14:30 que o comentário do ORB100
-    caía todo na IV, a única ligada no de-para, e a I, a II, a III e a V ficavam sem ele). Cada parte lê o relato da
-    usina inteira pelo id de qualquer irmã (`_partes_irmas`) e fica só com a linha do equipamento dela e a que não tem
+  - **O relato do COS dividido por parte (25/11/2026**, Willian, COS; o Levi conferiu às 14:30 que em 27/10 só a IV
+    tinha comentário, a frase da OS da cabine 4 pelo site, e a I, a II, a III e a V ficavam sem ele). **Nenhuma parte tem
+    usina_id no de-para** (o ORB100 é o 105 do Nexus; o Levi, às 16:20, depois da 1ª versão, que buscava pelo id e não
+    achava nada no dado real): cada parte acha o relato e as ocorrências da usina inteira pelo código dela na Ronda COS
+    (`CODIGO_COS`, "THPN-ORB100", na coluna `usina_codigo` das duas abas do Nexus; `_linhas_do_cos`), e também pelo id de
+    qualquer irmã, se um dia alguma for ligada. Ligar as cinco ao 105 no de-para foi descartado: levaria a
+    disponibilidade e as rondas do complexo inteiro para cada parte. A parte fica só com a linha do equipamento dela e a que não tem
     número (a usina, a estação solarimétrica, o módulo). O número da parte é o 1º do equipamento (INVR3.2 → III; CABN4,
     SKID4, QGBT4, PECN4, DTRF4 → IV), pela tag da ocorrência: `fato_comentario_dia.registros` (os registros de cada linha,
     na ordem, ";") → `fato_normalizacao.registro` → `equipamentos_codigos` (`partes_da_tag`). A tag vence o texto: o
