@@ -8,6 +8,7 @@ e a rota em `dashboard_thopen`.
 """
 import datetime as dt
 import re
+import threading
 import unicodedata
 from collections import defaultdict
 
@@ -395,6 +396,31 @@ def _conta_strings(oss):
     return len(distintas) + soma if alguma else None
 
 
+# As linhas da disponibilidade_dia por mês, indexadas uma vez por leitura (25/11/2026: o dashboard do servidor parava de
+# responder, até o login, por minutos; a Visão Geral do Portfólio levava 12,7 s no PC com tudo em memória, 8 deles aqui:
+# cada usina varria as ~10 mil linhas de todos os meses, e a mesma conta rodava duas vezes por usina). A leitura nova do
+# `fonte_operacao` é outro objeto: o índice é refeito para ela
+_IDX_TRAVA = threading.Lock()
+_IDX = {"dados": None, "meses": {}}
+
+
+def _disp_mes(dados, ano, mes):
+    """([(linha, dia, chave do nome, usina_ids)], {chaves dos nomes}) da disponibilidade_dia no mês."""
+    with _IDX_TRAVA:
+        if _IDX["dados"] is not dados:
+            _IDX.update(dados=dados, meses={})
+        m = _IDX["meses"].get((ano, mes))
+        if m is None:
+            linhas = []
+            for r in dados.get("disponibilidade_dia") or []:
+                d = _no_mes(r.get("dia"), ano, mes)
+                if d:
+                    linhas.append((r, d, chave(r.get("usina")), {_int(u) for u in r.get("usina_ids") or []}))
+            m = (linhas, {x[2] for x in linhas})
+            _IDX["meses"][(ano, mes)] = m
+        return m
+
+
 def disp_por_dia(dados, nome, ano, mes, pot_kwp=None):
     """{dia: disponibilidade %} da usina no mês (rodada 4, Levi 09/10/2026: "calculada pelo Fracttal, da mesma forma
     que calculamos pelo gerencial da plataforma") — a aba disponibilidade_dia que a plataforma publica, um valor por dia
@@ -410,10 +436,9 @@ def disp_por_dia(dados, nome, ano, mes, pot_kwp=None):
     if parte(nome):
         return _disp_da_parte(dados, nome, ano, mes, pot_kwp)
     ids, nomes = ids_da_usina(dados.get("de_para"), nome), _nomes(nome)
-    linhas = [(r, _no_mes(r.get("dia"), ano, mes)) for r in dados.get("disponibilidade_dia") or []]
-    linhas = [(r, d) for r, d in linhas if d]
-    por_nome = _gerencial_por_nome(dados, nome, ano, mes)
-    escolha = [x for x in linhas if _e_da_usina_gerencial(x[0], por_nome, ids, nomes)]
+    linhas, nomes_mes = _disp_mes(dados, ano, mes)
+    por_nome = bool(set(nomes) & nomes_mes)
+    escolha = [(r, d) for r, d, k, u in linhas if (k in nomes if por_nome else bool(u & set(ids)))]
     soma = defaultdict(lambda: [0.0, 0.0])
     for r, dia in escolha:
         try:
@@ -430,9 +455,7 @@ def disp_por_dia(dados, nome, ano, mes, pot_kwp=None):
 def _gerencial_por_nome(dados, nome, ano, mes):
     """A usina do 5080 tem linha com o MESMO nome na disponibilidade do Gerencial no mês? Então liga só pelo nome (a
     disponibilidade e as OS); senão, pelos usina_ids que a leitura achou pelo nome do Fracttal."""
-    nomes = _nomes(nome)
-    return any(chave(r.get("usina")) in nomes for r in dados.get("disponibilidade_dia") or []
-               if _no_mes(r.get("dia"), ano, mes))
+    return bool(set(_nomes(nome)) & _disp_mes(dados, ano, mes)[1])
 
 
 def _e_da_usina_gerencial(r, por_nome, ids, nomes):

@@ -27,6 +27,8 @@ os.environ.setdefault("ESTRUTURA_NEXUS", "0")
 # o fechamento do mês do Dashboard Thopen (13/11/2026) lê o livro real: com outubro fechado no banco, toda conta de
 # outubro dos testes (usinas fictícias) sairia sem número. Os testes dele ligam por monkeypatch
 os.environ.setdefault("THOPEN_FECHAMENTO", "0")
+# nem o pré-aquecimento do BD por trás (25/11/2026): ele leria as abas de verdade numa thread no meio do teste
+os.environ.setdefault("THOPEN_PREAQUECE", "0")
 
 
 # ── Trava das fontes PAGAS (10/10/2026) ──────────────────────────────────────────────────────────────────────────────

@@ -197,7 +197,25 @@ def _wb():
             tbl, daily = _indexa(wb)
             _state.update(mtime=fonte_api.estado()["carregado_em"], path="api",
                           wb=wb, tbl=tbl, daily=daily, df={})
+            _preaquece()
         return _state["wb"]
+
+
+def _preaquece():
+    """Lê por trás as abas diárias de todas as usinas do BD que acabou de chegar (25/11/2026: no servidor, depois de
+    cada recarga do BD, o 1º pedido lia as ~100 abas dentro dele e a Visão Geral do Portfólio levava muitos segundos;
+    com vários assim juntos, as 8 threads ficavam presas e o dashboard parava, até o login). `THOPEN_PREAQUECE=0`
+    desliga (os testes rodam assim)."""
+    if os.environ.get("THOPEN_PREAQUECE", "1").strip() == "0":
+        return
+
+    def roda():
+        try:
+            for u in _usinas_do_5080():
+                _daily_records(u)
+        except Exception as e:     # noqa: BLE001 — o pedido lê na hora, como antes
+            print("[preaquece] parou:", type(e).__name__, str(e)[:120], flush=True)
+    threading.Thread(target=roda, name="thopen_preaquece", daemon=True).start()
 
 
 def _ref_da_aba(ws):

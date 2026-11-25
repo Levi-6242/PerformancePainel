@@ -58,26 +58,73 @@ def combinar(linhas, usina, ano, mes):
     return {d: s / w for d, (s, w) in sorted(soma.items())}
 
 
+def _ler_agora():
+    """Lê o livro e guarda; falha = a marca da falha (a última leitura boa fica)."""
+    try:
+        linhas = livro_banco.ler(LIVRO, ABA, fonte_api._token())
+        with _TRAVA:
+            _CACHE.update(linhas=linhas, lido=time.time())
+    except Exception as e:     # noqa: BLE001 — sem rede ou contagem que não bate: a última boa
+        with _TRAVA:
+            _CACHE["falhou"] = time.time()
+        print("[disp_excecao] leitura falhou:", type(e).__name__, str(e)[:120], flush=True)
+
+
+def _rele_por_tras():
+    try:
+        _ler_agora()
+    finally:
+        with _TRAVA:
+            _CACHE["relendo"] = False
+
+
 def _linhas():
-    """As linhas do livro, da memória por TTL. Falha = a última leitura boa (ou [] sem nenhuma), sem travar a tela."""
+    """As linhas do livro, da memória por TTL. Falha = a última leitura boa (ou [] sem nenhuma), sem travar a tela.
+
+    Vencido o TTL com uma leitura em memória, a releitura vai por trás e o pedido leva a de antes (25/11/2026: a
+    releitura dentro do pedido, sob a trava, segurava toda a Visão Geral; no servidor, com 1 processo e 8 threads, o
+    dashboard parava de responder por minutos, até o login). Só espera o banco quem não tem nada (a subida e o
+    `invalidar`, depois de gravar)."""
     agora = time.time()
     with _TRAVA:
-        if _CACHE["linhas"] is not None and agora - _CACHE["lido"] < TTL:
+        if _CACHE["linhas"] is not None:
+            if (agora - _CACHE["lido"] >= TTL and not _CACHE.get("relendo")
+                    and agora - _CACHE["falhou"] >= ESPERA_ERRO):
+                _CACHE["relendo"] = True
+                threading.Thread(target=_rele_por_tras, name="disp_excecao", daemon=True).start()
             return _CACHE["linhas"]
         if agora - _CACHE["falhou"] < ESPERA_ERRO:
-            return _CACHE["linhas"] or []
-        try:
-            _CACHE["linhas"] = livro_banco.ler(LIVRO, ABA, fonte_api._token())
-            _CACHE["lido"] = agora
-        except Exception as e:     # noqa: BLE001 — sem rede ou contagem que não bate: a última boa
-            _CACHE["falhou"] = agora
-            print("[disp_excecao] leitura falhou:", type(e).__name__, str(e)[:120], flush=True)
+            return []
+    _ler_agora()
+    with _TRAVA:
         return _CACHE["linhas"] or []
+
+
+# O livro indexado uma vez por leitura (25/11/2026: com as 100 usinas de outubro, 5.177 linhas, cada chamada de `por_dia`
+# varria tudo; a Visão Geral chama duas vezes por usina). A mesma conta do `combinar`, por usina × mês
+_IDX_TRAVA = threading.Lock()
+_IDX = {"linhas": None, "por": {}}
+
+
+def _indice(linhas):
+    with _IDX_TRAVA:
+        if _IDX["linhas"] is not linhas:
+            soma = {}
+            for l in linhas or ():
+                d, v, w = _dia(l.get("dia")), _num(l.get("disp_pct")), _num(l.get("kwp"))
+                if d is None or v is None or not w:
+                    continue
+                a = soma.setdefault((str(l.get("usina") or "").strip(), d.year, d.month), {}).setdefault(d, [0.0, 0.0])
+                a[0] += w * v
+                a[1] += w
+            _IDX.update(linhas=linhas, por={k: {d: s / w for d, (s, w) in sorted(dias.items())}
+                                            for k, dias in soma.items()})
+        return _IDX["por"]
 
 
 def por_dia(usina, ano, mes):
     """{date: disp %} por exceção da usina no mês, ou None (a usina segue a conta de sempre)."""
-    return combinar(_linhas(), usina, ano, mes) or None
+    return dict(_indice(_linhas()).get((usina, ano, mes)) or {}) or None
 
 
 def invalidar():

@@ -65,20 +65,45 @@ def _dia(v):
         return None
 
 
+def _ler_agora():
+    """Lê o livro e guarda; falha = a marca da falha (a última leitura boa fica)."""
+    try:
+        linhas = livro_banco.ler(LIVRO, ABA, fonte_api._token())
+        with _TRAVA:
+            _CACHE.update(linhas=linhas, lido=time.time())
+    except Exception as e:     # noqa: BLE001 — sem rede ou contagem que não bate: a última boa
+        with _TRAVA:
+            _CACHE["falhou"] = time.time()
+        print("[disp_fechamento] leitura falhou:", type(e).__name__, str(e)[:120], flush=True)
+
+
+def _rele_por_tras():
+    try:
+        _ler_agora()
+    finally:
+        with _TRAVA:
+            _CACHE["relendo"] = False
+
+
 def _linhas():
-    """As linhas do livro, da memória por TTL. Falha = a última leitura boa (ou [] sem nenhuma), sem travar a tela."""
+    """As linhas do livro, da memória por TTL. Falha = a última leitura boa (ou [] sem nenhuma), sem travar a tela.
+
+    Vencido o TTL com uma leitura em memória, a releitura vai por trás e o pedido leva a de antes (25/11/2026: a
+    releitura dentro do pedido, sob a trava, segurava toda a Visão Geral; no servidor, com 1 processo e 8 threads, o
+    dashboard parava de responder por minutos, até o login). Só espera o banco quem não tem nada (a subida e o
+    `invalidar`, depois de gravar)."""
     agora = time.time()
     with _TRAVA:
-        if _CACHE["linhas"] is not None and agora - _CACHE["lido"] < TTL:
+        if _CACHE["linhas"] is not None:
+            if (agora - _CACHE["lido"] >= TTL and not _CACHE.get("relendo")
+                    and agora - _CACHE["falhou"] >= ESPERA_ERRO):
+                _CACHE["relendo"] = True
+                threading.Thread(target=_rele_por_tras, name="disp_fechamento", daemon=True).start()
             return _CACHE["linhas"]
         if agora - _CACHE["falhou"] < ESPERA_ERRO:
-            return _CACHE["linhas"] or []
-        try:
-            _CACHE["linhas"] = livro_banco.ler(LIVRO, ABA, fonte_api._token())
-            _CACHE["lido"] = agora
-        except Exception as e:     # noqa: BLE001 — sem rede ou contagem que não bate: a última boa
-            _CACHE["falhou"] = agora
-            print("[disp_fechamento] leitura falhou:", type(e).__name__, str(e)[:120], flush=True)
+            return []
+    _ler_agora()
+    with _TRAVA:
         return _CACHE["linhas"] or []
 
 
@@ -87,14 +112,31 @@ def invalidar():
         _CACHE.update(linhas=None, lido=0.0, falhou=0.0)
 
 
+# O livro indexado uma vez por leitura (25/11/2026: a Visão Geral chamava `por_dia` duas vezes por usina e cada chamada
+# varria as 3.131 linhas de outubro, 2,8 s da Visão Geral do Portfólio no PC; no servidor, o dashboard parava)
+_IDX_TRAVA = threading.Lock()
+_IDX = {"linhas": None, "fechados": {}, "por": {}}
+
+
+def _indice(linhas):
+    with _IDX_TRAVA:
+        if _IDX["linhas"] is not linhas:
+            fech, por = {}, {}
+            for l in linhas:
+                m = str(l.get("mes") or "").strip()[:7]
+                if not m:
+                    continue
+                fech[m] = max(fech.get(m, ""), str(l.get("fechado_em") or ""))
+                d, v = _dia(l.get("dia")), _num(l.get("disp_pct"))
+                if d is not None and v is not None:
+                    por.setdefault((m, str(l.get("usina") or "").strip()), {})[d] = v
+            _IDX.update(linhas=linhas, fechados=fech, por={k: dict(sorted(v.items())) for k, v in por.items()})
+        return _IDX["fechados"], _IDX["por"]
+
+
 def fechados(linhas=None):
     """{"2026-10": "2026-11-13T11:40:00-03:00"}: os meses fechados e quando."""
-    out = {}
-    for l in (_linhas() if linhas is None else linhas):
-        m = str(l.get("mes") or "").strip()[:7]
-        if m:
-            out[m] = max(out.get(m, ""), str(l.get("fechado_em") or ""))
-    return out
+    return dict(_indice(_linhas() if linhas is None else linhas)[0])
 
 
 def por_dia(usina, ano, mes, linhas=None):
@@ -102,18 +144,11 @@ def por_dia(usina, ano, mes, linhas=None):
     (a conta de sempre)."""
     if not ligado():
         return None
-    linhas = _linhas() if linhas is None else linhas
+    fech, por = _indice(_linhas() if linhas is None else linhas)
     k = chave(ano, mes)
-    if k not in fechados(linhas):
+    if k not in fech:
         return None
-    out = {}
-    for l in linhas:
-        if str(l.get("mes") or "").strip()[:7] != k or str(l.get("usina") or "").strip() != usina:
-            continue
-        d, v = _dia(l.get("dia")), _num(l.get("disp_pct"))
-        if d is not None and v is not None:
-            out[d] = v
-    return dict(sorted(out.items()))
+    return dict(por.get((k, usina)) or {})
 
 
 def situacao(ano, mes, hoje=None):

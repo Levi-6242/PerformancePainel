@@ -262,6 +262,16 @@ a ser `date`) — por isso todos os leitores continuam sendo código de workshee
   nada em memória) e o Atualizar. Na tela, o 5xx (502/504 do proxy, em HTML) vira erro e o pedido que falha sem
   tratamento acende o aviso "Os dados não chegaram agora" com o Tentar de novo (`tentarDeNovo`), no lugar dos quadros
   em branco. Prova: `tests/test_thopen_recarga_em_fundo.py`.
+- **O dashboard não para mais por minutos (25/11/2026**, Levi: "esse link tá carregando eternamente"): no servidor (1
+  processo, 8 threads) o `/performance` ficava 1 a 2 min sem responder, nem o login, de tempos em tempos, com o Nexus e a
+  plataforma normais. A Visão Geral do Portfólio levava 12,7 s no PC com tudo em memória (8 s em `disp_por_dia`, que
+  varria as ~10 mil linhas da plataforma a cada usina; 2,8 s no fechamento e 0,7 s na exceção, que varriam o livro
+  inteiro a cada chamada; e a conta rodava duas vezes por usina), e alguns pedidos desses juntos prendiam as 8
+  threads. Agora: a disponibilidade da plataforma é indexada por mês uma vez por leitura (`operacao_mes._disp_mes`), a
+  exceção e o fechamento são indexados uma vez por leitura do livro e relidos POR TRÁS quando vence o TTL (antes, dentro
+  do pedido e sob a trava), e o BD novo é pré-aquecido numa thread (`_preaquece`, as abas diárias de todas as usinas;
+  `THOPEN_PREAQUECE=0` desliga). O resultado é o mesmo, byte a byte (Visão Geral do Portfólio de out e nov e 10 cards,
+  conferidos antes e depois); com o cache quente, 5,6 s → 0,8 s no PC. Prova: `tests/test_thopen_rapidez.py`.
 - **Se a API cair** há dois degraus e só dois: o workbook já em memória e o **cache em disco**
   `cache_bd_thopen.json.gz` (`GRIDCO_API_CACHE`), a última leitura boa, com a idade real na tela (`/api/t/fonte`,
   `/api/t/versao`); 60 s sem tentar de novo depois de uma falha. **Não há fallback para `.xlsx`**, nem
