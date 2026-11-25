@@ -3334,6 +3334,23 @@ def _num(v):
     return f if f == f else None   # descarta NaN
 
 
+def _data_iso(v):
+    """Uma data da planilha (Timestamp, datetime, 'AAAA-MM-DD' ou 'DD/MM/AAAA') → 'AAAA-MM-DD', ou None."""
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    if hasattr(v, "date") and callable(getattr(v, "date")):
+        try:
+            return v.date().isoformat()
+        except (TypeError, ValueError):
+            return None
+    t = str(v).strip()
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", t) or None
+    if m:
+        return m.group(0)
+    m = re.match(r"(\d{2})/(\d{2})/(\d{4})", t)
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else None
+
+
 # Estado → região do Brasil. Chave = nome do estado NORMALIZADO (sem acento/minúsculo), então
 # cobre "São Paulo"/"Sao Paulo", siglas (SP) e nomes completos. Derivado no código (não gravamos
 # no BD_Performance, que é o mestre da plataforma + Power BI). Usado p/ agrupar por região no painel
@@ -3397,6 +3414,7 @@ def load_metas():
         gc_cli = _col(dg.columns, "cliente")
         gc_est = _col(dg.columns, "estado")
         gc_reg = _col(dg.columns, "regi")     # coluna "Região" da Info Geral (Levi 03/07): fonte
+        gc_mob = _col(dg.columns, "mobiliza")  # "Data de mobilização" (25/11/2026: o cabeçalho da Análise das usinas)
         info = {}                             # OFICIAL p/ ronda/agrupamentos; UF→região é só fallback
         for _, r in dg.iterrows():
             if not gc_us or pd.isna(r[gc_us]):
@@ -3416,6 +3434,7 @@ def load_metas():
                 "degradacao":   (_num(r[gc_deg]) or 0.0) if gc_deg else 0.0,
                 "qtd_inv":      _num(r[gc_inv]) if gc_inv else None,
                 "p50_mwh":      _num(r[gc_p50]) if gc_p50 else None,
+                "mobilizacao":  _data_iso(r[gc_mob]) if gc_mob and pd.notna(r[gc_mob]) else None,
             }
 
         # --- Info Mensal (cabeçalho na 2ª linha; 1ª coluna é índice em branco) ---
@@ -32078,6 +32097,71 @@ def painel_sala_de_controle():
     # vêm logo abaixo.
     # Debaixo do /painel pelo mesmo motivo do /painel/falhas (o Caddy do app.gridco.com.br).
     return render_template("sala_controle.html")
+
+
+# ── Análise das usinas (25/11/2026, docs/analise-das-usinas.md): a tela que substitui o Painel NOC, o Histórico de PR
+#    e a Disponibilidade. As regras moram em analise_usinas.py; aqui só a ligação com o Gerencial, a régua do COS e o
+#    estado. Debaixo do /painel pelo mesmo motivo da Sala (o Caddy do app.gridco.com.br).
+import analise_usinas as _au  # noqa: E402
+_AU_LOG = os.path.join(_AQUI, "logs", "analise_usinas.log")
+
+
+@app.route("/painel/analise-das-usinas")
+def painel_analise_das_usinas():
+    return render_template("analise_usinas.html")
+
+
+@app.route("/api/analise/usinas")
+def api_analise_usinas():
+    """A visão inicial: uma linha por usina do Gerencial (geração × P50, PR e meta: a régua dos números do topo, decisão
+    do Levi de 25/11/2026), a disponibilidade e as ocorrências pela régua do COS (o índice da Disponibilidade), a data de
+    mobilização (Info Geral) e as usinas ocultas pela equipe. ?mes=AAAA-MM (o corrente sem ele)."""
+    agora = datetime.now().strftime("%Y-%m")
+    mes = (flask_request.args.get("mes") or agora).strip()
+    am = _au.mes_valido(mes)
+    if not am:
+        return jsonify({"erro": "mes: AAAA-MM"}), 400
+    try:
+        g = _gerencial_payload(ano=None if mes == agora else am[0], mes=None if mes == agora else am[1])
+    except Exception as e:                                       # noqa: BLE001 — o Gerencial fora não é "sem usinas"
+        return jsonify({"erro": f"o Gerencial não respondeu ({type(e).__name__})"}), 503
+    if g.get("erro"):
+        return jsonify({"erro": g["erro"]}), 503
+    with _state_lock:
+        ocultas = dict(_load_state().get("analise_ocultas") or {})
+    mobil = {_au.nrm(v.get("usina")): v["mobilizacao"] for v in (INFO_GERAL or {}).values() if v.get("mobilizacao")}
+    out = _au.visao(g, _falhas_disp_mes(mes), ocultas, mobil)
+    out["mes_pedido"] = mes
+    return jsonify(out)
+
+
+@app.route("/api/analise/ocultas", methods=["POST"])
+def api_analise_ocultas():
+    """Oculta (ou mostra de novo) uma usina da Análise das usinas PARA A EQUIPE (decisão do Levi, 25/11/2026: a que nem
+    está mobilizada). {usina, oculta: true|false}. Quem ocultou é o da sessão (pela senha, o nome digitado); vai para a
+    tela e para logs/analise_usinas.log. O gestor só lê: o portão da porta única recusa o POST."""
+    body = flask_request.get_json(force=True, silent=True) or {}
+    usina = " ".join(str(body.get("usina") or "").split())[:120]
+    if not usina:
+        return jsonify({"erro": "usina obrigatória"}), 400
+    ident = _ident_da_sessao()
+    nick, _email = _cm.autor(ident, body.get("nick"))
+    with _state_lock:
+        d = _load_state()
+        oc = d.setdefault("analise_ocultas", {})
+        for k in [k for k in oc if _au.nrm(k) == _au.nrm(usina)]:
+            oc.pop(k)
+        if body.get("oculta"):
+            oc[usina] = {"quem": nick or "—", "ts": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        _save_state(d)
+        res = dict(oc)
+    try:
+        os.makedirs(os.path.dirname(_AU_LOG), exist_ok=True)
+        with open(_AU_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {_quem_na_sessao()}  {'ocultou' if body.get('oculta') else 'mostrou'}  {usina}\n")
+    except Exception as e:                                       # noqa: BLE001 — o log nunca derruba a gravação
+        print(f"[analise] log das ocultas: {e}")
+    return jsonify({"ok": True, "ocultas": res})
 
 
 # ── Sala de controle, entrega 3 (16/11/2026): o que a tela precisava e a plataforma ainda não dizia. A regra mora em

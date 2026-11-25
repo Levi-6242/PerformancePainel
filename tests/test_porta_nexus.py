@@ -81,11 +81,11 @@ def entrar_com_senha(cli):
 def test_o_mapa_e_a_copia_do_nexus():
     """O Nexus é o dono do mapa; esta é a cópia. O mesmo texto canônico (e a mesma assinatura) está no teste do Nexus:
     mudou lá, muda aqui, e os dois testes mudam juntos."""
-    assert len(pn.MAPA) == 17
+    assert len(pn.MAPA) == 18
     assert pn.texto_canonico_do_mapa().splitlines()[0] == "performance|tempo-real|/tempo-real|/tempo-real/<fonte> /monitor|"
     assert pn.texto_canonico_do_mapa().splitlines()[-1] == "base|de-para-equipamentos|/admin/de-para||admin"
-    assert pn.assinatura_do_mapa() == "db2b2cf9380d2b67"
-    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 17
+    assert pn.assinatura_do_mapa() == "d2a503b1c6507325"
+    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 18
     # os relatórios foram para a torre Relatórios do Nexus (Central de emissão, 13/10/2026), com a Potência Ativa
     assert [t.tela for t in pn.MAPA if t.torre == "relatorios"] == ["relatorio", "relatorio-semanal", "potencia-ativa"]
 
@@ -93,7 +93,7 @@ def test_o_mapa_e_a_copia_do_nexus():
 def test_cada_caminho_cai_na_sua_tela():
     casos = {"/tempo-real": "tempo-real", "/tempo-real/athon": "tempo-real", "/monitor": "tempo-real",
              "/painel": "noc", "/painel/usina/297410": "diagnostico", "/painel/usina/ATH-12": "diagnostico",
-             "/painel/falhas": "strings-trackers", "/gerencial": "gerencial",
+             "/painel/falhas": "strings-trackers", "/painel/analise-das-usinas": "analise-das-usinas", "/gerencial": "gerencial",
              "/gerencial/disponibilidade": "disponibilidade", "/relatorio": "relatorio",
              "/relatorio/semanal": "relatorio-semanal", "/relatorio/potencia-ativa": "potencia-ativa", "/gemeo/": "gemeo", "/gemeo/usina/12": "gemeo",
              "/ronda/monitor": "monitor-ronda", "/painel/comentarios": "comentarios", "/cos": "acompanhamento",

@@ -2606,6 +2606,28 @@ por ano); sem o disco, o inventário das Fontes do tempo real (o que a SunOp dev
 (nunca inventa usina). Depois de uma falha, 30 min sem pedir o catálogo (`SUNOP_CATALOGO_ESPERA_S`). Prova:
 `tests/test_sunop_catalogo_504.py`.
 
+## Análise das usinas (`/painel/analise-das-usinas`, `templates/analise_usinas.html`, `analise_usinas.py`, 25/11/2026)
+
+**Para que serve.** A tela que substitui o **Painel NOC**, o **Histórico de PR** e a **Disponibilidade**, e traz os
+expurgos (Levi, 24-25/11/2026, em 10 rodadas de mockup com dado real da Santarém 2). **O desenho, as regras, as decisões
+dele e as entregas estão em `docs/analise-das-usinas.md`: leia antes de mexer.** As telas antigas seguem no ar em
+paralelo até o OK dele. No Nexus: Performance › Análise das usinas (porta única; o mapa nos dois lados).
+
+**Entrega 1 (no código): a visão inicial.** Cards por usina agrupados por cliente (ou "Mais urgentes"), filtros no molde
+do Histórico de OS do OS Creator com o seletor no estilo do Nexus (nenhuma lista padrão do navegador), lista no botão,
+ocultar usina PARA A EQUIPE e o PDF (uma página por cliente).
+- `GET /api/analise/usinas?mes=AAAA-MM`: o Gerencial (`_gerencial_payload`, a régua dos números do topo nas duas
+  visões, decisão de 25/11) + a disponibilidade e as ocorrências pela régua do COS (`_falhas_disp_mes`, o mesmo índice que
+  vai para `falhas_performance · disponibilidade_dia`: só guarda os dias com perda, o dia que falta vale 100%; a usina que
+  a régua não cobre fica SEM disponibilidade, nunca 100%) + a mobilização (a coluna "Data de mobilização" da Info Geral,
+  `INFO_GERAL[..]["mobilizacao"]`) + as ocultas (`analise_ocultas` no estado). O mês corrente vai ao Gerencial sem ano e
+  mês (o snapshot de agora). Gerencial fora = 503, nunca a lista vazia.
+- `POST /api/analise/ocultas` `{usina, oculta}`: quem ocultou é o da sessão; log em `logs/analise_usinas.log`. O gestor só
+  lê (`leitura_nexus`: `/api/analise` em `_GET_GESTOR`, as gravações em `GRAVACOES_GESTOR`).
+- As regras (o semáforo, o pior dos três sinais, o agregado do grupo pela conta do Gerencial, a disponibilidade do mês)
+  moram em `analise_usinas.py`, puro. Testes: `tests/test_analise_usinas.py` e `tests/test_analise_usinas_rotas.py`.
+- O card ainda abre o Diagnóstico de usina de sempre: o diagnóstico novo é a entrega 2.
+
 ## Sala de controle da Performance (`/painel/sala-de-controle`, `templates/sala_controle.html`, 16/11/2026)
 
 **Para que serve.** Uma tela só para a Performance: o que está em falha agora, o que ninguém acompanha e o que apareceu

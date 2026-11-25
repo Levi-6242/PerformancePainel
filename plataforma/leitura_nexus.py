@@ -189,6 +189,7 @@ def permitido(metodo: str, caminho: str, parametros=()) -> bool:
 # leituras (GET/HEAD) das telas do mapa que a ponte não alcançava; "x" casa "x" e "x/..."
 _GET_GESTOR = (
     "/api/sala",                                              # Sala de controle: a idade real, o visto e a conferência com o SCADA
+    "/api/analise",                                           # Análise das usinas (25/11/2026): a visão inicial e o diagnóstico
     "/api/cos/mtta",                                          # Acompanhamento COS
     "/api/gerencial",                                         # Visão gerencial, grupos e Disponibilidade (e o Excel)
     "/api/cascata", "/api/macro", "/api/g", "/api/inv/pr-mes",  # Painel NOC e Diagnóstico
@@ -225,6 +226,7 @@ GRAVACOES_GESTOR = GRAVACOES + (
     "/api/ronda/whats/reiniciar", "/api/relatorio/semanal/direcionamento", "/api/relatorio/semanal/emitir",
     "/api/admin/tempo-real/decidir", "/api/admin/tempo-real/migrar", "/api/admin/de-para/decidir",
     "/api/tokens/",
+    "/api/analise/ocultas", "/api/analise/observacao",        # Análise das usinas: ocultar para a equipe, a observação do inversor
 )
 
 # o lado API PV do Diagnóstico abre a usina na API PV na hora (_pv_plant_inversores, _pv_series_inversores): fora

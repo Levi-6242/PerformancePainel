@@ -51,6 +51,9 @@ MAPA = (
     Tela("performance", "strings-trackers", "Strings e trackers", "/painel/falhas", (), False),
     # A Sala de controle (16/11/2026): a visão por fonte do tempo real que o Levi validou no mockup; entrega 1, só leitura
     Tela("performance", "sala-de-controle", "Sala de controle", "/painel/sala-de-controle", (), False),
+    # A Análise das usinas (25/11/2026, docs/analise-das-usinas.md): a tela que substitui o Painel NOC, o Histórico de
+    # PR e a Disponibilidade; o desenho que o Levi aprovou no mockup. Entrega 1: a visão inicial
+    Tela("performance", "analise-das-usinas", "Análise das usinas", "/painel/analise-das-usinas", (), False),
     Tela("performance", "gerencial", "Visão gerencial", "/gerencial", (), False),
     Tela("performance", "disponibilidade", "Disponibilidade", "/gerencial/disponibilidade", (), False),
     # Os relatórios moram na torre Relatórios do Nexus desde 13/10/2026 (Levi: "Criador de relatório e relatório semanal

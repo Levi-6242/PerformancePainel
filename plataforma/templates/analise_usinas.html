@@ -1,0 +1,690 @@
+<!doctype html>
+{% raw %}
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Análise das usinas</title>
+<script>
+// O tema do Nexus antes da 1ª pintura (o cookie nexus_tema ou o localStorage nexus.tema), como nas outras telas
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro' || t === 'escuro') raiz.setAttribute('data-tema', t); }
+  try {
+    var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/);
+    aplica(c ? c[1] : localStorage.getItem('nexus.tema'));
+  } catch(e) {}
+  window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Análise das usinas (25/11/2026): o desenho aprovado pelo Levi no mockup (docs/mockups/analise-da-usina, local) e as
+     regras em docs/analise-das-usinas.md. O CSS veio do mockup na entrega 1; daqui em diante se edita aqui. Tema navy +
+     verde Grid, um nível de superfície, a cor só no estado; o tema claro do Nexus logo abaixo. */  :root{--fundo:#090d18;--sup:#161d30;--sup2:#1b2338;--linha:#232d45;--linha2:#2e3a57;--tinta:#eef2f8;--mudo:#a9b5c7;--fraco:#7d8aa0;
+        --verde:#a3d900;--ok:#4ade80;--alerta:#ffd83d;--severo:#ff8f3c;--critico:#ff5b6e;--info:#7cb7ff;--neutro:#8a96ab;
+        --c-ger:#5aa9f5;--c-poa:#f59a4a}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--fundo);color:var(--tinta);font:400 13.5px/1.5 Poppins,"Segoe UI",system-ui,sans-serif}
+  .pag{max-width:1360px;margin:0 auto;padding:18px max(16px,env(safe-area-inset-left,0px)) 48px max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+  .num{font-variant-numeric:tabular-nums}
+  button{font:inherit}
+  a{color:var(--info);text-decoration:none}
+  /* topo */
+  .topo{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+  .olho{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--verde);font-weight:600;display:flex;gap:8px;align-items:center}
+  .volta{all:unset;cursor:pointer;color:var(--verde);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+  .volta:hover{text-decoration:underline}
+  h1{margin:2px 0 0;font-size:24px;font-weight:600;letter-spacing:-.01em}
+  .ficha{color:var(--mudo);font-size:12.5px}
+  .filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+  .filtros label{display:flex;flex-direction:column;gap:3px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mudo);font-weight:500}
+  .campo{background:var(--sup);border:1px solid var(--linha2);color:var(--tinta);border-radius:10px;height:36px;padding:0 12px;font:inherit;font-size:13px;min-width:0;text-transform:none;letter-spacing:0}
+  .campo:focus{outline:none;border-color:var(--verde)}
+  .toast{background:var(--sup2);border:1px solid var(--linha2);border-left:3px solid var(--info);border-radius:10px;padding:9px 14px;font-size:13px}
+  /* blocos */
+  .bloco{background:var(--sup);border:1px solid var(--linha);border-radius:12px;padding:16px 18px;min-width:0}
+  .cab{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .cab h2{margin:0;font-size:15px;font-weight:600}
+  .cab .sub{color:var(--mudo);font-size:12px}
+  /* troca (botões juntos): grande o bastante para clicar */
+  .seg{display:inline-flex;background:var(--fundo);border:1px solid var(--linha2);border-radius:10px;padding:3px;gap:3px}
+  .seg button{border:0;background:none;color:var(--mudo);font-size:12.5px;font-weight:500;height:30px;padding:0 14px;border-radius:7px;cursor:pointer}
+  .seg button:hover{color:var(--tinta)}
+  .seg button[aria-pressed="true"]{background:var(--verde);color:#0b1020;font-weight:600}
+  .btn{border:1px solid var(--linha2);background:none;color:var(--tinta);height:32px;padding:0 14px;border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500}
+  .btn:hover{border-color:var(--verde)}
+  .btn[aria-expanded="true"]{border-color:var(--verde);color:var(--verde)}
+  /* KPIs */
+  .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:0}
+  .kpi{padding:14px 18px;border-left:1px solid var(--linha);min-width:0}
+  .kpi:first-child{border-left:0}
+  .kpi .r{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mudo);font-weight:500}
+  .kpi .v{font-size:24px;font-weight:600;margin:2px 0 4px;line-height:1.2}
+  .kpi .e{color:var(--mudo);font-size:12px}
+  .kpi .e b{color:var(--tinta);font-weight:600}
+  /* visão geral */
+  .rola{overflow-x:auto}
+  table.us{border-collapse:collapse;width:100%;min-width:880px;font-size:13px}
+  .us th{color:var(--mudo);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;text-align:right;padding:8px 10px;border-bottom:1px solid var(--linha2);white-space:nowrap;position:sticky;top:0;background:var(--sup);cursor:pointer;user-select:none}
+  .us th:hover{color:var(--tinta)}
+  .us th.esq,.us td.esq{text-align:left}
+  .us td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--linha);white-space:nowrap}
+  .us tbody tr{cursor:pointer}
+  .us tbody tr:hover td{background:var(--sup2)}
+  .us .cli{color:var(--mudo);font-size:12px}
+  .us .bar{display:inline-block;width:90px;height:6px;background:var(--linha2);border-radius:3px;position:relative;vertical-align:middle;margin-left:10px}
+  .us .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+  .us .bar u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tinta);opacity:.55}
+  .us .sem{color:var(--fraco)}
+  .tabela-us{max-height:640px;overflow:auto}
+  .grupos{display:flex;flex-wrap:wrap;gap:14px}
+  .grupo{flex:1 1 100%;background:transparent;border:1px solid var(--linha2);border-radius:12px;padding:10px 12px 12px}
+  .gcab{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;width:100%;cursor:pointer;padding:4px 4px 6px;border-radius:8px}
+  .gcab:hover{background:var(--sup)}
+  .gcab:focus-visible{outline:2px solid var(--verde)}
+  .gcab .l1{display:flex;gap:10px;align-items:center}
+  .gcab .l2{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--mudo);padding-left:24px}
+  .gcab .l2 b{font-weight:600}
+  .gcab .seta{color:var(--mudo);font-size:13px;width:14px}
+  .gcab .nome{font-weight:600;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+  .gcab .nome small{font-weight:400;letter-spacing:0;text-transform:none;color:var(--mudo);font-size:12px;margin-left:6px}
+  .sinais{display:flex;gap:10px;font-size:12px;color:var(--mudo);margin-left:auto}
+  .sinais span{display:inline-flex;gap:5px;align-items:center}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,204px);gap:10px;margin-top:8px}
+  .tiles.solto{margin-top:0}
+  .tile{box-sizing:border-box;position:relative;width:204px;background:var(--sup);border:1px solid var(--linha);border-top:3px solid var(--neutro);border-radius:10px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:3px;min-width:0;text-align:left;color:var(--tinta)}
+  .tile:hover{background:var(--sup2);border-color:var(--linha2)}
+  .tile:focus-visible{outline:2px solid var(--verde)}
+  .tile .tn{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:22px}
+  .tile .tc{font-size:11.5px;color:var(--mudo);margin-top:-3px}
+  .tile .tv{font-size:22px;font-weight:600;line-height:1.15}
+  .tile .tv span{font-size:11.5px;font-weight:400;color:var(--mudo)}
+  .tile .tb{height:5px;background:var(--linha2);border-radius:3px;position:relative;margin:3px 0 5px}
+  .tile .tb i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+  .tile .tb u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tinta);opacity:.6}
+  .tile .tl{display:flex;gap:6px;align-items:baseline;font-size:12.5px}
+  .tile .tl>span:first-child{color:var(--mudo);min-width:38px}
+  .tile .tl b{font-weight:600}
+  .tile .tl .m{margin-left:auto;color:var(--mudo);font-size:11.5px}
+  .tile .oc{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:7px;border:1px solid var(--linha2);background:var(--fundo);color:var(--mudo);display:grid;place-items:center;cursor:pointer;opacity:0}
+  .tile:hover .oc,.tile:focus-within .oc{opacity:1}
+  .tile .oc:hover{color:var(--tinta);border-color:var(--critico)}
+  .tile .oc svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+  #menu{position:fixed;z-index:20;min-width:210px;background:var(--sup2);border:1px solid var(--linha2);border-radius:10px;padding:5px;box-shadow:0 12px 30px rgba(0,0,0,.45);display:flex;flex-direction:column}
+  #menu[hidden]{display:none}
+  #menu .mn-t{font-size:11.5px;color:var(--mudo);padding:5px 10px 6px;border-bottom:1px solid var(--linha2);margin-bottom:4px}
+  #menu button{all:unset;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:13px}
+  #menu button:hover{background:var(--linha)}
+  /* a barra e o painel de filtros, no molde do Histórico de OS do OS Creator */
+  .barra{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .busca{position:relative;flex:0 1 320px;min-width:220px}
+  .busca svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:16px;height:16px;fill:none;stroke:var(--mudo);stroke-width:2;stroke-linecap:round}
+  .busca input{width:100%;height:36px;box-sizing:border-box;padding:0 12px 0 34px;border-radius:10px;border:1px solid var(--linha2);background:var(--sup);color:var(--tinta);font:inherit;font-size:13px}
+  .busca input:focus{outline:none;border-color:var(--verde)}
+  .fl-bt{display:inline-flex;align-items:center;gap:7px;height:36px}
+  .fl-n{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--verde);color:#0b1020;font-weight:700;font-size:11px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:999px;border:1px solid var(--linha2);background:var(--sup2);font-size:12px}
+  .chip button,.pil button{border:0;background:none;color:var(--mudo);font-size:15px;line-height:1;cursor:pointer;padding:0 4px}
+  .chip button:hover,.pil button:hover{color:var(--tinta)}
+  .barra .dir{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+  .barra .btn{height:36px}
+  .barra .btn b{color:var(--verde)}
+  .lnk{border:0;background:none;color:var(--info);cursor:pointer;font:inherit;font-size:12.5px;padding:0}
+  .lnk:hover{text-decoration:underline}
+  .btn.prim{background:var(--verde);border-color:var(--verde);color:#0b1020;font-weight:600}
+  .fl-painel{position:absolute;top:calc(100% + 6px);left:0;z-index:30;width:min(880px,100%);box-sizing:border-box;padding:14px 16px;border-radius:12px;border:1px solid var(--linha2);background:var(--sup);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+  .oc-painel{left:auto;right:0;width:min(440px,100%)}
+  .fl-cab{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .fl-cab h3{margin:0;font-size:13.5px;font-weight:600}
+  .fl-x{border:0;background:none;color:var(--mudo);font-size:22px;line-height:1;cursor:pointer}
+  .fl-x:hover{color:var(--tinta)}
+  .fl-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px 14px}
+  .fl-c{display:flex;flex-direction:column;gap:5px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mudo);font-weight:500}
+  .fl-c .campo,.fl-c .seg{text-transform:none;letter-spacing:0}
+  .multi{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:36px;padding:3px 6px;border:1px solid var(--linha2);border-radius:10px;background:var(--fundo);text-transform:none;letter-spacing:0}
+  .multi:focus-within{border-color:var(--verde)}
+  .multi input{flex:1;min-width:90px;border:0;background:none;color:var(--tinta);font:inherit;font-size:13px;height:28px;outline:none}
+  .pil{display:inline-flex;align-items:center;gap:2px;padding:1px 2px 1px 9px;border-radius:999px;background:var(--sup2);border:1px solid var(--linha2);font-size:12px;color:var(--tinta);font-weight:400}
+  .opcoes{display:flex;flex-wrap:wrap;gap:6px;text-transform:none;letter-spacing:0}
+  .opc{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--linha2);background:none;color:var(--mudo);cursor:pointer;font-size:12.5px;font-weight:500}
+  .opc[aria-pressed="true"]{border-color:var(--verde);color:var(--tinta);background:var(--sup2)}
+  .par{display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-size:12.5px}
+  .par .campo{width:100%;min-width:0;background:var(--fundo)}
+  .fl-pe{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)}
+  .contagem{display:flex;gap:14px;align-items:center;color:var(--mudo);font-size:12.5px;margin:-4px 0 -2px}
+
+  /* diagnóstico */
+  .parecer{display:flex;gap:14px;align-items:center;border-left:3px solid var(--critico)}
+  .parecer .selo{flex:none;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:2px 9px}
+  .parecer p{margin:0;font-size:15px;line-height:1.55}
+  .parecer strong{font-weight:600}
+  .ponte-g{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px;align-items:center}
+  svg text{font-family:inherit}
+  .resumo{display:flex;flex-direction:column;gap:12px}
+  .resumo .it{border-left:3px solid var(--linha2);padding:2px 0 2px 12px}
+  .resumo .r{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mudo);font-weight:500}
+  .resumo .v{font-size:20px;font-weight:600}
+  .resumo .e{font-size:12px;color:var(--mudo)}
+  .legenda{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--mudo);font-size:12px}
+  .legenda i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  .alerta-l{margin-top:10px;border:1px solid color-mix(in srgb,var(--critico) 45%,transparent);border-radius:8px;padding:8px 12px;font-size:13px}
+  /* dia a dia */
+  .dia-faixa{display:grid;grid-template-columns:260px minmax(0,1fr) minmax(0,1fr);gap:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--linha);align-items:start}
+  .dia-faixa h3{margin:0 0 8px;font-size:15px;font-weight:600}
+  .quatro{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .quatro div{background:var(--fundo);border-radius:8px;padding:7px 10px}
+  .quatro .r{font-size:10.5px;color:var(--mudo);text-transform:uppercase;letter-spacing:.06em}
+  .quatro .v{font-size:17px;font-weight:600}
+  .quatro .e{font-size:11.5px;color:var(--mudo)}
+  .tit{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--mudo);font-weight:500;margin:0 0 6px}
+  .lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  .lista li{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--linha);font-size:13px}
+  .lista li:first-child{border-top:0;padding-top:0}
+  .lista .k{flex:none;color:var(--mudo);font-size:12px;min-width:66px;text-align:right}
+  .ponto{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none}
+  .tag{border:1px solid var(--linha2);border-radius:999px;padding:0 8px;font-size:11px;color:var(--mudo);white-space:nowrap}
+  .tag.os{border-color:color-mix(in srgb,var(--info) 50%,transparent);color:var(--info)}
+  .exp{position:relative;align-self:flex-end}
+  .exp .btn{display:inline-flex;gap:7px;align-items:center;height:36px}
+  .exp svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .exp-p{position:absolute;right:0;top:calc(100% + 6px);z-index:45;min-width:250px;background:var(--sup);border:1px solid var(--linha2);border-radius:12px;padding:6px;box-shadow:0 14px 34px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:2px}
+  .exp-p button{all:unset;padding:8px 10px;border-radius:8px;cursor:pointer;display:flex;flex-direction:column;gap:1px}
+  .exp-p button:hover,.exp-p button:focus-visible{background:var(--linha)}
+  .exp-p b{font-weight:600;font-size:13px}
+  .exp-p small{color:var(--mudo);font-size:11.5px}
+  .conta b{font-weight:600;color:var(--tinta)}
+  .cob{font-size:12.5px;border-left:3px solid var(--linha2);padding:2px 0 2px 10px;line-height:1.4}
+  .cob-ok{border-color:var(--ok)}.cob-alerta{border-color:var(--alerta)}.cob-critico{border-color:var(--critico)}
+  .obs-l{margin-top:12px;padding-top:10px;border-top:1px solid var(--linha)}
+  .obs-l .ob{font-size:13px;padding:4px 0;color:var(--tinta)}
+  .obs-l .ob span{color:var(--mudo)}
+  .cab-rec{all:unset;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;width:100%;cursor:pointer;border-radius:8px}
+  .cab-rec:focus-visible{outline:2px solid var(--verde)}
+  .cab-rec h2{margin:0;font-size:15px;font-weight:600}
+  .cab-rec .seta{color:var(--mudo);font-size:13px;display:inline-block;width:14px}
+  .cab-rec:hover .sub{color:var(--tinta)}
+  #ach:has(.cab-rec[aria-expanded="true"]) .cab-rec{margin-bottom:12px}
+  .obs{max-width:300px;white-space:normal!important;text-align:left!important;cursor:text;font-size:12.5px;color:var(--tinta)}
+  .obs-add{color:var(--fraco)}
+  tr.l:hover .obs-add{color:var(--info)}
+  .obs-in{width:100%;min-width:220px;box-sizing:border-box;height:30px;padding:0 9px;border-radius:8px;border:1px solid var(--verde);background:var(--fundo);color:var(--tinta);font:inherit;font-size:12.5px;outline:none}
+  .osd .met{color:var(--mudo);font-size:12px;cursor:help;text-decoration:underline dotted}
+  .dd{position:relative;display:flex;flex-direction:column;gap:5px;min-width:0}
+  .dd-r{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mudo);font-weight:500}
+  .dd-bt{display:flex;align-items:center;gap:8px;height:36px;min-width:150px;padding:0 10px 0 12px;border-radius:10px;border:1px solid var(--linha2);background:var(--sup);color:var(--tinta);font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400}
+  .dd-bt:hover,.dd-bt[aria-expanded="true"]{border-color:var(--verde)}
+  .dd-v{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dd-v.vazio{color:var(--mudo)}
+  .dd-n{font-size:11px;font-weight:700;color:#0b1020;background:var(--verde);border-radius:9px;padding:1px 6px}
+  .dd-bt svg{width:16px;height:16px;fill:none;stroke:var(--mudo);stroke-width:2;flex:none}
+  .dd-p{position:absolute;top:calc(100% + 6px);left:0;z-index:40;max-width:calc(100vw - 32px);box-sizing:border-box;padding:8px;border-radius:12px;border:1px solid var(--linha2);background:var(--sup);box-shadow:0 14px 34px rgba(0,0,0,.5);text-transform:none;letter-spacing:0;font-weight:400}
+  .dd-busca{position:relative;display:block;margin-bottom:6px}
+  .dd-busca svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;fill:none;stroke:var(--mudo);stroke-width:2;stroke-linecap:round}
+  .dd-busca input{width:100%;box-sizing:border-box;height:34px;padding:0 10px 0 32px;border-radius:9px;border:1px solid var(--linha2);background:var(--fundo);color:var(--tinta);font:inherit;font-size:13px}
+  .dd-busca input:focus{outline:none;border-color:var(--verde)}
+  .dd-l{display:flex;flex-direction:column;gap:2px;max-height:290px;overflow:auto}
+  .dd-l.grade{display:grid;gap:4px}
+  .cal-sem{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;padding:0 2px 4px;font-size:11px;color:var(--fraco);text-align:center}
+  .dd-l.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+  .dd-l.cal .dd-i{flex-direction:column;gap:4px;padding:6px 0;justify-content:center;align-items:center;border:1px solid var(--linha)}
+  .dd-l.cal .dd-i.on{border-color:var(--verde);background:color-mix(in srgb,var(--verde) 12%,transparent)}
+  .dd-l.cal .dd-i .t{font-variant-numeric:tabular-nums}
+  .dd-i{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--mudo)}
+  .dd-i:hover{background:var(--linha);color:var(--tinta)}
+  .dd-i:focus-visible{outline:2px solid var(--verde)}
+  .dd-i.on{color:var(--tinta)}
+  .dd-i[disabled]{opacity:.38;cursor:not-allowed;background:none}
+  .dd-i .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dd-i small{margin-left:auto;color:var(--fraco);font-size:11.5px;white-space:nowrap}
+  .dd-i .ponto{margin:0}
+  .cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--linha2);position:relative;box-sizing:border-box}
+  .dd-i.on .cb{background:var(--verde);border-color:var(--verde)}
+  .dd-i.on .cb::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #0b1020;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .rd{flex:none;width:15px;height:15px;border-radius:50%;border:1.5px solid var(--linha2);box-sizing:border-box;position:relative}
+  .dd-i.on .rd{border-color:var(--verde)}
+  .dd-i.on .rd::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--verde)}
+  .dd-vazio{color:var(--mudo);font-size:12.5px;padding:8px}
+  .dd-pe{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--linha);margin-top:6px;padding:7px 4px 1px;font-size:12px;color:var(--mudo)}
+  .filtros .dd-bt{background:var(--sup)}
+  .fl-c .dd-bt{background:var(--fundo)}
+  .lg{all:unset;display:inline-flex;align-items:center;gap:0;cursor:pointer;border-radius:6px;padding:1px 6px;color:var(--tinta)}
+  .lg:hover{background:var(--linha)}
+  .lg.off{opacity:.4;text-decoration:line-through}
+  .lg:focus-visible{outline:2px solid var(--verde)}
+  .cmp-ctl{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .dia-f{display:flex;flex-direction:column;gap:14px;margin-top:14px;padding-top:14px;border-top:1px solid var(--linha)}
+  .dia-cab{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px}
+  .dia-cab h3{margin:0;font-size:15px;font-weight:600;min-width:120px}
+  .mini{display:flex;flex-wrap:wrap;gap:8px}
+  .mini span{display:inline-flex;align-items:baseline;gap:7px;background:var(--fundo);border:1px solid var(--linha);border-radius:8px;padding:5px 10px;font-size:12.5px}
+  .mini em{font-style:normal;color:var(--mudo);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .mini b{font-weight:600;font-size:14px}
+  .mini i{font-style:normal;color:var(--mudo);font-size:11.5px}
+  .dia-g2{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:22px;align-items:start}
+  table.osd{border-collapse:collapse;width:100%;min-width:760px;font-size:13px}
+  .osd th{color:var(--mudo);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:0 10px 6px;border-bottom:1px solid var(--linha2)}
+  .osd td{padding:7px 10px;border-bottom:1px solid var(--linha)}
+  .cmp-ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .cmp-grade{display:grid;gap:12px;margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cmp-grade.n1{grid-template-columns:minmax(0,1fr)}
+  .cmp-un{background:var(--fundo);border:1px solid var(--linha);border-radius:10px;padding:8px 10px}
+  .cmp-t{display:flex;gap:8px;align-items:center;font-size:13px}
+  .cmp-t span{margin-left:auto;color:var(--mudo);font-size:12px}
+  .inv-ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:6px}
+  .dia-nav{display:inline-flex;gap:6px;align-items:center}
+  .dia-nav .btn{width:32px;padding:0;font-size:16px}
+  .dia-nav .btn:disabled{opacity:.35;cursor:default}
+  .iv tr.det > td > div{padding:12px 14px}
+  @media (max-width:1100px){.dia-g2,.cmp-grade{grid-template-columns:minmax(0,1fr)}}
+  .sug-dia.foco{outline:2px solid var(--alerta);outline-offset:6px;border-radius:6px}
+  #tip{position:fixed;z-index:9;pointer-events:none;background:#0d1322;border:1px solid var(--linha2);border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.45;min-width:240px;max-width:320px;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+  #tip b{font-weight:600}
+  #tip .l{display:flex;justify-content:space-between;gap:14px}
+  #tip .l span:first-child{color:var(--mudo)}
+  #tip .d{color:var(--mudo);font-size:11.5px;margin:-1px 0 5px}
+  #tip hr{border:0;border-top:1px solid var(--linha2);margin:6px 0}
+  /* PR e inversores */
+  .pr-g{display:grid;grid-template-columns:270px minmax(0,1fr);gap:22px;align-items:start}
+  .pr-lado{display:flex;flex-direction:column;gap:14px}
+  .grande .v{font-size:34px;font-weight:600;line-height:1.1}
+  .grande .e{color:var(--mudo);font-size:12.5px}
+  .grande .e b{color:var(--tinta)}
+  .sug{display:flex;flex-direction:column;gap:6px}
+  .sug .s{background:var(--fundo);border-radius:8px;padding:8px 10px;font-size:12.5px}
+  .sug .s .q{color:var(--mudo);font-size:11.5px;display:flex;gap:8px;justify-content:space-between;margin-top:2px}
+  table.iv{border-collapse:collapse;width:100%;min-width:760px;font-size:13px}
+  .iv th{color:var(--mudo);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;text-align:right;padding:0 8px 8px;border-bottom:1px solid var(--linha2);white-space:nowrap}
+  .iv th.esq,.iv td.esq{text-align:left}
+  .iv td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--linha);white-space:nowrap;vertical-align:middle}
+  .iv tbody tr.l{cursor:pointer}
+  .iv tbody tr.l:hover td{background:var(--sup2)}
+  .iv .prb{display:inline-block;width:150px;height:8px;background:var(--linha2);border-radius:4px;position:relative;vertical-align:middle;margin-right:10px}
+  .iv .prb i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+  .iv .prb u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--tinta)}
+  .iv .dias{display:inline-flex;gap:2px;vertical-align:middle}
+  .iv .dias i{width:7px;height:16px;border-radius:2px;display:block}
+  .iv tr.det td{border-top:0;padding:0 8px 12px;white-space:normal;text-align:left}
+  .iv tr.det div{background:var(--fundo);border-radius:8px;padding:9px 12px;font-size:13px}
+  /* por onde começar */
+  .ach{list-style:none;margin:0;padding:0;counter-reset:a}
+  .ach>li{border-top:1px solid var(--linha)}
+  .ach>li:first-child{border-top:0}
+  .ach .lin{all:unset;box-sizing:border-box;display:grid;grid-template-columns:30px minmax(0,1.05fr) minmax(0,1fr) minmax(0,.9fr) 20px;gap:14px;align-items:center;width:100%;padding:12px 2px;cursor:pointer}
+  .ach .lin:focus-visible{outline:2px solid var(--verde);border-radius:6px}
+  .ach .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:13px;color:#0b1020}
+  .ach .t{font-weight:600;font-size:14px}
+  .ach .t small{display:block;font-weight:400;color:var(--mudo);font-size:12.5px}
+  .ach .p{font-size:13px}
+  .ach .p b{color:var(--verde);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;display:block}
+  .ach .mais{color:var(--mudo);text-align:center;font-size:16px}
+  .ach .corpo{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 0 14px 44px}
+  .ach .corpo div{background:var(--fundo);border-radius:8px;padding:8px 12px;font-size:12.5px}
+  .ach .corpo div b{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--mudo);font-weight:600;margin-bottom:2px}
+  details.fontes{color:var(--mudo);font-size:12.5px}
+  details.fontes summary{cursor:pointer;color:var(--mudo)}
+  details.fontes ul{margin:6px 0 0;padding-left:18px}
+  table.th{border-collapse:collapse;width:100%;min-width:900px;font-size:12.5px;margin-top:8px}
+  .th th{color:var(--mudo);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;text-align:right;padding:4px 8px;border-bottom:1px solid var(--linha2)}
+  .th td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--linha)}
+  .th th:first-child,.th td:first-child{text-align:left}
+  @media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.kpi:nth-child(4){border-left:0}.kpi:nth-child(n+4){border-top:1px solid var(--linha)}
+    .ponte-g,.pr-g,.dia-faixa{grid-template-columns:minmax(0,1fr)}.ach .lin{grid-template-columns:30px minmax(0,1fr) 20px}.ach .p{grid-column:2}.ach .corpo{grid-template-columns:minmax(0,1fr)}}
+  @media (max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi{border-left:0!important;border-top:1px solid var(--linha)}}
+
+  html[data-tema="claro"]{--fundo:#ffffff;--sup:#eef1f5;--sup2:#e6eaf0;--linha:rgba(15,23,42,.10);--linha2:rgba(15,23,42,.18);--tinta:#0f172a;--mudo:#475569;--fraco:#64748b;
+    --verde:#566610;--ok:#15803d;--alerta:#a16207;--severo:#c2410c;--critico:#be123c;--info:#1d4ed8;--neutro:#8a94a6;--c-ger:#1f6fd0;--c-poa:#c8640f}
+  html[data-tema="claro"] .seg button[aria-pressed="true"],html[data-tema="claro"] .btn.prim,html[data-tema="claro"] .dd-i.on .cb{color:#fff}
+  html[data-tema="claro"] .fl-painel,html[data-tema="claro"] .dd-p,html[data-tema="claro"] #menu{box-shadow:0 14px 34px rgba(15,23,42,.18)}
+</style>
+</head>
+<body>
+<div class="pag" id="pag"></div>
+<div id="tip" hidden></div>
+<div id="menu" hidden></div>
+<script>
+/* Análise das usinas (25/11/2026, docs/analise-das-usinas.md): a tela que substitui o Painel NOC, o Histórico de PR e a
+   Disponibilidade. Entrega 1 = a visão inicial: as usinas em cards por cliente (ou "mais urgentes"), os filtros no molde
+   do Histórico de OS do OS Creator, ocultar a usina para a equipe, a lista e o PDF. Lê /api/analise/usinas e grava em
+   /api/analise/ocultas (só quem grava: o gestor só lê). O desenho veio do mockup aprovado pelo Levi. */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"}[c]));
+const n1 = (v, c = 1) => v == null || isNaN(v) ? "—" : Number(v).toLocaleString("pt-BR", {minimumFractionDigits: c, maximumFractionDigits: c});
+const pc = (v, c = 1) => v == null ? "—" : n1(v * 100, c) + "%";          // fração → %
+const pp = v => (v > 0 ? "+" : v < 0 ? "−" : "") + n1(Math.abs(v), 1) + " p.p.";
+const COR = {ok: "var(--ok)", alerta: "var(--alerta)", severo: "var(--severo)", critico: "var(--critico)", info: "var(--info)", neutro: "var(--neutro)"};
+const MESES = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const nrm = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+// o semáforo do mockup aprovado (o mesmo de analise_usinas.py): ≥ 95% do esperado verde, 85 a 95 amarelo, abaixo vermelho
+const sem3 = r => r == null ? "neutro" : r >= .95 ? "ok" : r >= .85 ? "alerta" : "critico";
+const semDisp = v => v == null ? "neutro" : v >= 98 ? "ok" : v >= 95 ? "alerta" : "critico";
+const EU = window.gcEu || {}, PODE = !!EU.grava;
+const hojeMes = (() => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); })();
+const nomeMes = m => { const [a, b] = String(m).split("-"); return `${MESES[+b]} de ${a}`; };
+// os 12 últimos meses, do atual para trás
+const ITENS_MES = (() => { const l = [], d = new Date(); d.setDate(1); for (let i = 0; i < 12; i++) { const m = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); l.push({v: m, t: nomeMes(m)}); d.setMonth(d.getMonth() - 1); } return l; })();
+
+let V = null, ERRO = "", LENDO = false, MES = hojeMes, AVISO = "";
+let ORD = {k: "at", asc: true}, VISTA = "cards", EXP_ABERTO = false;
+const FECHADOS = new Set();
+
+/* ── o seletor no estilo do Nexus (Levi, 25/11/2026: "a lista que está aparecendo não está no estilo Nexus, está no
+   estilo feio, padrão"): botão com o que está escolhido, painel com a busca digitável e a lista com as caixas de marcar,
+   o limite dito no pé. Nenhuma lista padrão do navegador (o select e o datalist) na tela. ─────────────────────────────────────── */
+let ABERTO_DD = null;
+const DD_Q = {};
+function menuSel(id, rotulo, itens, sel, o = {}) {
+  const multi = o.multi !== false, max = o.max || 0, aberto = ABERTO_DD === id, q = DD_Q[id] || "";
+  const vis = itens.filter(i => !q || nrm(i.t + " " + (i.sub || "")).includes(nrm(q)));
+  const nomes = sel.map(v => (itens.find(i => String(i.v) === String(v)) || {}).t).filter(Boolean);
+  const resumo = nomes.length ? (multi && nomes.length > 2 ? `${nomes.slice(0, 2).join(", ")} e mais ${nomes.length - 2}` : nomes.join(", ")) : (o.vazio || "Escolher");
+  return `<div class="dd" data-dd="${id}">${rotulo ? `<span class="dd-r">${rotulo}</span>` : ""}
+    <button class="dd-bt" data-ddab="${id}" aria-expanded="${aberto}" style="${o.largBt ? `width:${o.largBt}px` : ""}"><span class="dd-v ${nomes.length ? "" : "vazio"}">${esc(resumo)}</span>${multi && max ? `<span class="dd-n">${sel.length}/${max}</span>` : ""}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    ${aberto ? `<div class="dd-p" style="width:${o.larg || 280}px"><label class="dd-busca"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input data-ddq="${id}" value="${esc(q)}" placeholder="${o.ph || "Digite para filtrar"}" autocomplete="off"></label>
+      <div class="dd-l">${vis.map(i => { const on = sel.map(String).includes(String(i.v)), off = multi && max && !on && sel.length >= max;
+        return `<button class="dd-i ${on ? "on" : ""}" data-ddi="${id}" data-v="${esc(i.v)}" ${off ? "disabled" : ""} role="${multi ? "menuitemcheckbox" : "menuitemradio"}" aria-checked="${on}">${multi ? `<span class="cb" aria-hidden="true"></span>` : `<span class="rd" aria-hidden="true"></span>`}<span class="t">${esc(i.t)}</span>${i.sub ? `<small>${esc(i.sub)}</small>` : ""}</button>`; }).join("") || `<div class="dd-vazio">Nada com “${esc(q)}”.</div>`}</div>
+      ${multi ? `<div class="dd-pe">${max ? `${sel.length} de ${max}` : `${sel.length} marcado${sel.length === 1 ? "" : "s"}`}${sel.length ? `<button class="lnk" data-ddlimpa="${id}">Desmarcar</button>` : ""}</div>` : ""}</div>` : ""}</div>`;
+}
+function aoEscolher(id, v) {
+  if (id === "fmes") { ABERTO_DD = null; if (v !== MES) { MES = v; ler(); return; } }
+  else if (id === "fcli") FLD.cli = FLD.cli.includes(v) ? FLD.cli.filter(x => x !== v) : [...FLD.cli, v];
+  tudo();
+}
+function limparDd(id) { if (id === "fcli") FLD.cli = []; tudo(); }
+
+/* ── a visão inicial ───────────────────────────────────────────────────────────────────────────────────────────────── */
+function agg(l) {
+  const cg = l.filter(u => u.prod != null && u.p50), sp = cg.reduce((a, u) => a + u.prod, 0), s50 = cg.reduce((a, u) => a + u.p50, 0);
+  const cp = l.filter(u => u.ipoa && u.mwp && u.prod_pr != null), sip = cp.reduce((a, u) => a + u.ipoa * u.mwp, 0);
+  const cm = cp.filter(u => u.meta), sim = cm.reduce((a, u) => a + u.ipoa * u.mwp, 0);
+  const cd = l.filter(u => u.disp != null && u.mwp), sd = cd.reduce((a, u) => a + u.mwp, 0);
+  return {at: s50 ? sp / s50 : null, pr: sip ? cp.reduce((a, u) => a + u.prod_pr, 0) / sip * 100 : null,
+          meta: sim ? cm.reduce((a, u) => a + u.meta * u.ipoa * u.mwp, 0) / sim : null,
+          disp: sd ? cd.reduce((a, u) => a + u.disp * u.mwp, 0) / sd : null};
+}
+const ORDEM_SEM = {critico: 0, alerta: 1, ok: 2, neutro: 3};
+const NOME_SEM = {critico: "Vermelhas", alerta: "Amarelas", ok: "Verdes", neutro: "Sem dado"};
+const semUsina = u => u.sinal || "neutro";                       // a cor vem pronta do servidor (analise_usinas.sinal_usina)
+// mais urgente: vermelhas, amarelas, verdes e sem dado; dentro da cor, a menor geração × P50 primeiro
+const urg = (a, b) => ORDEM_SEM[semUsina(a)] - ORDEM_SEM[semUsina(b)] || (a.at ?? 999) - (b.at ?? 999);
+const semDado = u => u.at == null && u.pr == null;
+const numF = v => v === "" || v == null ? null : Number(String(v).replace(",", "."));
+const FL0 = () => ({cli: [], sit: [], prMin: "", prMax: "", dif: "", atMax: "", dispMax: "", sem: "todas"});
+let FL = FL0(), FLD = null, Q = "", AGR = "cliente", VER_OC = false;
+const oculta = u => !!u.oculta;
+const ocultas = () => (V ? V.usinas.filter(oculta) : []);
+
+function passa(u, f) {
+  if (oculta(u)) return false;
+  if (Q && !(nrm(u.u).includes(nrm(Q)) || nrm(u.c).includes(nrm(Q)))) return false;
+  if (f.cli.length && !f.cli.includes(u.c)) return false;
+  if (f.sit.length && !f.sit.includes(semUsina(u))) return false;
+  if (f.sem === "so" && !semDado(u)) return false;
+  if (f.sem === "sem" && semDado(u)) return false;
+  const pmin = numF(f.prMin), pmax = numF(f.prMax), dif = numF(f.dif), am = numF(f.atMax), dm = numF(f.dispMax);
+  if (pmin != null && !(u.pr != null && u.pr >= pmin)) return false;
+  if (pmax != null && !(u.pr != null && u.pr <= pmax)) return false;
+  if (dif != null && !(u.pr != null && u.meta && u.meta - u.pr >= Math.abs(dif))) return false;
+  if (am != null && !(u.at != null && u.at < am)) return false;
+  if (dm != null && !(u.disp != null && u.disp < dm)) return false;
+  return true;
+}
+function linhasGeral() {
+  const l = V.usinas.filter(u => passa(u, FL));
+  if (VISTA === "cards") return l.sort(urg);
+  const k = ORD.k, s = ORD.asc ? 1 : -1;
+  const val = u => k === "u" ? nrm(u.u) : k === "c" ? nrm(u.c) : k === "prm" ? (u.pr != null && u.meta ? u.pr - u.meta : null) : u[k];
+  return l.sort((a, b) => { const x = val(a), y = val(b); if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return (x < y ? -1 : x > y ? 1 : 0) * s; });
+}
+// as pílulas do que está valendo, cada uma com o × que tira só ela
+function pilulas(f) {
+  const p = [];
+  f.cli.forEach(c => p.push([`Cliente: ${c}`, "cli|" + c]));
+  f.sit.forEach(s => p.push([NOME_SEM[s], "sit|" + s]));
+  if (f.prMin !== "") p.push([`PR ≥ ${f.prMin}%`, "prMin"]);
+  if (f.prMax !== "") p.push([`PR ≤ ${f.prMax}%`, "prMax"]);
+  if (f.dif !== "") p.push([`PR ${Math.abs(numF(f.dif))} p.p. ou mais abaixo da meta`, "dif"]);
+  if (f.atMax !== "") p.push([`Geração × P50 < ${f.atMax}%`, "atMax"]);
+  if (f.dispMax !== "") p.push([`Disponibilidade < ${f.dispMax}%`, "dispMax"]);
+  if (f.sem === "so") p.push(["Só as sem dado", "sem"]);
+  if (f.sem === "sem") p.push(["Sem as sem dado", "sem"]);
+  return p;
+}
+function painelFiltros() {
+  const f = FLD, clientes = [...new Set(V.usinas.map(u => u.c))].filter(Boolean).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const nume = (k, ph) => `<input class="campo num" data-fln="${k}" value="${esc(f[k])}" placeholder="${ph}" inputmode="decimal" autocomplete="off">`;
+  return `<div class="fl-painel" role="dialog" aria-label="Filtros"><div class="fl-cab"><h3>Filtros</h3><button class="fl-x" data-fl="fechar" title="Fechar sem aplicar (Esc)">×</button></div>
+    <div class="fl-grade">
+      <div class="fl-c">${menuSel("fmes", "Mês", ITENS_MES, [MES], {multi: false, larg: 250})}</div>
+      <div class="fl-c">${menuSel("fcli", "Cliente", clientes.map(c => ({v: c, t: c, sub: V.usinas.filter(u => u.c === c).length + " usinas"})), f.cli, {larg: 290, vazio: "Todos", ph: "Digite o cliente"})}</div>
+      <div class="fl-c">Situação<div class="opcoes">${["critico", "alerta", "ok", "neutro"].map(s => `<button class="opc" data-flsit="${s}" aria-pressed="${f.sit.includes(s)}"><i class="ponto" style="background:${COR[s]}"></i>${NOME_SEM[s]}</button>`).join("")}</div></div>
+      <div class="fl-c">PR (%)<div class="par">${nume("prMin", "de")}<span>a</span>${nume("prMax", "até")}</div></div>
+      <div class="fl-c">PR abaixo da meta<div class="par">${nume("dif", "pelo menos")}<span>p.p.</span></div></div>
+      <div class="fl-c">Geração × P50 abaixo de<div class="par">${nume("atMax", "ex.: 85")}<span>%</span></div></div>
+      <div class="fl-c">Disponibilidade abaixo de<div class="par">${nume("dispMax", "ex.: 98")}<span>%</span></div></div>
+      <div class="fl-c">Usinas sem dado<span class="seg">${[["todas", "Mostrar"], ["so", "Só elas"], ["sem", "Esconder"]].map(b => `<button data-flsem="${b[0]}" aria-pressed="${f.sem === b[0]}">${b[1]}</button>`).join("")}</span></div>
+    </div>
+    <div class="fl-pe"><button class="lnk" data-fl="limpar">Limpar filtros</button><button class="btn prim" data-fl="aplicar">Aplicar</button></div></div>`;
+}
+// as ocultas valem para a equipe (decisão do Levi, 25/11/2026): a lista diz quem ocultou e quando
+function painelOcultas() {
+  const l = ocultas().sort((a, b) => a.u.localeCompare(b.u, "pt-BR"));
+  return `<div class="fl-painel oc-painel" role="dialog" aria-label="Usinas ocultas"><div class="fl-cab"><h3>Usinas ocultas (${l.length})</h3><button class="fl-x" data-oc="fechar" title="Fechar">×</button></div>
+    ${l.length ? `<ul class="lista">${l.map(u => `<li><span style="flex:1">${esc(u.u)}<br><small style="color:var(--mudo)">por ${esc(u.oculta.quem || "—")} em ${esc(u.oculta.ts || "")}</small></span>${PODE ? `<button class="lnk" data-mostrar="${esc(u.u)}">Mostrar de novo</button>` : ""}</li>`).join("")}</ul>
+      <div class="fl-pe"><span style="color:var(--mudo);font-size:12px;margin-right:auto">Ocultar vale para toda a equipe.</span>${PODE ? `<button class="lnk" data-mostrar="*">Mostrar todas</button>` : ""}</div>`
+      : `<div style="color:var(--mudo)">Nenhuma.${PODE ? " Passe o mouse no card (ou clique com o botão direito) para ocultar uma usina." : ""}</div>`}</div>`;
+}
+function botaoExportar() {
+  return `<div class="exp"><button class="btn" data-exp="pdf" title="Abre o relatório e a janela de impressão: escolha Salvar como PDF"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg>Exportar relatório (PDF)</button></div>`;
+}
+function geral() {
+  const l = linhasGeral(), pl = pilulas(FL), noc = ocultas().length;
+  const th = (k, r, esq) => `<th data-ord="${k}" class="${esq ? "esq" : ""}">${r}${ORD.k === k ? (ORD.asc ? " ↑" : " ↓") : ""}</th>`;
+  const lista = () => `<div class="tabela-us rola"><table class="us"><thead><tr>${th("u", "Usina", 1)}${th("c", "Cliente", 1)}${th("at", "Geração × P50")}${th("pr", "PR")}${th("meta", "Meta PR")}${th("prm", "PR × meta")}${th("disp", "Disponibilidade")}${th("nos", "Ocorrências COS")}</tr></thead>
+    <tbody>${l.map(u => { const at = u.at != null ? u.at / 100 : null, rpr = u.pr != null && u.meta ? u.pr / u.meta : null;
+      return `<tr data-usina="${esc(u.u)}"><td class="esq"><b style="font-weight:500">${esc(u.u)}</b></td><td class="esq cli">${esc(u.c)}</td>
+        <td class="num">${at == null ? `<span class="sem">sem dado</span>` : `<span style="color:${COR[sem3(at)]}">${n1(u.at)}%</span>`}</td>
+        <td class="num">${u.pr == null ? "—" : `<span style="color:${COR[sem3(rpr)]}">${n1(u.pr)}%</span>`}</td><td class="num">${u.meta ? n1(u.meta) + "%" : "—"}</td>
+        <td class="num">${rpr == null ? "—" : `<span style="color:${COR[sem3(rpr)]}">${pp(u.pr - u.meta)}</span>`}</td>
+        <td class="num">${u.disp == null ? "—" : `<span style="color:${COR[semDisp(u.disp)]}">${n1(u.disp)}%</span>`}</td><td class="num">${u.nos ?? "—"}</td></tr>`; }).join("")
+      || `<tr><td colspan="8" class="esq sem">Nenhuma usina com esses filtros.</td></tr>`}</tbody></table></div>`;
+  return `<div class="topo"><div><div class="olho">Performance</div><h1>Análise das usinas</h1>
+      <div class="ficha">${esc(nomeMes(MES))} · geração e PR pelo Gerencial (dias fechados), disponibilidade e ocorrências pela régua do COS${V.lido ? " · lido às " + esc(String(V.lido).slice(0, 5)) : ""}${V.periodo_disp ? ` · disponibilidade até ${esc(V.periodo_disp[1].slice(8, 10) + "/" + V.periodo_disp[1].slice(5, 7))}` : " · sem a régua do COS neste mês"}</div></div>${botaoExportar()}</div>
+  ${AVISO ? `<div class="toast">${AVISO}</div>` : ""}
+  <div class="barra">
+    <label class="busca"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="f-q" value="${esc(Q)}" placeholder="Buscar usina ou cliente" autocomplete="off"></label>
+    <button class="btn fl-bt" data-fl="abrir" aria-expanded="${!!FLD}">Filtros${pl.length ? `<span class="fl-n">${pl.length}</span>` : ""}</button>
+    <div class="chips">${pl.map(p => `<span class="chip">${esc(p[0])}<button data-flx="${esc(p[1])}" title="Tirar este filtro">×</button></span>`).join("")}${pl.length > 1 ? `<button class="lnk" data-fl="limpar-ja">Limpar tudo</button>` : ""}</div>
+    <div class="dir">
+      ${VISTA === "cards" ? `<span class="seg" role="group" aria-label="Agrupar">${[["cliente", "Por cliente"], ["urgente", "Mais urgentes"]].map(b => `<button data-agr="${b[0]}" aria-pressed="${AGR === b[0]}">${b[1]}</button>`).join("")}</span>` : ""}
+      <button class="btn" data-oc="abrir" aria-expanded="${VER_OC}">Ocultas${noc ? ` <b>${noc}</b>` : ""}</button>
+      <span class="seg" role="group" aria-label="Visão">${[["cards", "Cards"], ["lista", "Lista"]].map(b => `<button data-vista="${b[0]}" aria-pressed="${VISTA === b[0]}">${b[1]}</button>`).join("")}</span></div>
+    ${FLD ? painelFiltros() : ""}${VER_OC ? painelOcultas() : ""}
+  </div>
+  <div class="contagem">${l.length} de ${V.usinas.length - noc} usinas${noc ? ` · ${noc} oculta${noc > 1 ? "s" : ""}` : ""}${VISTA === "cards" && AGR === "urgente" ? " · vermelhas primeiro; dentro da cor, a menor geração × P50" : ""}
+    ${VISTA === "cards" && AGR === "cliente" ? `<button class="lnk" data-todos="1">${FECHADOS.size ? "Abrir todos os clientes" : "Recolher todos os clientes"}</button>` : ""}</div>
+  ${VISTA === "lista" ? lista() : AGR === "urgente" ? (l.length ? `<div class="tiles solto">${l.map(u => tile(u, true)).join("")}</div>` : `<div class="toast">Nenhuma usina com esses filtros.</div>`) : cardsPorCliente(l)}
+  <div class="legenda"><span>A cor do card é o pior dos três sinais (geração × P50, PR × meta, disponibilidade):</span><span><i style="background:var(--critico)"></i>abaixo de 85%</span><span><i style="background:var(--alerta)"></i>85 a 95% (disponibilidade 95 a 98%)</span><span><i style="background:var(--ok)"></i>no esperado</span><span><i style="background:var(--neutro)"></i>sem dado</span></div>`;
+}
+function cardsPorCliente(l) {
+  const por = new Map();
+  l.forEach(u => { const c = u.c || "Sem cliente"; if (!por.has(c)) por.set(c, []); por.get(c).push(u); });
+  // o cliente com mais usina vermelha primeiro; empate, a pior geração × P50 do cliente
+  const gs = [...por.entries()].map(([c, us]) => ({c, us, a: agg(us), red: us.filter(u => semUsina(u) === "critico").length}))
+    .sort((x, y) => y.red / y.us.length - x.red / x.us.length || (x.a.at ?? 9) - (y.a.at ?? 9));
+  if (!gs.length) return `<div class="toast">Nenhuma usina com esses filtros.</div>`;
+  const met = (r, v, cor, sub) => `<span>${r} <b class="num" style="color:${COR[cor]}">${v}</b>${sub ? " " + sub : ""}</span>`;
+  return `<div class="grupos">` + gs.map(g => {
+    const a = g.a, aberto = !FECHADOS.has(g.c), cnt = {critico: 0, alerta: 0, ok: 0, neutro: 0};
+    g.us.forEach(u => cnt[semUsina(u)]++);
+    const cab = `<button class="gcab" data-cli="${esc(g.c)}" aria-expanded="${aberto}"><span class="l1"><span class="seta">${aberto ? "▾" : "▸"}</span>
+      <span class="nome">${esc(g.c)}<small>${g.us.length} ${g.us.length === 1 ? "usina" : "usinas"}</small></span>
+      <span class="sinais">${["critico", "alerta", "ok", "neutro"].filter(k => cnt[k]).map(k => `<span title="${NOME_SEM[k]}"><i class="ponto" style="background:${COR[k]}"></i>${cnt[k]}</span>`).join("")}</span></span>
+      <span class="l2">${met("Geração × P50", a.at == null ? "—" : pc(a.at), a.at == null ? "neutro" : sem3(a.at))}
+      ${met("PR", a.pr == null ? "—" : n1(a.pr) + "%", a.pr != null && a.meta ? sem3(a.pr / a.meta) : "neutro", a.meta ? "meta " + n1(a.meta) + "%" : "")}
+      ${met("Disp.", a.disp == null ? "—" : n1(a.disp) + "%", a.disp == null ? "neutro" : semDisp(a.disp), a.disp == null ? "(sem a régua do COS)" : "")}</span></button>`;
+    // todo cliente vai até a borda direita, mesmo com poucos cards (Levi, 25/11/2026: "só para seguir um padrão de tamanho")
+    return `<div class="grupo">${cab}${aberto ? `<div class="tiles">${g.us.map(u => tile(u, false)).join("")}</div>` : ""}</div>`;
+  }).join("") + `</div>`;
+}
+function tile(u, comCliente) {
+  const at = u.at != null ? u.at / 100 : null, rpr = u.pr != null && u.meta ? u.pr / u.meta : null, st = semUsina(u);
+  return `<div class="tile" role="button" tabindex="0" data-usina="${esc(u.u)}" style="border-top-color:${COR[st]}" title="${esc(u.u)}${u.motivo ? " · " + esc(u.motivo) : ""}">
+    ${PODE ? `<button class="oc" data-ocultar="${esc(u.u)}" title="Ocultar usina (para a equipe)" aria-label="Ocultar ${esc(u.u)}"><svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a12.6 12.6 0 0 1-3.1 4.2M6.1 6.1C3.9 7.5 2.5 9.6 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 4.2-1"/></svg></button>` : ""}
+    <span class="tn">${esc(u.u)}</span>${comCliente ? `<span class="tc">${esc(u.c)}</span>` : ""}
+    <span class="tv num" style="color:${at == null ? "var(--fraco)" : COR[sem3(at)]}">${at == null ? "sem dado" : n1(u.at) + "% <span>do P50</span>"}</span>
+    <span class="tb">${at == null ? "" : `<i style="width:${Math.min(100, u.at / 1.2)}%;background:${COR[sem3(at)]}"></i><u style="left:${100 / 1.2}%"></u>`}</span>
+    <span class="tl"><span>PR</span><b class="num" style="color:${rpr == null ? "var(--fraco)" : COR[sem3(rpr)]}">${u.pr == null ? "—" : n1(u.pr) + "%"}</b><span class="m">${u.meta ? "meta " + n1(u.meta) + "%" : ""}</span></span>
+    <span class="tl"><span>Disp.</span><b class="num" style="color:${u.disp == null ? "var(--fraco)" : COR[semDisp(u.disp)]}">${u.disp == null ? "—" : n1(u.disp) + "%"}</b><span class="m">${u.nos ? u.nos + (u.nos > 1 ? " ocorrências" : " ocorrência") : ""}</span></span></div>`;
+}
+
+/* ── o relatório em PDF (no molde do Criador de relatório): uma página por cliente ─────────────────────────────────── */
+const tilePdf = (l, v, s, c) => `<div class="tile"><div class="l">${l}</div><div class="v"${c ? ` style="color:${c}"` : ""}>${v}</div><div class="s">${s || ""}</div></div>`;
+const secPdf = (n, t, s) => `<div class="sec"><div class="sechead"><span class="n">${n}</span>Análise das usinas</div><div class="sectitle">${t}</div>${s ? `<div class="secsub">${s}</div>` : ""}`;
+function htmlPdfGeral() {
+  const l = linhasGeral(), a = agg(l), pl = pilulas(FL).map(p => p[0]);
+  const por = new Map(); l.forEach(u => { const c = u.c || "Sem cliente"; if (!por.has(c)) por.set(c, []); por.get(c).push(u); });
+  const cnt = k => l.filter(u => semUsina(u) === k).length;
+  let h = `<div class="sec"><div class="sechead" style="color:#8a929e">Grid Co. · Performance UFV · Análise das usinas</div>
+    <div class="capa-n">Análise das usinas</div><div class="capa-s">${esc(nomeMes(MES))} · ${l.length} usinas${pl.length ? " · filtros: " + esc(pl.join("; ")) : ""}${Q ? ` · busca "${esc(Q)}"` : ""}</div>
+    <div class="tiles" style="margin-top:16px">${tilePdf("Geração vs P50", a.at == null ? "—" : pc(a.at), "das usinas com meta")}${tilePdf("Performance Ratio", a.pr == null ? "—" : n1(a.pr) + "%", a.meta ? "meta " + n1(a.meta) + "%" : "")}${tilePdf("Disponibilidade", a.disp == null ? "—" : n1(a.disp) + "%", "ocorrências do COS")}${tilePdf("Usinas em vermelho", String(cnt("critico")), `${cnt("alerta")} em amarelo · ${cnt("ok")} em verde`, "#d64550")}</div>
+    <div class="leitura">A cor de cada usina é o pior dos três sinais: geração × P50, PR × meta e disponibilidade (vermelho abaixo de 85%; amarelo de 85 a 95%, ou disponibilidade de 95 a 98%). A geração e o PR vêm do Gerencial (dias fechados); a disponibilidade e as ocorrências, da régua do COS.</div>
+    <div class="foot"><span>Equipe de Performance · Grid Co.</span><span>Emitido em ${new Date().toLocaleDateString("pt-BR")}</span></div></div>`;
+  [...por.entries()].forEach(([c, us], i) => { const g = agg(us);
+    h += secPdf(String(i + 2).padStart(2, "0"), esc(c), `${us.length} usinas · geração × P50 ${g.at == null ? "—" : pc(g.at)} · PR ${g.pr == null ? "—" : n1(g.pr) + "%"}${g.meta ? " (meta " + n1(g.meta) + "%)" : ""} · disponibilidade ${g.disp == null ? "—" : n1(g.disp) + "%"}`)
+      + `<table><thead><tr><th>Usina</th><th>Geração × P50</th><th>PR</th><th>Meta</th><th>PR × meta</th><th>Disp.</th><th>Ocorrências</th><th>Sinal</th></tr></thead><tbody>
+        ${us.map(u => `<tr><td>${esc(u.u)}</td><td>${u.at == null ? "sem dado" : n1(u.at) + "%"}</td><td>${u.pr == null ? "—" : n1(u.pr) + "%"}</td><td>${u.meta ? n1(u.meta) + "%" : "—"}</td><td>${u.pr != null && u.meta ? pp(u.pr - u.meta) : "—"}</td><td>${u.disp == null ? "—" : n1(u.disp) + "%"}</td><td>${u.nos ?? "—"}</td><td><span class="dot" style="background:${{critico: "#d64550", alerta: "#e0a800", ok: "#4f9a0a", neutro: "#aab2bf"}[semUsina(u)]}"></span></td></tr>`).join("")}</tbody></table></div>`; });
+  return h;
+}
+function htmlPdf() {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Análise das usinas - ${esc(nomeMes(MES))}</title><style>
+    :root{--ink:#1a1d24;--muted:#5b6472;--faint:#8a929e;--line:#e4e7ec;--panel:#f7f8fa;--green:#6aa80e}
+    *{box-sizing:border-box}body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);font-size:12.5px;line-height:1.5;background:#fff}
+    .sec{padding:28px 34px;page-break-before:always}.sec:first-child{page-break-before:avoid}
+    .sechead{font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--green);text-transform:uppercase;margin:0 0 3px}.sechead .n{color:var(--faint);margin-right:9px}
+    .sectitle{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 3px}.secsub{font-size:12.5px;color:var(--muted);margin:0 0 16px}
+    .capa-n{font-size:30px;font-weight:800;letter-spacing:-.03em;margin:14px 0 2px}.capa-s{font-size:13px;color:var(--muted)}
+    .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:0 0 8px}.tile{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--panel)}
+    .tile .l{font-size:10.5px;color:var(--muted);font-weight:600}.tile .v{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:2px;font-variant-numeric:tabular-nums}.tile .s{font-size:10.5px;color:var(--faint);margin-top:1px}
+    table{width:100%;border-collapse:collapse;font-size:11px}th{text-align:right;font-size:9.5px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;padding:6px 8px;border-bottom:1.5px solid var(--line)}
+    th:first-child,td:first-child{text-align:left}td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}tr{page-break-inside:avoid}
+    .leitura{background:var(--panel);border-left:3px solid var(--green);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;margin:10px 0}
+    .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+    .foot{margin-top:24px;padding-top:10px;border-top:1px solid var(--line);font-size:10.5px;color:var(--faint);display:flex;justify-content:space-between}
+    @page{size:A4;margin:12mm}@media print{.sec{padding:0}}@media screen{html{background:#eceef1}body{max-width:820px;margin:22px auto;box-shadow:0 2px 18px rgba(20,30,50,.12)}}
+    </style></head><body>${htmlPdfGeral()}<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
+}
+function exportarPdf() {
+  const w = window.open("", "_blank");
+  if (!w) { AVISO = "O navegador bloqueou a janela do relatório: libere as janelas desta página e tente de novo."; tudo(); return; }
+  w.document.open(); w.document.write(htmlPdf()); w.document.close();
+}
+
+/* ── ler, gravar e montar ──────────────────────────────────────────────────────────────────────────────────────────── */
+async function ler() {
+  LENDO = true; ERRO = ""; tudo();
+  try {
+    const r = await fetch("/api/analise/usinas?mes=" + encodeURIComponent(MES), {credentials: "same-origin"});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.erro || ("HTTP " + r.status));
+    V = j;
+  } catch (e) { ERRO = String(e && e.message || e); }
+  LENDO = false; tudo();
+}
+async function gravaOculta(usina, oc) {
+  try {
+    const r = await (EU.grava ? EU.grava("/api/analise/ocultas", {usina, oculta: oc}) : fetch("/api/analise/ocultas", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify({usina, oculta: oc})}).then(x => x.json()));
+    const mapa = (r && r.ocultas) || {};
+    V.usinas.forEach(u => { const k = Object.keys(mapa).find(x => nrm(x) === nrm(u.u)); u.oculta = k ? mapa[k] : null; });
+    AVISO = "";
+  } catch (e) { AVISO = "Não deu para gravar: " + esc(String(e && e.message || e)); }
+  tudo();
+}
+function abrirUsina(u) {
+  // a entrega 2 traz o diagnóstico; até lá, o Diagnóstico de usina de sempre
+  const v = (V.usinas || []).find(x => x.u === u) || {};
+  location.href = `/painel/usina/${encodeURIComponent(nrm(u))}?hist=1&cliente=${encodeURIComponent(v.c || "")}&nome=${encodeURIComponent(u)}`;
+}
+function tudo() {
+  const y = scrollY;
+  $("#pag").innerHTML = !V ? (ERRO ? `<div class="toast" style="border-left-color:var(--critico)">A Análise das usinas não leu agora: ${esc(ERRO)}. <button class="lnk" data-reler="1">Tentar de novo</button></div>` : `<div class="toast">Lendo as usinas…</div>`)
+    : geral() + (ERRO ? `<div class="toast" style="border-left-color:var(--critico)">A última leitura falhou (${esc(ERRO)}); mostrando a anterior.</div>` : "");
+  scrollTo(0, y);
+}
+
+const tip = $("#tip"), menu = $("#menu");
+// o botão direito no card: abrir ou ocultar a usina
+document.addEventListener("contextmenu", e => {
+  const t = e.target.closest(".tile[data-usina]");
+  if (!t) return;
+  e.preventDefault();
+  const u = t.getAttribute("data-usina");
+  menu.innerHTML = `<div class="mn-t">${esc(u)}</div><button data-menu="abrir" data-u="${esc(u)}">Abrir a usina</button>${PODE ? `<button data-menu="ocultar" data-u="${esc(u)}">Ocultar usina (para a equipe)</button>` : ""}`;
+  menu.hidden = false;
+  menu.style.left = Math.min(innerWidth - 250, e.clientX) + "px";
+  menu.style.top = Math.min(innerHeight - 120, e.clientY) + "px";
+});
+const foca = (sel, p) => { const f = $(sel); if (!f) return; f.focus(); if (p != null) f.setSelectionRange(p, p); };
+document.addEventListener("click", e => {
+  const t = e.target, q = s => t.closest(s);
+  let x;
+  if (!menu.hidden && !q("#menu")) menu.hidden = true;
+  let fechou = false;
+  if (ABERTO_DD && !q(`.dd[data-dd="${ABERTO_DD}"]`)) { ABERTO_DD = null; fechou = true; }
+  if ((x = q("[data-ddab]"))) { const id = x.getAttribute("data-ddab"); ABERTO_DD = ABERTO_DD === id ? null : id; tudo(); foca(`[data-ddq="${id}"]`); return; }
+  if ((x = q("[data-ddi]"))) { aoEscolher(x.getAttribute("data-ddi"), x.getAttribute("data-v")); if (ABERTO_DD) foca(`[data-ddq="${ABERTO_DD}"]`); return; }
+  if ((x = q("[data-ddlimpa]"))) { limparDd(x.getAttribute("data-ddlimpa")); return; }
+  if ((x = q("[data-reler]"))) { ler(); return; }
+  if ((x = q("[data-exp]"))) { exportarPdf(); return; }
+  if ((x = q("[data-menu]"))) { const u = x.getAttribute("data-u"); menu.hidden = true;
+    if (x.getAttribute("data-menu") === "ocultar") gravaOculta(u, true); else abrirUsina(u); return; }
+  // os filtros: o painel trabalha num rascunho (FLD); Aplicar vale, × e Esc voltam ao que estava
+  if ((x = q("[data-fl]"))) { const a = x.getAttribute("data-fl");
+    if (a === "abrir") { FLD = FLD ? null : JSON.parse(JSON.stringify(FL)); VER_OC = false; }
+    else if (a === "fechar") FLD = null;
+    else if (a === "aplicar") { FL = FLD; FLD = null; }
+    else if (a === "limpar") FLD = FL0();
+    else if (a === "limpar-ja") FL = FL0();
+    tudo(); return; }
+  if ((x = q("[data-flx]"))) { const [k, v] = x.getAttribute("data-flx").split("|");
+    if (k === "cli" || k === "sit") FL[k] = FL[k].filter(y => y !== v); else if (k === "sem") FL.sem = "todas"; else FL[k] = "";
+    tudo(); return; }
+  if ((x = q("[data-flsit]"))) { const s = x.getAttribute("data-flsit"); FLD.sit = FLD.sit.includes(s) ? FLD.sit.filter(y => y !== s) : [...FLD.sit, s]; tudo(); return; }
+  if ((x = q("[data-flsem]"))) { FLD.sem = x.getAttribute("data-flsem"); tudo(); return; }
+  if ((x = q("[data-oc]"))) { VER_OC = x.getAttribute("data-oc") === "abrir" ? !VER_OC : false; if (VER_OC) FLD = null; tudo(); return; }
+  if ((x = q("[data-mostrar]"))) { const u = x.getAttribute("data-mostrar");
+    if (u === "*") ocultas().reduce((p, o) => p.then(() => gravaOculta(o.u, false)), Promise.resolve()); else gravaOculta(u, false); return; }
+  if ((x = q("[data-ocultar]"))) { gravaOculta(x.getAttribute("data-ocultar"), true); return; }
+  if ((x = q("[data-agr]"))) { AGR = x.getAttribute("data-agr"); tudo(); return; }
+  if ((x = q("[data-vista]"))) { VISTA = x.getAttribute("data-vista"); tudo(); return; }
+  if ((x = q("[data-cli]"))) { const c = x.getAttribute("data-cli"); if (FECHADOS.has(c)) FECHADOS.delete(c); else FECHADOS.add(c); tudo(); return; }
+  if ((x = q("[data-todos]"))) { if (FECHADOS.size) FECHADOS.clear(); else V.usinas.forEach(u => FECHADOS.add(u.c || "Sem cliente")); tudo(); return; }
+  if ((x = q("[data-usina]"))) { abrirUsina(x.getAttribute("data-usina")); return; }
+  if ((x = q("th[data-ord]"))) { const k = x.getAttribute("data-ord"); ORD = ORD.k === k ? {k, asc: !ORD.asc} : {k, asc: k !== "nos"}; tudo(); return; }
+  if (fechou) tudo();
+});
+document.addEventListener("input", e => {
+  const t = e.target;
+  if (t.hasAttribute && t.hasAttribute("data-ddq")) { const id = t.getAttribute("data-ddq"); DD_Q[id] = t.value; const p = t.selectionStart; tudo(); foca(`[data-ddq="${id}"]`, p); return; }
+  if (t.id === "f-q") { Q = t.value; const p = t.selectionStart; tudo(); foca("#f-q", p); }
+  if (t.hasAttribute && t.hasAttribute("data-fln") && FLD) FLD[t.getAttribute("data-fln")] = t.value.trim();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.matches && e.target.matches(".tile[data-usina]")) { abrirUsina(e.target.getAttribute("data-usina")); return; }
+  if (e.key === "Enter" && e.target.hasAttribute && e.target.hasAttribute("data-ddq")) {
+    const b = document.querySelector(`.dd[data-dd="${e.target.getAttribute("data-ddq")}"] .dd-i:not([disabled])`); if (b) b.click(); return; }
+  if (e.key === "Enter" && FLD && e.target.hasAttribute && e.target.hasAttribute("data-fln")) { FL = FLD; FLD = null; tudo(); return; }
+  if (e.key !== "Escape") return;
+  if (ABERTO_DD) { ABERTO_DD = null; tudo(); return; }
+  if (!menu.hidden) { menu.hidden = true; return; }
+  if (FLD) { FLD = null; tudo(); return; }
+  if (VER_OC) { VER_OC = false; tudo(); }
+});
+ler();
+</script>
+</body>
+</html>
+{% endraw %}
