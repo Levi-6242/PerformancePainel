@@ -3079,6 +3079,13 @@ depois (na prova de 16/11 cada abertura esperava 30 s por elas); a Geração e o
 (6) A releitura de 5 min usa `redesenhar()`, que não atropela quem está digitando (o comentário) nem o editor do de-para.
 (7) Cada leitura sob demanda (geração, potência, disponibilidade, SCADA, abaixo) marca a própria falha e só o clique em
 "Tentar de novo" pede outra vez: a lição da armadilha (2).
+(8) **O inversor da OS de performance** (`invDaOs`, 25/11/2026): vale o "[Inversor N.M]" da descrição (o que o OS Creator
+escreve) e, sem ele, o ATIVO da linha (`sub`, o `items_log_description`), só se for um inversor da usina. Caso: a OS 19786
+da PEIII é UMA OS com os Inversores 1.1, 1.5 e 1.7 e a descrição só "Recomposição de String"; a ferramenta não aparecia em
+nenhum dos três (88 das 186 linhas abertas no Fracttal naquele dia traziam o inversor só no ativo). O ativo fora do
+cadastro (a Barretos numera 1.21-1.40 no Fracttal) fica sem inversor, nunca no errado. O cabeçalho conta e mostra cada
+OS uma vez, com os inversores juntos (`osAgrupadas`: "19786 (1.1, 1.5, 1.7)"); antes contava linhas. Prova:
+`tests/test_sala_os_do_inversor.py` (as duas funções no node).
 
 **Como provar.** `tests/test_sala_de_controle.py` (a rota, as rotas lidas, nada embutido, quem grava, a confirmação da
 trava e o log, as rotas do acompanhamento e do comentário, a OS só no clique e num link só, o escondido, a espera

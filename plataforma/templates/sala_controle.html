@@ -966,7 +966,7 @@ async function lerUsina(u, calada) {
     // as OS de performance dependem do Fracttal, que às vezes demora ou não responde: chegam depois, sem segurar a usina
     // (na prova de 16/11/2026 cada abertura esperava os 30 s desta leitura)
     pega("/api/os-performance?usina=" + encodeURIComponent(fisU(u)), 45000).then(o => { const nomes = new Set(inv.map(i => i.n));
-      D.estado.os[u.u] = (o.os || []).map(x => { const m = /\[(Inversor \d+\.\d+)/.exec(x.nota || ""); return {os: x.os, nota: x.nota, status: x.status, data: x.data, sub: x.sub, inv: m ? m[1] : null}; }).filter(x => !x.inv || nomes.has(x.inv));
+      D.estado.os[u.u] = (o.os || []).map(x => ({os: x.os, nota: x.nota, status: x.status, data: x.data, sub: x.sub, inv: invDaOs(x, nomes)})).filter(x => !x.inv || nomes.has(x.inv));
       delete D.estado.osErro[u.u]; if (SEL.u === u.u && ABA === "str") redesenhar(); }).catch(e => { D.estado.osErro[u.u] = String(e && e.message || e); if (SEL.u === u.u && ABA === "str") redesenhar(); });
     await Promise.all(extras);
   } catch (e) { delete PRE[u.u]; if (!calada) FALHOU[u.u] = String(e && e.message || e); if (SEL.u === u.u && !D.drill[u.u]) desenhar(); }
@@ -1432,6 +1432,26 @@ const lst = a => a.length > 1 ? a.slice(0, -1).join(", ") + " e " + a[a.length -
 const HOJE = isoDe(new Date()), agora = () => new Date().toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
 const diasAte = iso => Math.round((Date.parse(HOJE) - Date.parse(String(iso).slice(0, 10))) / 864e5);
 const osRecentes = (u, i) => (D.osHist[u + "|" + i] || []).filter(o => o.criada && diasAte(o.criada) <= JANELA);
+// O INVERSOR DA OS DE PERFORMANCE (Levi, 25/11/2026, na PEIII: "Esses inversores aqui, eles já tem o OS aberta, aqui não
+// está aparecendo o símbolo de manutenção de OS"). A OS 19786 é UMA OS com três ativos (Inversores 1.1, 1.5 e 1.7) e a
+// descrição só "Recomposição de String", sem o "[Inversor 1.7]" que o OS Creator escreve; no Fracttal de 25/11, 88 das 186
+// linhas de OS de performance abertas eram assim. Vale o "[Inversor N.M]" da descrição (o nome desta tela, escrito pelo OS
+// Creator) e, sem ele, o ATIVO da linha (o mesmo que o aviso do Criar OS consulta), só quando é um inversor desta usina: a
+// Barretos numera 1.21 a 1.40 no Fracttal e o cadastro diz 2.1 a 2.20, e esse fica sem inversor em vez de cair no errado.
+const RX_INV_NOTA = /\[(Inversor \d+\.\d+)/, RX_INV_ATIVO = /^\s*inversor\s*(\d+\.\d+)(?![\d.])/i;
+function invDaOs(x, nomes) {
+  const m = RX_INV_NOTA.exec(x.nota || "");
+  if (m) return m[1];
+  const a = RX_INV_ATIVO.exec(x.sub || ""), n = a ? "Inversor " + a[1] : null;
+  return n && nomes.has(n) ? n : null;
+}
+// cada OS uma vez no cabeçalho, com os inversores dela juntos: "19786 (1.1, 1.5, 1.7)", e não "19786 · 19786 · 19786"
+// (a lista do Fracttal traz uma linha por ativo, e o número ao lado de "OS de performance" contava linhas, não OS)
+function osAgrupadas(oss) {
+  const m = new Map();
+  oss.forEach(o => { const l = m.get(o.os) || []; if (o.inv && !l.includes(o.inv)) l.push(o.inv); m.set(o.os, l); });
+  return [...m].map(([os, l]) => os + (l.length ? " (" + l.sort((a, b) => a.localeCompare(b, "pt-BR", {numeric: true})).map(n => n.replace("Inversor ", "")).join(", ") + ")" : ""));
+}
 const mediana = l => { const a = l.slice().sort((x, y) => x - y); return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : 0; };
 // o gráfico dos trackers com os controles do Tempo real de hoje (o estado é o mesmo de lá: De/Até, visão reduzida, o
 // filtro em lote, os cartões escondidos, o alvo e o Expandir)
@@ -2069,7 +2089,7 @@ function detalhe(u, bx) {
     // desde as 11:01): as strings abaixo são as da última leitura, sem contagem; a tela diz isso em vez de "Todas gerando"
     if (u.st === "sem_comm") h += `<div class="aviso" style="border-left:3px solid var(--critico)"><b>Sem leitura nova da fonte</b>${u.causa ? " · " + esc(u.causa) : ""}. As strings abaixo são as da última leitura que chegou e não entram na conta enquanto a fonte não voltar.</div>`;
     h += `<div class="diasel barrafix" style="gap:8px"><span>Dia</span><input type="date" class="campo" style="background:var(--sup);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}" aria-label="Dia da curva das strings"><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button>
-      <span style="color:var(--mudo);font-size:12.5px;margin-left:8px" title="Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários">OS de performance <b style="color:var(--tinta)">${oss.length}</b> ${oss.length ? esc(oss.map(o => o.os + (o.inv ? " (" + o.inv.replace("Inversor ", "") + ")" : "")).join(" · ")) : D.estado.osErro[u.u] ? "· não consegui ler agora" : !(u.u in D.estado.os) ? "· lendo…" : "· nenhuma em aberto"}</span>
+      <span style="color:var(--mudo);font-size:12.5px;margin-left:8px" title="Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários">OS de performance <b style="color:var(--tinta)">${osAgrupadas(oss).length}</b> ${oss.length ? esc(osAgrupadas(oss).join(" · ")) : D.estado.osErro[u.u] ? "· não consegui ler agora" : !(u.u in D.estado.os) ? "· lendo…" : "· nenhuma em aberto"}</span>
       ${(() => { if (!COSU[u.g + "|" + u.u] || !ehApiPv(SKEY[u.g], u.pid)) return ""; const pr = paresCos(u, dr), l = pr && pr.pares ? pr.pares.map(p => ({n: p.iv.n, v: confereCos(p)})) : [], ok = l.filter(x => x.v.ok).length;
         return `<span class="tag ${ok ? "i" : "n"}" style="margin-left:8px" title="${!COSI ? "Lendo os inversores no logger do COS…" : !pr || !pr.pares ? "Nenhum inversor do logger do COS tem o nome de um inversor desta usina" : esc([l.filter(x => !x.v.ok).map(x => x.n + ": " + x.v.motivo).join(" · "), dr.inv.length > l.length ? (dr.inv.length - l.length) + " sem inversor de mesmo nome no logger" : "",
             (z => z ? z + " com string parada igual nas duas leituras (numeração provada)" : "")(l.filter(x => x.v.ok && x.v.zer).length)].filter(Boolean).join(" · ") || "Todos conferidos")}">COS: ${ok} de ${dr.inv.length} inversores conferidos</span>`; })()}
