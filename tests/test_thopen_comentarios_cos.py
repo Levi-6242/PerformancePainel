@@ -37,8 +37,8 @@ def test_o_relato_do_cos_por_usina_e_dia():
 
 def test_a_aba_do_cos_entra_na_leitura_so_com_as_colunas_do_relato():
     k, campos = fonte_operacao.ABAS[("nexus_cos_normalizacoes", "fato_comentario_dia")]
-    assert k == "comentario_cos_dia" and campos == ("usina_id", "dia", "relato_do_dia", "registros")
-    assert fonte_operacao.VERSAO_CACHE >= 15       # o cache antigo, sem os registros, não serve
+    assert k == "comentario_cos_dia" and campos == ("usina_id", "usina_codigo", "dia", "relato_do_dia", "registros")
+    assert fonte_operacao.VERSAO_CACHE >= 16       # o cache antigo, sem os registros e o código, não serve
 
 
 @pytest.fixture
@@ -223,27 +223,29 @@ def test_a_aba_das_ocorrencias_entra_so_com_as_colunas_sem_nome():
     k, campos = fonte_operacao.ABAS[("nexus_cos_normalizacoes", "fato_normalizacao")]
     assert k == "ocorrencia_cos" and "os_aberta_por" not in campos and "tecnico" not in campos
     assert "registro" in campos                    # a ponte da linha do relato com a tag do equipamento (a parte)
+    assert "usina_codigo" in campos                # a parte acha a ocorrência da usina inteira sem id no de-para
     assert fonte_operacao.VERSAO_CACHE >= 14
 
 
 # ── a parte da usina: o relato do ORB100 dividido entre as Ouro Branco I a V (25/11/2026) ─────────────────────────────
-# Só a IV está no de-para (como na produção); as outras quatro leem o relato pelo id dela
-OB = 105
-DE_PARA_OB = [{"usina_id": OB, "chave_externa": "Ouro Branco IV"}]
+# Como na produção (o Levi, 16:20): nenhuma Ouro Branco tem usina_id no de-para; o ORB100 é o 105 do Nexus e as linhas
+# trazem o código da usina inteira (`usina_codigo`)
+OB, COD_OB = 105, "THPN-ORB100"
+DE_PARA_OB = DE_PARA
 L_CAB4 = "Cabine 4 desligada de 27/10 às 06:07 a 27/10 às 08:20."
 L_SKID3 = "Usina desligada de 27/10 às 09:00 a 27/10 às 09:30."          # o texto diz usina; a tag é do SKID 3
 L_ESTM = "Perda de comunicação com a estação solarimétrica do complexo de 27/10 às 10:05 a 27/10 às 10:42."
 L_INV12 = "Inversor 1.2 desligado desde 27/10 às 11:00, em atendimento pelo COS."   # aberta: não está nas ocorrências
-OCORR_OB = [{"registro": "r-cab4", "usina_id": str(OB), "equipamentos_codigos": "THPN-ORB100-CABN4"},
-            {"registro": "r-skid3", "usina_id": str(OB), "equipamentos_codigos": "THPN-ORB100-SKID3"},
-            {"registro": "r-estm", "usina_id": str(OB), "equipamentos_codigos": "THPN-ORB100-ESTM1"}]
+OCORR_OB = [{"registro": "r-cab4", "usina_id": str(OB), "usina_codigo": COD_OB, "equipamentos_codigos": "THPN-ORB100-CABN4"},
+            {"registro": "r-skid3", "usina_id": str(OB), "usina_codigo": COD_OB, "equipamentos_codigos": "THPN-ORB100-SKID3"},
+            {"registro": "r-estm", "usina_id": str(OB), "usina_codigo": COD_OB, "equipamentos_codigos": "THPN-ORB100-ESTM1"}]
 D27 = dt.date(2026, 10, 27)
 
 
 def _ob(registros):
     return {"de_para": DE_PARA_OB, "ocorrencia_cos": OCORR_OB, "comentario_cos_dia": [
-        {"usina_id": str(OB), "dia": "2026-10-27", "relato_do_dia": "\n".join([L_CAB4, L_SKID3, L_ESTM, L_INV12]),
-         "registros": registros}]}
+        {"usina_id": str(OB), "usina_codigo": COD_OB, "dia": "2026-10-27",
+         "relato_do_dia": "\n".join([L_CAB4, L_SKID3, L_ESTM, L_INV12]), "registros": registros}]}
 
 
 @pytest.mark.parametrize("codigos, partes", [
@@ -289,13 +291,35 @@ def test_a_usina_que_nao_e_parte_fica_com_o_relato_inteiro():
     dados = {"de_para": DE_PARA, "ocorrencia_cos": [], "comentario_cos_dia": [
         {"usina_id": "7", "dia": "2026-10-27", "relato_do_dia": f"{L_CAB4}\n{L_SKID3}", "registros": "a;b"}]}
     assert operacao_mes.cos_por_dia(dados, "Usina A", 2026, 10) == {D27: [L_CAB4, L_SKID3]}
+    # e o relato do ORB100 não vaza para quem não é parte dele (o código só vale para as partes)
+    assert operacao_mes.cos_por_dia(_ob(""), "Usina A", 2026, 10) == {}
+
+
+def test_a_parte_tambem_acha_o_relato_pelo_id_se_um_dia_for_ligada_no_de_para():
+    dados = _ob("r-cab4;r-skid3;r-estm;r-inv12")
+    for r in dados["comentario_cos_dia"]:
+        r.pop("usina_codigo")                      # sem o código (o cache de antes), só pelo id do de-para
+    assert operacao_mes.cos_por_dia(dados, "Ouro Branco II", 2026, 10) == {}
+    dados["de_para"] = DE_PARA + [{"usina_id": OB, "chave_externa": "Ouro Branco IV"}]
+    assert operacao_mes.cos_por_dia(dados, "Ouro Branco II", 2026, 10) == {D27: [L_ESTM]}
+
+
+def test_o_card_da_parte_leva_o_relato_dela_no_dia(_card, monkeypatch):
+    """O que o Levi viu às 16:20: com o dado real (sem id no de-para), a I, a II, a III e a V seguiam sem comentário em
+    27/10. Pela rota do card, a I leva a estação e o inversor 1.2, e a IV, a cabine 4 e a estação."""
+    monkeypatch.setattr(operacao_mes, "disp_por_dia", lambda *a, **k: {D27: 95.0})
+    _card.update(_ob("r-cab4;r-skid3;r-estm;r-inv12"))
+    for nome, esperado in (("Ouro Branco I", [L_ESTM, L_INV12]), ("Ouro Branco IV", [L_CAB4, L_ESTM])):
+        r = operacao_mes.resposta(_card, nome, 2026, 10, dt.date(2026, 11, 25))
+        assert {p["dia"]: p for p in r["por_dia"]}["27/10"]["os"] == esperado
 
 
 def test_a_parada_fora_do_sol_da_parte_so_com_o_equipamento_dela():
     dados = {"de_para": DE_PARA_OB, "ocorrencia_cos": [
         _oc("2026-10-27T01:30:00-03:00", "2026-10-27T05:00:00-03:00", usina_id=str(OB), tipo="DESLIGAMENTO_CABINE",
-            equipamentos_codigos="THPN-ORB100-CABN4", os="17603"),
-        _oc("2026-10-28T02:00:00-03:00", "2026-10-28T04:00:00-03:00", usina_id=str(OB), os="17604")]}
+            equipamentos_codigos="THPN-ORB100-CABN4", os="17603", usina_codigo=COD_OB),
+        _oc("2026-10-28T02:00:00-03:00", "2026-10-28T04:00:00-03:00", usina_id=str(OB), os="17604",
+            usina_codigo=COD_OB)]}
     assert sorted(operacao_mes.fora_do_sol_por_dia(dados, "Ouro Branco IV", 2026, 10)) == [D27, dt.date(2026, 10, 28)]
     assert sorted(operacao_mes.fora_do_sol_por_dia(dados, "Ouro Branco I", 2026, 10)) == [dt.date(2026, 10, 28)]
 
