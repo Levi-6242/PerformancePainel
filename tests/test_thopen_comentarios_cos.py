@@ -113,6 +113,50 @@ def test_antes_de_outubro_a_assistida_segue_como_era(dash):
     assert chamou["bd"] is None
 
 
+# ── de 11/2026 em diante a assistida e a Cambé, Sapopema e Segredo seguem o COS (25/11/2026) ──────────────────────────
+NOV = dt.date(2026, 11, 4)
+
+
+def test_a_lista_que_segue_o_cos_vale_de_novembro_em_diante():
+    dc = disp_comentarios
+    assert dc.segue_o_cos("Areia Branca", 2026, 11) and dc.segue_o_cos("Cambé", 2027, 1)
+    assert not dc.segue_o_cos("Areia Branca", 2026, 10)          # outubro fica como estava
+    # sem a disponibilidade_dia da plataforma: seguem no BD
+    assert not dc.segue_o_cos("Rondonópolis", 2026, 11) and not dc.segue_o_cos("AP. do Taboado", 2026, 11)
+    # um nome com a grafia errada nunca casaria com a usina e ficaria no BD calado: todos têm de ser da lista de sempre
+    assert dc.SEGUEM_O_COS <= dc.ASSISTIDAS
+
+
+@pytest.fixture
+def _sem_fechamento(dash, monkeypatch):
+    d, chamou = dash
+    monkeypatch.setattr(d, "_disp_fechamento", lambda *a: None)
+    monkeypatch.setattr(d.operacao_mes, "disp_por_dia", lambda *a, **k: {NOV: 55.0})
+    return d, chamou
+
+
+@pytest.mark.parametrize("usina", ["Areia Branca", "Cambé"])
+def test_em_novembro_a_que_seguia_o_bd_segue_o_cos_no_numero_e_no_comentario(_sem_fechamento, usina):
+    d, chamou = _sem_fechamento
+    assert not d._pelo_bd(usina, 2026, 11) and d._pelo_bd(usina, 2026, 10)
+    assert d._disp_dias(usina, 2026, 11) == {NOV: 55.0}          # o número da plataforma, não o do BD (10%)
+    d.app.test_client().get("/api/t/operacao?usina=%s&ano=2026&mes=11" % usina)
+    assert chamou["bd"] is None and chamou["trips"] == {"1": "27"}
+
+
+def test_em_novembro_a_assistida_pelas_os_leva_o_relato_do_cos(_sem_fechamento):
+    d, chamou = _sem_fechamento
+    d.app.test_client().get("/api/t/operacao?usina=Aruanã&ano=2026&mes=11")
+    assert chamou["bd"] is None and chamou["disp"] is None and chamou["trips"] == {"1": "27"}
+
+
+def test_em_novembro_rondonopolis_segue_no_bd(_sem_fechamento):
+    d, chamou = _sem_fechamento
+    assert d._disp_dias("Rondonópolis", 2026, 11) == {D1: 10.0}
+    d.app.test_client().get("/api/t/operacao?usina=Rondonópolis&ano=2026&mes=11")
+    assert chamou["bd"][1] == {D1: ["linha do BD"]} and chamou["trips"] == {}
+
+
 NODE = shutil.which("node")
 T = open(os.path.join(os.path.dirname(__file__), "..", "thopen", "templates", "dashboard_thopen.html"),
          encoding="utf-8").read()

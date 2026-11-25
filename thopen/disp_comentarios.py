@@ -33,9 +33,25 @@ USINAS = frozenset({"Rondonópolis", "AP. do Taboado", "Areia Branca", "Monte Ap
 # para o resto", com a lista de 06/11: as Sol Maior GD I a V são a Lyon, as Segredo 1.1 a 1.5 a Segredo). As outras
 # seguem o relato do COS e as OS. Contém as USINAS (que seguem o BD também no número)
 ASSISTIDAS = USINAS | frozenset({"Aruanã", "Lyon", "Sapopema", "Segredo"})
+# as que saem do BD_Thopen de 11/2026 em diante, no número e no comentário, e seguem o relato do COS e a disponibilidade
+# da plataforma como as outras (Willian, COS, 25/11/2026): a operação assistida passou a ser registrada na Ronda COS em
+# 21/11, com o retroativo de 01 a 20/11 pelo grupo dela, e a Cambé, a Sapopema e a Segredo voltaram ao O&M em 14/11. O
+# caso que motivou: a Areia Branca saía a 100% e sem comentário em 04/11, desligada das 02:22 às 12:00 (trip 81), porque
+# o BD_Thopen não tinha a linha; a plataforma já dava 55%. Outubro fica como estava (a exceção de 06/11 e o mês fechado
+# em 13/11). Rondonópolis e AP. do Taboado seguem no BD: a plataforma ainda não tem a disponibilidade_dia delas (sem ela
+# o card cairia no Histórico Carteira); entram aqui quando tiverem. As duas listas de cima não mudam: outubro depende delas
+SEGUEM_O_COS = frozenset({"Areia Branca", "Monte Aprazível", "Nova Iguaçu", "Lyon", "Aruanã", "Cambé", "Sapopema",
+                          "Segredo"})
+COS_DESDE = (2026, 11)
 # o período solar da Thopen, em horas decimais (Levi, 05/11/2026: "na verdade será das 07:30 as 17:30"), o mesmo da
 # plataforma (disponibilidade.JANELA_POR_CLIENTE) e do operacao_mes.HORAS_SOL
 SOL_INI_H, SOL_FIM_H = 7.5, 17.5
+
+
+def segue_o_cos(usina, ano, mes):
+    """A usina de SEGUEM_O_COS, de COS_DESDE em diante: sai do BD_Thopen (número e comentário) e segue o relato do COS
+    e a disponibilidade da plataforma. Antes disso, e fora da lista, False (vale o que já valia)."""
+    return usina in SEGUEM_O_COS and (ano, mes) >= COS_DESDE
 
 
 def _na_hora(d, h):
