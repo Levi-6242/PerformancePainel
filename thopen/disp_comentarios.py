@@ -43,6 +43,15 @@ ASSISTIDAS = USINAS | frozenset({"Aruanã", "Lyon", "Sapopema", "Segredo"})
 SEGUEM_O_COS = frozenset({"Areia Branca", "Monte Aprazível", "Nova Iguaçu", "Lyon", "Aruanã", "Cambé", "Sapopema",
                           "Segredo"})
 COS_DESDE = (2026, 11)
+# OUTUBRO, SÓ NO COMENTÁRIO (25/11/2026, Willian, COS: "Segredo e Cambé, nós podemos fazer isso, certo?" e "Sim, faça
+# agora"). O Levi conferiu o dashboard às 14:30 de 25/11: 16 dias de outubro de Segredo e Cambé abaixo de 100% sem
+# comentário, porque nas assistidas "o comentário do dashboard vem do BD_Thopen, e o BD não tem esses dias". O COS
+# cadastrou esses desligamentos na Ronda COS com prova (o histórico de alarmes da PV Operation e o próprio BD_Thopen), e
+# o Nexus manda o relato desde 01/10. Nas ASSISTIDAS, de outubro em diante, o comentário do dia passa a ser o relato do
+# COS quando ele existe; no dia sem relato fica o do BD_Thopen (nada que a equipe escreveu some). O número não muda: a
+# exceção de 06/11 e o fechamento de 13/11 seguem valendo. De 11/2026 em diante as de SEGUEM_O_COS já seguem o COS
+# inteiro; a regra vale ainda para Rondonópolis e AP. do Taboado, que seguem no BD
+COS_NO_COMENTARIO_DESDE = (2026, 10)
 # o período solar da Thopen, em horas decimais (Levi, 05/11/2026: "na verdade será das 07:30 as 17:30"), o mesmo da
 # plataforma (disponibilidade.JANELA_POR_CLIENTE) e do operacao_mes.HORAS_SOL
 SOL_INI_H, SOL_FIM_H = 7.5, 17.5
@@ -52,6 +61,14 @@ def segue_o_cos(usina, ano, mes):
     """A usina de SEGUEM_O_COS, de COS_DESDE em diante: sai do BD_Thopen (número e comentário) e segue o relato do COS
     e a disponibilidade da plataforma. Antes disso, e fora da lista, False (vale o que já valia)."""
     return usina in SEGUEM_O_COS and (ano, mes) >= COS_DESDE
+
+
+def cos_no_comentario(usina, ano, mes):
+    """A assistida que ainda puxa o comentário do BD_Thopen (outubro, ou Rondonópolis e AP. do Taboado depois): o relato
+    do COS vence o do BD no dia em que existe; o dia sem relato fica com o do BD (25/11/2026). Fora das ASSISTIDAS, antes
+    de COS_NO_COMENTARIO_DESDE e na que já segue o COS inteiro (`segue_o_cos`), False."""
+    return (usina in ASSISTIDAS and (ano, mes) >= COS_NO_COMENTARIO_DESDE
+            and not segue_o_cos(usina, ano, mes))
 
 
 def _na_hora(d, h):

@@ -256,3 +256,39 @@ def test_sem_a_planilha_a_coluna_grid_e_o_proprio_numero(_card):
     r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9))
     assert r["planilha_thopen"] is False
     assert all(p["disp_grid"] == p["disp"] for p in r["por_dia"])
+
+
+# ── outubro: na assistida, o relato do COS vence o comentário do BD_Thopen no dia em que existe (25/11/2026) ──────────
+def test_a_regra_do_cos_no_comentario_vale_nas_assistidas_de_outubro_em_diante():
+    dc = disp_comentarios
+    assert dc.cos_no_comentario("Segredo", 2026, 10) and dc.cos_no_comentario("Cambé", 2026, 10)
+    assert dc.cos_no_comentario("Sapopema", 2026, 10) and dc.cos_no_comentario("Lyon", 2026, 10)
+    # de novembro em diante a que segue o COS inteiro já não passa pelo BD; Rondonópolis e AP. do Taboado ainda passam
+    assert not dc.cos_no_comentario("Cambé", 2026, 11) and dc.cos_no_comentario("Rondonópolis", 2026, 11)
+    assert not dc.cos_no_comentario("Segredo", 2026, 9)          # antes de outubro, como era
+    assert not dc.cos_no_comentario("Altair", 2026, 10)          # fora das assistidas: nunca passou pelo BD
+
+
+def test_com_o_bd_e_o_cos_no_bd_o_relato_vence_no_dia_e_o_bd_fica_no_dia_sem_relato(_card):
+    bd = ({D1: 50.0, D2: 60.0}, {D1: ["linha do BD em 01/10"], D2: ["linha do BD em 02/10"]})
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9), bd=bd, disp={D1: 80.0, D2: 90.0},
+                              cos_no_bd=True)
+    dia = {p["dia"]: p for p in r["por_dia"]}
+    assert dia["01/10"]["os"][0].startswith("Usina desligada de 01/10") and len(dia["01/10"]["os"]) == 2
+    assert dia["02/10"]["os"] == ["linha do BD em 02/10"]
+    # o número não muda: segue o da exceção / do fechamento
+    assert (dia["01/10"]["disp"], dia["02/10"]["disp"]) == (80.0, 90.0) and r["fonte_disp"] == "bd_comentarios"
+    # sem a marca, como era: o BD no dia todo
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 9), bd=bd, disp={D1: 80.0, D2: 90.0})
+    assert {p["dia"]: p for p in r["por_dia"]}["01/10"]["os"] == ["linha do BD em 01/10"]
+
+
+@pytest.mark.parametrize("usina,mes,esperado", [("Segredo", 10, True), ("Cambé", 10, True), ("Aruanã", 10, True),
+                                                ("Altair", 10, False)])
+def test_a_rota_marca_o_cos_no_bd_na_assistida_de_outubro(dash, monkeypatch, usina, mes, esperado):
+    d, _ = dash
+    pegou = {}
+    monkeypatch.setattr(d.operacao_mes, "resposta",
+                        lambda *a, **k: pegou.update(k) or {"disponivel": False})
+    d.app.test_client().get(f"/api/t/operacao?usina={usina}&ano=2026&mes={mes}")
+    assert pegou.get("cos_no_bd") is esperado
