@@ -176,6 +176,16 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   ela o card cairia no Histórico Carteira; entram em `SEGUEM_O_COS` quando tiverem. Entra só o que a tela de sempre
   mostra (número e comentário), sem chave em `LIBERADO_AO_CLIENTE`. Prova: `tests/test_thopen_comentarios_cos.py`
   (bloco "de 11/2026 em diante").
+- **Outubro na assistida: o relato do COS vence o comentário do BD_Thopen no dia (25/11/2026**, Willian, COS: "Sim,
+  faça agora"). O Levi conferiu o dashboard às 14:30 de 25/11: 16 dias de outubro de Segredo e Cambé abaixo de 100% e
+  sem comentário, porque na assistida o comentário vinha só do BD_Thopen, e o BD não tinha esses dias. O COS cadastrou
+  esses desligamentos na Ronda COS com prova (histórico de alarmes da PV Operation e o próprio BD_Thopen), e o Nexus
+  manda o relato de todo dia desde 01/10. Regra (`disp_comentarios.cos_no_comentario`, `COS_NO_COMENTARIO_DESDE`; a
+  rota passa `cos_no_bd` a `operacao_mes.resposta`): nas ASSISTIDAS que ainda passam pelo BD (outubro; Rondonópolis e
+  AP. do Taboado também depois), o comentário do dia (`por_dia[].os`, o da tabela Comentários) é o relato do COS
+  quando ele existe e, no dia sem relato, o do BD — nada que a equipe escreveu some. O número não muda (exceção e
+  fechamento), nem as colunas "Comentário Thopen" e "Comentário Grid" da janela da disponibilidade. Prova:
+  `tests/test_thopen_comentarios_cos.py` (bloco "outubro").
 - **Outubro/2026 por exceção (06/11/2026**, Levi, com a planilha "disponibilidades outubro.xlsx": "pegue a
   disponibilidade dessas UFVs e coloque como disponibilidade de outubro segundo a lista, será uma exceção para
   outubro!"): Rondonópolis, Aruanã, Lyon (as Sol Maior GD I a V), AP. do Taboado, Areia Branca (Pacaembu 1.1 e 1.2),

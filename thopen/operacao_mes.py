@@ -858,12 +858,14 @@ def _mes_info(dados, ano, mes, hoje):
 
 
 def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, disp=None, grid=None, com_bd=None,
-             grid_bd=False):
+             grid_bd=False, cos_no_bd=False):
     """A resposta da rota /api/t/operacao — sempre com as chaves de CHAVES, nem uma a mais. `bd` = ({dia: disp %},
     {dia: [linhas]}) dos comentários do BD_Thopen (disp_comentarios.por_dia), no lugar das OS (30/10/2026). `pot_kwp`: a
     potência da usina no registro do 5080, para a PARTE de uma usina do Gerencial (04/11/2026). `disp` = {dia: disp %}
     por exceção (disp_excecao, 06/11/2026): troca só o número do dia; o comentário segue o das OS ou o do BD. Sem o
-    `bd`, o comentário do dia é o relato do COS (cos_por_dia, 09/11/2026) e, no dia sem relato, a frase das OS."""
+    `bd`, o comentário do dia é o relato do COS (cos_por_dia, 09/11/2026) e, no dia sem relato, a frase das OS.
+    `cos_no_bd` (a assistida em outubro, `disp_comentarios.cos_no_comentario`, 25/11/2026): com o `bd`, o relato do COS
+    vence o comentário do BD_Thopen no dia em que existe; o dia sem relato fica com o do BD, e o número não muda."""
     r = dict.fromkeys(CHAVES)
     r.update(usina=nome, ano=ano, mes=mes, disponivel=False, por_dia=[], avisos=[], trip_pendente=False,
              regua={k: {str(n): f for n, f in v.items()} for k, v in REGUA.items()})
@@ -907,6 +909,12 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
         if cos:
             cos_osd = {**(cos_osd or {}), **cos}
     osd = cos_osd if bd is None else bd[1]
+    if bd is not None and cos_no_bd:
+        # 25/11/2026: na assistida de outubro o relato do COS vence o comentário do BD_Thopen no mesmo dia (o COS
+        # cadastrou os desligamentos que o BD não trazia); o dia sem relato segue com o do BD
+        cos_do_dia = cos_por_dia(dados, nome, ano, mes)
+        if cos_do_dia:
+            osd = {**bd[1], **cos_do_dia}
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], osd)
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
@@ -943,7 +951,7 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
                 p["fora_sol"] = list(fs[p["dia"]])
     if bd is not None:
         # o comentário da equipe vai também no dia que ficou em 100% (a falha de comunicação, que não conta)
-        com = {d.strftime("%d/%m"): v for d, v in bd[1].items()}
+        com = {d.strftime("%d/%m"): v for d, v in osd.items()}
         for p in r["por_dia"]:
             if com.get(p["dia"]):
                 p["os"] = list(com[p["dia"]])

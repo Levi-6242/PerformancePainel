@@ -2143,6 +2143,7 @@ def api_operacao():
     r = operacao_mes.resposta(dados, usina, ano, mes, hoje, trips, bd=bd, disp=disp,
                               grid=_disp_grid(usina, ano, mes) if planilha else None,
                               com_bd=_com_bd_mes(usina, ano, mes) if planilha else None, grid_bd=pelo_bd,
+                              cos_no_bd=bd is not None and disp_comentarios.cos_no_comentario(usina, ano, mes),
                               **_da_parte(usina))
     r["trip_pendente"] = bool(buscando and r["disponivel"])
     r["apuracao"] = disp_fechamento.situacao(ano, mes)       # "em apuração até 10/12" ou "fechado em 13/11"
