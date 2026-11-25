@@ -475,6 +475,17 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
   real: a IV com 63,2%, 88,2% e 81,5% nos três dias (a geração deu 62%, 94% e 85% da possível). A UG 04 tem 1.016,6
   kWp na aba Equipamentos e a Ouro Branco IV, 0,6 MWp no registro do 5080 (a diferença pesa na conta do site). Prova:
   `tests/test_thopen_partes.py`.
+  - **O relato do COS dividido por parte (25/11/2026**, Willian, COS; o Levi conferiu às 14:30 que o comentário do ORB100
+    caía todo na IV, a única ligada no de-para, e a I, a II, a III e a V ficavam sem ele). Cada parte lê o relato da
+    usina inteira pelo id de qualquer irmã (`_partes_irmas`) e fica só com a linha do equipamento dela e a que não tem
+    número (a usina, a estação solarimétrica, o módulo). O número da parte é o 1º do equipamento (INVR3.2 → III; CABN4,
+    SKID4, QGBT4, PECN4, DTRF4 → IV), pela tag da ocorrência: `fato_comentario_dia.registros` (os registros de cada linha,
+    na ordem, ";") → `fato_normalizacao.registro` → `equipamentos_codigos` (`partes_da_tag`). A tag vence o texto: o
+    robô escreve "Usina desligada" quando a tag é o SKID 4 (13/10). Sem a ocorrência (a aberta) ou com o número de
+    registros diferente do de linhas, pelo equipamento citado no começo da linha (`partes_do_texto`). A parada fora do
+    período solar (`fora_do_sol_por_dia`) segue a mesma regra. Conferido no histórico do ORB100 de 08 a 11/2026: a tag e
+    o texto dão a mesma parte em todas as linhas, exceto as "Usina desligada" com tag de uma parte. Prova:
+    `tests/test_thopen_comentarios_cos.py` (a parte da usina).
 - **De 10/2026 em diante, comentário e disponibilidade são SÓ das OS do Fracttal** (Levi, 14/10/2026, noite: "A partir
   de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade! Antes deixe como estava!"). **Por
   quê** (a causa dos erros de 13 e 14/10): a tabela juntava duas contas que não se conversam — o comentário da equipe no
