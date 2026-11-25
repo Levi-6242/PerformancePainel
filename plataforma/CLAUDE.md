@@ -1875,6 +1875,10 @@ de utilizar".
   scadaGridco não respondeu (o 502 de 25/11/2026 à tarde), ou não há leitura boa de nenhum inversor nos últimos 30 min.
   `ATHON_SCADA=0` no ambiente desliga tudo (volta a SunOp inteira). A metadata (os pathnames) continua vindo da SunOp,
   uma vez por dia; sem ela a usina sai sem dados, como antes.
+- **A SunOp parada** (domingo, teto do dia, borda): com parte da tabela pelo scadaGridco, ela tem leitura e o
+  `_sunop_guarda_vazio` (que segurava a tabela INTEIRA quando nenhuma linha lia) não dispara. `_athon_retem_linhas` faz o
+  mesmo usina a usina: a da SunOp sem leitura fica com a última linha boa dela (`retido`) se a SunOp está pausada ou se a
+  linha tem menos de `SUNOP_RETENCAO_MAX_S`; senão, "sem dados", como antes. As do scadaGridco seguem ao vivo.
 - **Velocidade e cota:** um pedido ao supervisório por usina (`/api/mqtt/<usina>`, 0,1 a 0,4 s medido em 25/11/2026)
   no lugar dos lotes do last_values; a usina do scadaGridco não gasta cota da SunOp. A curva de hoje vem aos pedaços
   (`_sg_curvas`, um pedido por inversor só na 1ª vez do dia, depois só o que chegou).

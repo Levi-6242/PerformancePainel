@@ -9155,9 +9155,34 @@ def fetch_all_sunop(inst: str = "gridco") -> list:
 
 
 # ── SunOp: visão geral ────────────────────────────────────────────────────────
+def _athon_retem_linhas(rows: list, cache: dict, inst: str = "gridco") -> list:
+    """Com parte da Athon pelo scadaGridco (25/11/2026), a tabela tem leitura mesmo com a SunOp parada, e o
+    `_sunop_guarda_vazio` (que segura a tabela INTEIRA quando NENHUMA linha leu) não vale mais: a usina da SunOp sem
+    leitura seguraria "sem dados" ao lado das do supervisório. A mesma regra, usina a usina: a sem leitura fica com a
+    última linha boa dela se a SunOp está pausada (domingo, teto do dia: não é queda) ou se essa linha tem menos de
+    SUNOP_RETENCAO_MAX_S; passou disso, é "sem dados", como antes."""
+    if inst != "gridco" or not any(r.get("fonte_strings") == "scadaGridco" for r in rows):
+        return rows
+    ant = {r.get("plant_id"): r for r in ((cache.get("payload") or {}).get("rows") or []) if not r.get("sem_dados")}
+    pausa = _sunop_pausa()
+    out = []
+    for r in rows:
+        a = ant.get(r.get("plant_id"))
+        if r.get("sem_dados") and a:
+            try:
+                idade = (datetime.now() - datetime.fromisoformat(str(a.get("ultima_leitura") or ""))).total_seconds()
+            except ValueError:
+                idade = None
+            if pausa or (idade is not None and idade < SUNOP_RETENCAO_MAX_S):
+                out.append(dict(a, retido=True))
+                continue
+        out.append(r)
+    return out
+
+
 def _build_sunop_payload(inst: str = "gridco"):
-    rows   = fetch_all_sunop(inst)
     _cache = _si(inst)["cache"]
+    rows   = _athon_retem_linhas(fetch_all_sunop(inst), _cache, inst)
     _ret = _sunop_guarda_vazio(_cache, rows, inst, "visão geral")
     if _ret:
         return _ret

@@ -126,3 +126,25 @@ def test_a_lista_das_athon_no_scadagridco_e_o_de_para_pelo_valor():
         assert len(set(c["inversores"].values())) == len(c["inversores"])
     assert us["TIM200"]["inversores"]["5"] == "Inversor 2.4" and us["TIM200"]["inversores"]["8"] == "Inversor 2.1"
     assert us["CPP100"]["inversores"]["14"] == "Inversor 7.2" and us["MAB200"]["inversores"]["11"] == "Inversor 2.1"
+
+
+def test_com_a_sunop_parada_a_usina_dela_segura_a_ultima_boa_ao_lado_das_do_scadagridco(monkeypatch):
+    """A tabela com parte pelo scadaGridco tem leitura mesmo com a SunOp pausada: a usina da SunOp sem leitura fica com
+    a última linha boa (pausa, ou linha com menos de 30 min), e não "sem dados" ao lado das do supervisório."""
+    agora = app.datetime.now()
+    velha = (agora - app.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
+    recente = (agora - app.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S")
+    cache = {"payload": {"rows": [{"plant_id": "A", "sem_dados": False, "ultima_leitura": velha, "strings_ativas": 9},
+                                  {"plant_id": "B", "sem_dados": False, "ultima_leitura": recente, "strings_ativas": 7}]}}
+    novas = [{"plant_id": "S", "sem_dados": False, "fonte_strings": "scadaGridco"},
+             {"plant_id": "A", "sem_dados": True, "fonte_strings": "SunOp"},
+             {"plant_id": "B", "sem_dados": True, "fonte_strings": "SunOp"}]
+    monkeypatch.setattr(app, "_sunop_pausa", lambda *a, **k: None)
+    out = {r["plant_id"]: r for r in app._athon_retem_linhas(novas, cache)}
+    assert out["A"]["sem_dados"] is True                                  # 3 h sem ler e sem pausa: é sem dados
+    assert out["B"]["strings_ativas"] == 7 and out["B"]["retido"] is True
+    monkeypatch.setattr(app, "_sunop_pausa", lambda *a, **k: "teto")
+    out = {r["plant_id"]: r for r in app._athon_retem_linhas(novas, cache)}
+    assert out["A"]["strings_ativas"] == 9 and out["A"]["retido"] is True  # pausada: segura sem prazo
+    # sem nenhuma pelo scadaGridco, nada muda (a tabela inteira segue com o _sunop_guarda_vazio de sempre)
+    assert app._athon_retem_linhas([dict(r, fonte_strings="SunOp") for r in novas], cache)[1]["sem_dados"] is True
