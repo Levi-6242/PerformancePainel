@@ -3281,6 +3281,13 @@ Acessos; a chave daqui é uma só). Uma rota por fonte, o MESMO contrato, nada g
   1ª leitura com potência (é o que o código do coletor faz desde 12/10, a Cedro zera à noite) e usa a configuração
   `USINAS` dele (essas usinas não têm "Usina Supervisório"); solaredge corta o dia no fuso da usina (Cuiabá) e espelha a
   irradiância da 1 na 2 (Colíder, Xavantina).
+- **scada: ETM e multimedidor iguais ao coletor desde 25/11/2026** (Levi: "só tá puxando ETM de Cedro 1 e 2";
+  "atualize as coletas"): `ETM` e `MEDIDOR` são cópia do `coletar_greenyellow.py` (o `test_igual_ao_coletor_da_noite`
+  compara tabelas e funções). Cedro pelo maior acumulado; Irecê 2 pelo contador que não zera à meia-noite
+  (`irradiacao_pelo_contador`); PE II só GHI, em kWh/m², a mediana do fim do dia (`irradiacao_fim_do_dia_kwh`, a coluna
+  GHI da PEII nasceu em 25/11); Multimedidor da Rio do Peixe pelo relé 3, potência exportada integrada
+  (`energia_exportada_do_dia`), junto com a geração. O "só vazio" do coletor não se aplica aqui (a Coletas compara com
+  o BD ao montar a planilha): sai em aviso nas abas `so_vazio`.
 - **Riscos conhecidos (17/11)**: o IPOA da SolarEdge pela régua do coletor veio 0,26-0,71 kWh/m² no 05/11 (dia de sol) e
   o coletor não gravou de 06 a 16/11: conferir com chamada real antes de confiar; a Tupi Paulista por inversor no
   `energy` só entra no 400 "grande demais" e nunca foi testada na API de verdade; a comparação valor a valor do porte do

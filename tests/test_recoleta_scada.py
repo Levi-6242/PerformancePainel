@@ -209,6 +209,32 @@ def test_etm_da_cedro_uma_chamada_para_as_duas_e_zero_o_dia_todo_e_nulo():
     assert res["geracao"] == []
 
 
+def test_etm_da_irece_2_pelo_contador_ghi_da_pe_ii_e_multimedidor_da_rio_do_peixe():
+    """25/11/2026: o que o coletor da noite passou a gravar (Irecê 2 pelo contador que não zera, PE II só GHI em
+    kWh/m², Rio do Peixe pelo relé 3) sai igual na recoleta."""
+    def w(h, v, campo, equip):
+        return _reg(h, v, campo=campo, equip=equip, tipo="weather")
+    irece = [w("00:00", 23412.0, "irradiation_poa", "estacao"), w("12:00", 28000.0, "irradiation_poa", "estacao"),
+             w("17:30", 32960.0, "irradiation_poa", "estacao")]
+    pe = [w("%02d:10" % h, 0.5 * (h - 5), "irradiation_ghi", "estacao-1") for h in range(6, 18)] +          [w("17:30", 7.39, "irradiation_ghi", "estacao-1"), w("18:00", 7.39, "irradiation_ghi", "estacao-1")]
+    rele = [_reg("%02d:%02d" % (h, m), pot=(-3000.0 if 6 <= h < 18 else 5.0), equip="3", tipo="relay")
+            for h in range(24) for m in range(0, 60, 10)]
+    api = Scada(tele={("irece_2", "estacao", "2026-11-10", "weather"): irece,
+                      ("pe_ii", "estacao-1", "2026-11-10", "weather"): pe,
+                      ("rio_do_peixe_1_2", "3", "2026-11-10", "relay"): rele})
+    res = sc.buscar(_ctx(api), ["irece_2", "pe_ii"], [D1], False, True, False)
+    esc = {(e["usina"], e["coluna"]): e["valor"] for e in res["escalares"]}
+    assert esc[("Irece 2", "IPOA (kWh/m²)")] == 9.548 and esc[("Irece 2", "GHI (kWh/m²)")] is None
+    assert esc[("PEII", "GHI (kWh/m²)")] == 7.39
+    av = " | ".join(res["avisos"])
+    assert "Irece 2: no BD a ETM desta aba só entra onde está vazio" in av and "PEII: no BD a ETM" in av
+    api2 = Scada(tele={("rio_do_peixe_1_2", "3", "2026-11-10", "relay"): rele}, mqtt={"rio_do_peixe_1_2": []})
+    res2 = sc.buscar(_ctx(api2), ["rio_do_peixe_1_2"], [D1], True, False, False)
+    med = [e for e in res2["escalares"] if e["coluna"] == "Multimedidor"]
+    assert len(med) == 1 and abs(med[0]["valor"] - 36000.0) < 1          # 3.000 kW de 06h às 18h
+    assert sc.buscar(_ctx(Scada()), ["rio_do_peixe_1_2"], [D1], False, True, False)["escalares"] == []  # só ETM: sem medidor
+
+
 # ── O que é da recoleta ────────────────────────────────────────────────────────────────────────────────────────────
 def test_mais_de_45_dias_vira_aviso_sem_chamada():
     velho, limite = HOJE - dt.timedelta(days=46), HOJE - dt.timedelta(days=45)
@@ -292,12 +318,14 @@ def _do_coletor():
         pytest.skip("coletar_greenyellow.py não está nesta máquina")
     with open(COLETOR, encoding="utf-8") as fh:
         arv = ast.parse(fh.read())
-    nomes = {"COM_OK", "HORA_MIN", "HORA_FIM_DIA", "LIMITE", "USINAS", "ETM", "TETO_WH_M2"}
-    funcs = {"_num", "energia_do_dia", "irradiacao_do_dia", "abas_so_vazio_ou_maior"}
+    nomes = {"COM_OK", "HORA_MIN", "HORA_FIM_DIA", "LIMITE", "USINAS", "ETM", "TETO_WH_M2", "MEDIDOR", "SOL_MAX_W_M2",
+             "HORA_INI_CONTADOR", "QUEDA_RUIDO_WH", "BURACO_MAX_S", "TETO_KWH_M2", "FIM_KWH_HORA"}
+    funcs = {"_num", "energia_do_dia", "irradiacao_do_dia", "abas_so_vazio_ou_maior", "irradiacao_pelo_contador",
+             "irradiacao_fim_do_dia_kwh", "energia_exportada_do_dia"}
     corpo = [n for n in arv.body
              if (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in nomes for t in n.targets))
              or (isinstance(n, ast.FunctionDef) and n.name in funcs)]
-    ns = {}
+    ns = {"dt": dt}                                   # as funções de 25/11 usam o datetime do coletor
     exec(compile(ast.Module(body=corpo, type_ignores=[]), COLETOR, "exec"), ns)
     return ns
 
@@ -320,3 +348,16 @@ def test_igual_ao_coletor_da_noite():
            _reg("17:00", 6500.0, campo="irradiation_poa")]
     for regs in (est, est[:2], [_reg("17:00", 0.0, campo="irradiation_poa")]):
         assert sc.irradiacao_do_dia(regs, "irradiation_poa") == c["irradiacao_do_dia"](regs, "irradiation_poa")
+    assert sc.MEDIDOR == c["MEDIDOR"]
+    for n in ("SOL_MAX_W_M2", "HORA_INI_CONTADOR", "QUEDA_RUIDO_WH", "BURACO_MAX_S", "TETO_KWH_M2", "FIM_KWH_HORA"):
+        assert getattr(sc, n) == c[n], n
+    cont = [_reg("00:00", 23412.0, campo="irradiation_poa"), _reg("06:00", 23420.0, campo="irradiation_poa"),
+            _reg("12:00", 28000.0, campo="irradiation_poa"), _reg("17:30", 32960.0, campo="irradiation_poa")]
+    for regs in (cont, cont[1:], [_reg("07:02", 34.0, campo="irradiation_poa"), _reg("17:00", 4000.0, campo="irradiation_poa")]):
+        assert sc.irradiacao_pelo_contador(regs, "irradiation_poa") == c["irradiacao_pelo_contador"](regs, "irradiation_poa")
+    kwh = [_reg("%02d:10" % h, 0.4 * (h - 5), campo="irradiation_ghi") for h in range(6, 18)] +           [_reg("17:30", 4.9, campo="irradiation_ghi"), _reg("18:00", 4.9, campo="irradiation_ghi")]
+    for regs in (kwh, kwh[:5]):
+        assert sc.irradiacao_fim_do_dia_kwh(regs, "irradiation_ghi") == c["irradiacao_fim_do_dia_kwh"](regs, "irradiation_ghi")
+    rel = [_reg("%02d:%02d" % (h, m), pot=(-3000.0 if 6 <= h < 18 else 5.0)) for h in range(24) for m in range(0, 60, 10)]
+    for regs in (rel, rel[:100], [r for r in rel if not r["data_hora"].endswith(" 11:00:00")]):
+        assert sc.energia_exportada_do_dia(regs) == c["energia_exportada_do_dia"](regs)

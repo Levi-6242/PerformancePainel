@@ -20,6 +20,7 @@ coluna do BD é outra (quatro grupos de cinco, 1.1-1.5 ... 4.1-4.5, a numeraçã
 A rede é a do cliente da plataforma (`scadagridco.get`): o mesmo `_LOCK` de uma chamada por vez (a regra da Automação: o
 mesmo servidor opera as usinas, lendo relés e inversores em tempo real), o `X-API-Key` e o 302 do token recusado.
 """
+import datetime as dt
 import importlib
 import time
 import types
@@ -92,15 +93,30 @@ USINAS = {
               "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
 }
 
-# Copiado de coletar_greenyellow.ETM: só a Cedro tem estação que mede o ACUMULADO do dia no supervisório (conferida
-# contra o digitado de 06 a 09/10/2026, até 1,5%). A Castelo do Piauí manda irradiância 0 o dia inteiro (o BD também tem
-# 0); as outras estações que a plataforma lê desde 11/11 são instantâneas e o coletor não as grava.
+# Copiado de coletar_greenyellow.ETM e .MEDIDOR (25/11/2026, Levi: "só tá puxando ETM de Cedro 1 e 2. E as ETMs
+# das demais?"; "Criar a coluna GHI na PEII"; "nessas UFVs da Apolo conseguimos puxar multimedidor"). O porquê de
+# cada uma (conferida contra o digitado) está no coletor; não editar só aqui. A Cedro é o maior acumulado do dia; a
+# Irecê 2, o contador que não zera à meia-noite; a PE II, só GHI em kWh/m²; a Rio do Peixe, o relé 3 (potência
+# exportada integrada). Demerval (estação travada), Castelo (irradiância 0) e as outras não têm ETM aqui.
 ETM = {
     "Cedro 1": {"scada": "cedro", "IPOA (kWh/m²)": ("estacao-poa", "irradiation_poa"),
                 "GHI (kWh/m²)": ("estacao-ghi", "irradiation_ghi")},
     "Cedro 2": {"scada": "cedro", "IPOA (kWh/m²)": ("estacao-poa", "irradiation_poa"),
                 "GHI (kWh/m²)": ("estacao-ghi", "irradiation_ghi")},
+    "Irece 2": {"scada": "irece_2", "regra": "contador", "so_vazio": True,
+                "IPOA (kWh/m²)": ("estacao", "irradiation_poa"), "GHI (kWh/m²)": ("estacao", "irradiation_ghi")},
+    "PEII": {"scada": "pe_ii", "regra": "fim_do_dia_kwh", "so_vazio": True,
+             "GHI (kWh/m²)": ("estacao-1", "irradiation_ghi")},
 }
+MEDIDOR = {
+    "Rio do Peixe I e II": {"scada": "rio_do_peixe_1_2", "equip": "3", "coluna": "Multimedidor"},
+}
+SOL_MAX_W_M2 = 1500     # passo do contador acima de 1.500 W/m² vezes o tempo entre as leituras é lixo
+HORA_INI_CONTADOR = 6   # o contador da Irecê 2 tem de estar lendo desde antes do sol, senão o dia ficou sem a manhã
+QUEDA_RUIDO_WH = 5      # o contador da Irecê 2 cai 1 Wh/m² de cada vez à noite (o sensor integra irradiância negativa)
+BURACO_MAX_S = 900      # buraco maior que 15 min entre 05h e 19h = dia do relé incompleto (perde o sol daquele trecho)
+TETO_KWH_M2 = 12.0      # o acumulado da PE II vem em kWh/m²: acima disso é lixo
+FIM_KWH_HORA = 17       # o acumulado da PE II já parou de subir: vale a mediana das leituras boas a partir daqui
 
 # Equipamento do supervisório que o coletor deixa de fora DE PROPÓSITO: não é "sem de-para", tem motivo.
 FORA_DE_PROPOSITO = {
@@ -187,6 +203,100 @@ def irradiacao_do_dia(registros, campo):
     return round(max(vals) / 1000.0, 3)
 
 
+def irradiacao_pelo_contador(registros, campo):
+    """Registros de `/api/telemetria` de UMA estação num dia -> kWh/m² do dia, para o acumulado que NÃO zera à meia-noite
+    (Irecê 2, 25/11/2026: o `irradiation_poa` de 24/11 vai de 23.412 a 32.968 Wh/m², e no 25/11 segue de onde parou).
+
+    O dia é a soma dos passos POSITIVOS do contador entre leituras boas seguidas: um buraco de comunicação não perde
+    nada (o contador seguiu contando na estação), e a queda de 1 Wh/m² da noite fica fora. Fica None (o BD segue vazio):
+    - a 1ª leitura boa é depois das 06h (05/11 começou às 11:05, 15/11 às 07:02, 20/11 às 10:02: o dia ficou sem a manhã);
+    - o contador reiniciou com a próxima leitura já de dia, depois das 05h (06/11: caiu de 9.171 para 23 num buraco de
+      01:12 a 07:15, a manhã até ali se perdeu);
+    - a última leitura boa é antes das 16h, ou o total é 0 ou passa do teto.
+    Passo maior que 1.500 W/m² vezes o tempo entre as leituras é lixo e fica fora. Puro (tests/test_coletar_greenyellow)."""
+    pts = []
+    for x in registros or []:
+        if x.get("communication_fault") != COM_OK:
+            continue
+        v = _num((x.get("pontos") or {}).get(campo))
+        try:
+            t = dt.datetime.fromisoformat(str(x.get("data_hora") or "")[:19])
+        except ValueError:
+            continue
+        if v is not None:
+            pts.append((t, v))
+    pts.sort()
+    if not pts or pts[0][0].hour >= HORA_INI_CONTADOR or pts[-1][0].hour < HORA_FIM_DIA:
+        return None
+    total = 0.0
+    for (ta, va), (tb, vb) in zip(pts, pts[1:]):
+        passo = vb - va
+        if passo < -QUEDA_RUIDO_WH and tb.hour >= HORA_MIN:
+            return None                                       # reiniciou com o sol de pé: a parte de antes se perdeu
+        horas = (tb - ta).total_seconds() / 3600
+        if 0 < passo <= SOL_MAX_W_M2 * max(horas, 1 / 60):
+            total += passo
+    if total <= 0 or total > TETO_WH_M2:
+        return None
+    return round(total / 1000.0, 3)
+
+
+def irradiacao_fim_do_dia_kwh(registros, campo):
+    """PE II (25/11/2026): o acumulado do dia em kWh/m², que zera à meia-noite, com metade das leituras em falha de
+    comunicação (`communication_fault` 28) e pico solto no meio do dia (16/11 às 11:25: 1,69 -> 5,16 -> 1,69). O dia é a
+    MEDIANA das leituras boas a partir das 17h (o sol já foi e o acumulado não sobe mais: 16/11 = 3,31, a curva dá 3,30).
+    Fica None sem leitura boa em pelo menos 8 das 12 horas de 06h a 17h (regra da temperatura da Tucano) ou sem 3
+    leituras boas depois das 17h. Puro (tests/test_coletar_greenyellow.py)."""
+    horas, fim = set(), []
+    for x in registros or []:
+        if x.get("communication_fault") != COM_OK:
+            continue
+        hora = str(x.get("data_hora") or "")[11:13]
+        v = _num((x.get("pontos") or {}).get(campo))
+        if not hora.isdigit() or v is None:
+            continue
+        if 6 <= int(hora) < 18:
+            horas.add(int(hora))
+        if int(hora) >= FIM_KWH_HORA:
+            fim.append(v)
+    if len(horas & set(range(6, 18))) < 8 or len(fim) < 3:
+        return None
+    fim.sort()
+    v = fim[len(fim) // 2]
+    return round(v, 3) if 0 < v <= TETO_KWH_M2 else None
+
+
+def energia_exportada_do_dia(registros, campo="active_power"):
+    """Registros de `/api/telemetria` de UM relé num dia -> kWh exportados no dia, ou None (Rio do Peixe, relé 3).
+
+    A potência ativa (kW, negativa = exportando) integrada no tempo, só o trecho exportado. Fica None se o dia não está
+    inteiro: 1ª leitura boa depois das 05h, última antes das 19h, ou buraco de mais de 15 min entre 05h e 19h (o 05/11
+    perdeu um trecho e deu 9% a menos que o multimedidor). Puro (tests/test_coletar_greenyellow.py)."""
+    pts = []
+    for x in registros or []:
+        if x.get("communication_fault") != COM_OK:
+            continue
+        p = _num((x.get("pontos") or {}).get(campo))
+        try:
+            t = dt.datetime.fromisoformat(str(x.get("data_hora") or "")[:19])
+        except ValueError:
+            continue
+        if p is not None:
+            pts.append((t, p))
+    pts.sort()
+    if not pts or pts[0][0].hour >= HORA_MIN or pts[-1][0].hour < 19:
+        return None
+    total = 0.0
+    for (ta, pa), (tb, pb) in zip(pts, pts[1:]):
+        s = (tb - ta).total_seconds()
+        if s > BURACO_MAX_S and (HORA_MIN <= tb.hour < 19 or HORA_MIN <= ta.hour < 19):
+            return None
+        if 0 < s <= BURACO_MAX_S:
+            m = (pa + pb) / 2 * s / 3600
+            total += -m if m < 0 else 0.0
+    return round(total, 2) if total > 0 else None
+
+
 def _telemetria(get, scada, equip, dia, tipo="inverter"):
     """O `_telemetria` do coletor: UM equipamento por pedido (a usina inteira de uma vez são 19 MB e 22 s; um inversor,
     2,5 MB e 0,5 s — Irecê 2, 06/10/2026), pelo NOME do equipamento (o `indice` voltava vazio na Cedro, 11/10/2026),
@@ -265,8 +375,11 @@ def buscar(ctx, ids, dias, geracao, etm, chuva):
                           "NADA\"): o coletor da noite não baixa nem repete o que a equipe colou; ao colar, não cubra "
                           "valor maior já gravado" % aba)
         if etm and aba not in ETM:
-            avisos.append("%s: sem ETM por esta fonte (o coletor da noite só lê a estação da Cedro, a única conferida "
-                          "contra o BD)" % aba)
+            avisos.append("%s: sem ETM por esta fonte (o coletor da noite lê só as estações da Cedro, da Irecê 2 "
+                          "e o GHI da PE II, as conferidas contra o BD)" % aba)
+        if etm and ETM.get(aba, {}).get("so_vazio"):
+            avisos.append("%s: no BD a ETM desta aba só entra onde está vazio (Levi, 25/11/2026): ao colar, "
+                          "não cubra o que a equipe digitou" % aba)
         if geracao and parou is None and cfg["scada"] not in conferidos:
             conferidos.add(cfg["scada"])
             try:
@@ -352,12 +465,14 @@ def _planta_dia(tele, aba, cfg, iso, geracao, etm):
                           % (aba, iso, sum(len(c) for c in sem.values()), len(cfg["inversores"]), partes))
     if etm and aba in ETM:
         e = ETM[aba]
+        regua = {"contador": irradiacao_pelo_contador,
+                 "fim_do_dia_kwh": irradiacao_fim_do_dia_kwh}.get(e.get("regra"), irradiacao_do_dia)
         for coluna, par in e.items():
-            if coluna == "scada":
+            if coluna in ("scada", "regra", "so_vazio"):
                 continue
             equip, campo = par
             try:
-                v = irradiacao_do_dia(tele(e["scada"], equip, iso, "weather"), campo)
+                v = regua(tele(e["scada"], equip, iso, "weather"), campo)
                 motivo = "sem a leitura do dia inteiro, ou zero o dia todo (sensor sem leitura)"
             except (_Parou, comum.Recusa):
                 raise
@@ -366,4 +481,16 @@ def _planta_dia(tele, aba, cfg, iso, geracao, etm):
             escal.append({"usina": aba, "data": iso, "coluna": coluna, "valor": v})
             if v is None:
                 avisos.append("%s %s %s: %s; fica nulo" % (aba, iso, coluna, motivo))
+    if geracao and aba in MEDIDOR:
+        m = MEDIDOR[aba]
+        try:
+            v = energia_exportada_do_dia(tele(m["scada"], m["equip"], iso, "relay"))
+            motivo = "o relé não leu o dia inteiro (buraco de mais de 15 min entre 05h e 19h)"
+        except (_Parou, comum.Recusa):
+            raise
+        except Exception as ex:                              # noqa: BLE001
+            v, motivo = None, "erro na leitura (%s)" % type(ex).__name__
+        escal.append({"usina": aba, "data": iso, "coluna": m["coluna"], "valor": v})
+        if v is None:
+            avisos.append("%s %s %s: %s; fica nulo" % (aba, iso, m["coluna"], motivo))
     return linhas, escal, avisos
