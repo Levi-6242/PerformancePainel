@@ -68,3 +68,50 @@ def test_o_card_leva_o_historico_sem_conta_pelas_os(dash, monkeypatch):
 def test_o_comentario_do_historico_so_do_mes(dash):
     assert dash._com_hist_carteira("Usina M", 2026, 10) == {D2: ["Substituição do inversor 07", "Religada às 15h"]}
     assert dash._com_hist_carteira("Usina M", 2026, 9) == {dt.date(2026, 9, 30): ["de outro mês"]}
+
+
+def test_com_a_planilha_o_comentario_segue_do_bd_e_o_numero_da_planilha(dash, monkeypatch):
+    """25/11/2026, Levi: "Caroá e Piancó. Tá lendo do BD Thopen. A parte de geração e disponibilidade também tem que ler
+    os comentários. Vai ser sempre assim". Em outubro a exceção tirava o comentário da tabela do card."""
+    chamou = {}
+
+    def resposta(dados, usina, ano, mes, hoje, trips=None, bd=None, disp=None, **k):
+        chamou.update(disp=disp, bd=bd)
+        return {"disponivel": False}
+    monkeypatch.setattr(dash, "_op_dados", lambda: {"x": 1})
+    monkeypatch.setattr(dash.operacao_mes, "disp_por_dia", lambda *a, **k: {})
+    monkeypatch.setattr(dash.operacao_mes, "resposta", resposta)
+    monkeypatch.setattr(dash, "_disp_excecao", lambda *a: {D2: 96.0})
+    monkeypatch.setattr(dash, "_disp_fechamento", lambda *a: None)
+    monkeypatch.setattr(dash, "_disp_grid", lambda *a: {})
+    monkeypatch.setattr(dash, "_daily_records", lambda u: [])
+    monkeypatch.setattr(dash.disp_excecao, "por_dia", lambda *a: {D2: 96.0})
+    monkeypatch.setattr(dash, "_trips_da_tela", lambda *a: ({}, False))
+    monkeypatch.setattr(dash, "_canais_da_contestacao", lambda: None)
+    monkeypatch.setattr(dash, "_CARTEIRA_DE", dict(dash._CARTEIRA_DE, **{"Usina M": "Matrix"}))
+    monkeypatch.setattr(dash, "_pode", lambda u: True)
+    dash.app.test_client().get("/api/t/operacao?usina=Usina M&ano=2026&mes=10")
+    assert chamou["bd"][1] == {D2: ["Substituição do inversor 07", "Religada às 15h"]}
+    assert chamou["disp"] == {D2: 96.0}                     # o número é o da planilha
+
+
+def test_com_a_planilha_e_conta_pelas_os_nada_muda(dash, monkeypatch):
+    chamou = {}
+
+    def resposta(dados, usina, ano, mes, hoje, trips=None, bd=None, disp=None, **k):
+        chamou.update(bd=bd)
+        return {"disponivel": False}
+    monkeypatch.setattr(dash, "_op_dados", lambda: {"x": 1})
+    monkeypatch.setattr(dash.operacao_mes, "disp_por_dia", lambda *a, **k: {D1: 90.0})
+    monkeypatch.setattr(dash.operacao_mes, "resposta", resposta)
+    monkeypatch.setattr(dash, "_disp_excecao", lambda *a: {D2: 96.0})
+    monkeypatch.setattr(dash, "_disp_fechamento", lambda *a: None)
+    monkeypatch.setattr(dash, "_disp_grid", lambda *a: {})
+    monkeypatch.setattr(dash, "_daily_records", lambda u: [])
+    monkeypatch.setattr(dash.disp_excecao, "por_dia", lambda *a: {D2: 96.0})
+    monkeypatch.setattr(dash, "_trips_da_tela", lambda *a: ({}, False))
+    monkeypatch.setattr(dash, "_canais_da_contestacao", lambda: None)
+    monkeypatch.setattr(dash, "_CARTEIRA_DE", dict(dash._CARTEIRA_DE, **{"Usina M": "Matrix"}))
+    monkeypatch.setattr(dash, "_pode", lambda u: True)
+    dash.app.test_client().get("/api/t/operacao?usina=Usina M&ano=2026&mes=10")
+    assert chamou["bd"] is None                             # a usina com a conta da plataforma segue o COS e as OS

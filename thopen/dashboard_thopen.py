@@ -2125,11 +2125,18 @@ def api_operacao():
     assistida = (usina in disp_comentarios.ASSISTIDAS and _so_os_fracttal(ano, mes)
                  and not disp_comentarios.segue_o_cos(usina, ano, mes))
     bd = _disp_bd(usina, ano, mes) if (pelo_bd or assistida) else None
-    # a usina sem conta pelas OS puxa tudo do Histórico Carteira: o número e o comentário (12/11/2026)
-    if (bd is None and dados is not None and _so_os_fracttal(ano, mes) and _disp_excecao(usina, ano, mes) is None
+    # a usina sem conta pelas OS puxa tudo do Histórico Carteira: o número e o comentário (12/11/2026). O COMENTÁRIO vem
+    # sempre do BD_Thopen, também no mês com a planilha da Thopen ou fechado (25/11/2026, Levi: "Caroá e Piancó. Tá lendo
+    # do BD Thopen. A parte de geração e disponibilidade também tem que ler os comentários. Vai ser sempre assim"): em
+    # outubro a exceção de 06/11 tirava esta regra, e a Caroá e a Piancó 1 de 07/10 ficavam com a tabela do card em branco,
+    # o texto do BD só no Comentário Thopen da janela. Aí o comentário é o mesmo da janela (`_com_bd_mes`) e o número segue
+    # o da exceção ou do fechamento (o `disp` vence o bd[0] na resposta)
+    if (bd is None and dados is not None and _so_os_fracttal(ano, mes)
             and not operacao_mes.disp_por_dia(dados, usina, ano, mes, **_da_parte(usina))):
         hd = _disp_hist_carteira(usina, ano, mes)
-        if hd:
+        if _disp_excecao(usina, ano, mes) is not None or _disp_fechamento(usina, ano, mes) is not None:
+            bd = (hd, _com_bd_mes(usina, ano, mes))
+        elif hd:
             bd = (hd, _com_hist_carteira(usina, ano, mes))
     trips, buscando = _trips_da_tela(dados, usina, ano, mes) if bd is None else ({}, False)
     # a exceção (06/11/2026) troca só o número do dia; o comentário do dia segue o de antes (o COS, as OS ou o BD). O

@@ -215,8 +215,12 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   plataforma, e de 10/2026 em diante o dashboard só lia a conta das OS (card e Visão Geral vazios). Agora, sem conta
   pelas OS no mês, `_disp_dias` e o card usam a coluna Disp da aba "Histórico Carteira" (fração, dias fechados;
   `_disp_hist_carteira`), e o card também o Comentário de lá, no modo do BD (`_com_hist_carteira`; Levi: "essas usinas
-  que só tem no histórico puxa tudo de lá"). Só dessa aba: nas abas diárias a coluna vem 0 quando não foi preenchida. Prova:
-  `tests/test_thopen_disp_hist_carteira.py`.
+  que só tem no histórico puxa tudo de lá"). Só dessa aba: nas abas diárias a coluna vem 0 quando não foi preenchida. **O
+  comentário segue o BD também no mês com a planilha ou fechado** (25/11/2026, Levi: "Caroá e Piancó. Tá lendo do BD
+  Thopen. A parte de geração e disponibilidade também tem que ler os comentários. Vai ser sempre assim"): em outubro a
+  exceção tirava a regra, e a tabela do card da Caroá e da Piancó 1 de 07/10 ficava em branco, com o texto do BD só no
+  Comentário Thopen da janela. Aí o comentário é o mesmo da janela (`_com_bd_mes`) e o número segue o da planilha ou do
+  fechamento. Prova: `tests/test_thopen_disp_hist_carteira.py`.
 - **O comentário do dia, de 10/2026 em diante (09/11/2026)**, três fontes, nesta ordem:
   - **As usinas ASSISTIDAS levam o comentário do BD_Thopen** (Levi: "Para as usinas assistidas tem que puxar os
     comentários conforme BD_Thopen, os comentários a parte são só para o resto"; a lista é a de 06/11, as dez da exceção,
