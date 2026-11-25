@@ -160,8 +160,22 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   Ex.: Segredo 5 cabines e 40 inversores, Nova Iguaçu 2 e 18. O mesmo evento escrito
   em vários dias conta uma vez; o mês anterior entra na leitura (o desligamento de 30/09 que segue em outubro). Vale no
   card do mês (`/api/t/operacao`, `fonte_disp` = "bd_comentarios"), no Diário, na Visão Geral e nos Registros
-  (`_disp_dias`). A Cambé tem normalizações do COS na plataforma: no dashboard vale o BD. Prova:
-  `tests/test_thopen_disp_comentarios.py`.
+  (`_disp_dias`). Prova: `tests/test_thopen_disp_comentarios.py`.
+  **De 11/2026 em diante, Areia Branca, Monte Aprazível, Nova Iguaçu e Cambé saem do BD** e seguem o COS: ver "A
+  assistida pelo COS", abaixo. Rondonópolis e AP. do Taboado continuam aqui.
+- **A assistida pelo COS, de 11/2026 em diante (25/11/2026**, Willian, COS, com o acesso ao repositório dado pelo Levi):
+  Areia Branca, Monte Aprazível, Nova Iguaçu, Lyon, Aruanã, Cambé, Sapopema e Segredo (`disp_comentarios.SEGUEM_O_COS`,
+  `segue_o_cos`) saem do BD_Thopen no número e no comentário e seguem a disponibilidade da plataforma
+  (`disponibilidade_dia`) e o relato do COS, como as outras usinas. Por quê: a operação assistida passou a ser registrada
+  na Ronda COS em 21/11, com o retroativo de 01 a 20/11 pelo grupo dela, e a Cambé, a Sapopema e a Segredo voltaram ao
+  O&M em 14/11. O caso: a Areia Branca saía a 100% e sem comentário em 04/11, desligada das 02:22 às 12:00 (trip 81),
+  porque o BD_Thopen não tinha a linha; a plataforma já dava 55%. No Nexus, no mesmo dia, as usinas da assistida que
+  faltavam entraram no Registro mestre (259 a 264) e as chaves do BD_Thopen delas foram ligadas no de-para (estavam
+  "ignoradas" desde 04/10). Outubro não muda: `USINAS` e `ASSISTIDAS` ficam como estavam, a exceção e o fechamento
+  também. **Rondonópolis e AP. do Taboado ficam no BD**: a plataforma ainda não tem a `disponibilidade_dia` delas, e sem
+  ela o card cairia no Histórico Carteira; entram em `SEGUEM_O_COS` quando tiverem. Entra só o que a tela de sempre
+  mostra (número e comentário), sem chave em `LIBERADO_AO_CLIENTE`. Prova: `tests/test_thopen_comentarios_cos.py`
+  (bloco "de 11/2026 em diante").
 - **Outubro/2026 por exceção (06/11/2026**, Levi, com a planilha "disponibilidades outubro.xlsx": "pegue a
   disponibilidade dessas UFVs e coloque como disponibilidade de outubro segundo a lista, será uma exceção para
   outubro!"): Rondonópolis, Aruanã, Lyon (as Sol Maior GD I a V), AP. do Taboado, Areia Branca (Pacaembu 1.1 e 1.2),
@@ -197,7 +211,8 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   - **As usinas ASSISTIDAS levam o comentário do BD_Thopen** (Levi: "Para as usinas assistidas tem que puxar os
     comentários conforme BD_Thopen, os comentários a parte são só para o resto"; a lista é a de 06/11, as dez da exceção,
     `disp_comentarios.ASSISTIDAS`), qualquer que seja a conta do número: Aruanã, Lyon, Sapopema e Segredo seguem o
-    número das OS (ou o da exceção) com o comentário do BD (`fonte_disp` = "bd_comentarios").
+    número das OS (ou o da exceção) com o comentário do BD (`fonte_disp` = "bd_comentarios"). De 11/2026 em diante só
+    Rondonópolis e AP. do Taboado: as outras oito seguem o relato do COS ("A assistida pelo COS", acima).
   - **As outras, o relato do COS**: o Nexus monta o comentário de cada usina × dia para o cliente
     (`nexus_cos_normalizacoes` · `fato_comentario_dia`, `relato_do_dia`, uma linha por parada, sem o texto livre do
     time); o `fonte_operacao` lê só `usina_id`, `dia` e o relato, e o `operacao_mes.cos_por_dia` liga pelo de-para. Vence

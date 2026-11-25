@@ -1496,8 +1496,10 @@ def _disp_gerencial(usina, ano, mes):
 
 
 def _pelo_bd(usina, ano, mes):
-    """A usina que a Ronda COS não cobre segue os comentários do BD_Thopen de 10/2026 em diante (Levi, 30/10/2026)."""
-    return usina in disp_comentarios.USINAS and _so_os_fracttal(ano, mes)
+    """A usina que a Ronda COS não cobre segue os comentários do BD_Thopen de 10/2026 em diante (Levi, 30/10/2026).
+    De 11/2026 em diante as de `disp_comentarios.SEGUEM_O_COS` saem do BD e seguem o COS (25/11/2026)."""
+    return (usina in disp_comentarios.USINAS and _so_os_fracttal(ano, mes)
+            and not disp_comentarios.segue_o_cos(usina, ano, mes))
 
 
 def _estrutura_bd(usina):
@@ -2118,8 +2120,10 @@ def api_operacao():
         return jsonify(r)
     dados = _op_dados()
     pelo_bd = _pelo_bd(usina, ano, mes)
-    # a usina assistida (09/11/2026) tem o comentário do BD_Thopen mesmo quando o número é o das OS
-    assistida = usina in disp_comentarios.ASSISTIDAS and _so_os_fracttal(ano, mes)
+    # a usina assistida (09/11/2026) tem o comentário do BD_Thopen mesmo quando o número é o das OS; de 11/2026 em diante
+    # as de SEGUEM_O_COS levam o relato do COS, como as outras (25/11/2026)
+    assistida = (usina in disp_comentarios.ASSISTIDAS and _so_os_fracttal(ano, mes)
+                 and not disp_comentarios.segue_o_cos(usina, ano, mes))
     bd = _disp_bd(usina, ano, mes) if (pelo_bd or assistida) else None
     # a usina sem conta pelas OS puxa tudo do Histórico Carteira: o número e o comentário (12/11/2026)
     if (bd is None and dados is not None and _so_os_fracttal(ano, mes) and _disp_excecao(usina, ano, mes) is None
