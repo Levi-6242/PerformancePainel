@@ -153,6 +153,10 @@ ao vivo o Fracttal, o livro de paradas de tracker e, nas usinas da Athon e da AP
 pode baixar curva da SunOp ou da API PV). A Análise deixou de pedir a lista; o resto se decide pelos `tempos` que a
 cascata e o diagnóstico passaram a devolver.
 
+Depois do deploy (c682c7f, 14:29, servidor frio): MRO100 31,3 s (a lista 0,0 s; a série do BD_Performance da Athon 26 s),
+Santarém 2 68,3 s (o BD_Thopen inteiro carregando, 66 s), CPP100 0,8 s e Piracicaba I 0,2 s logo depois, porque a série
+do cliente já estava na memória. O que pesa agora é o 1º acesso por cliente depois de cada reinício do servidor.
+
 ## Achados de dado no caminho (para conferir)
 
 - A Piracicaba I e a Marajoara I têm outro nome no BD_Thopen ('Piracicaba 1', 'Marajoara 1'): o diagnóstico vinha sem dia

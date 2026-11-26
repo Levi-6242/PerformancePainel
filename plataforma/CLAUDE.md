@@ -2672,6 +2672,10 @@ Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py
   dia da SunOp (cota) ou da API PV (paga). A MRO100 fria levou **95,7 s**. A Análise pede a cascata com
   `com_abertos=False` (a tela nunca usou a lista; o `/api/cascata` do Gerencial segue com ela). A cascata e o
   diagnóstico devolvem `tempos` (segundos de cada etapa): é por ele que se mede qual peça pesa, antes de mexer em outra.
+  Medido no ar (c682c7f, 26/11 14:29, servidor recém-reiniciado): a lista de strings caiu a 0,0 s; o que sobra na 1ª
+  usina de cada cliente depois de um reinício é a **série do BD carregando na memória do web** (`serie`: 26 s a Athon
+  pelo BD_Performance, `_g_get`; 66 s a Thopen pelo BD_Thopen inteiro, `fonte_api`), uma vez por cliente e por reinício
+  (a segunda usina do mesmo cliente: 0,0 s). Cada deploy no meio do dia esfria isso de novo.
 - **O nome do BD** (`_au_nome_bd`): o Gerencial escreve 'Piracicaba I' e 'Marajoara I' (o PG) e a aba do BD_Thopen é
   'Piracicaba 1' e 'Marajoara 1'; por aquele nome o dia a dia, o PR por inversor e a cascata vinham vazios ("sem série
   diária no período"). A rota da energia pega o cliente e o nome da linha do Gerencial (`_au_cliente`), como o diagnóstico;
