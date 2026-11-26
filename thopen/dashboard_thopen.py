@@ -37,6 +37,7 @@ import json
 import secrets
 import threading
 import unicodedata
+import zipfile
 import datetime as dt
 from calendar import monthrange
 
@@ -59,6 +60,7 @@ import zeladoria_cliente     # ... e a tela da semana (puro)
 import disp_comentarios      # 30/10/2026: a disponibilidade pelos comentários do BD_Thopen (as usinas fora da Ronda COS)
 import disp_excecao          # 06/11/2026: a disponibilidade por exceção (outubro de dez usinas, da planilha do Levi)
 import disp_fechamento       # 13/11/2026: o mês fechado não muda mais (o número gravado no dia 10 do mês seguinte)
+import pvop_relatorio        # 26/11/2026: o relatório diário da PV Operation, conferido com a conta da Grid (puro)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -1144,7 +1146,8 @@ _POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina
 # gravar e forçar a releitura do banco. O Atualizar das normalizações saiu daqui em 12/11/2026 (pedido do time que
 # usa o dashboard: "consegue liberar pra gente conseguir colocar pra atualizar"; Levi: liberar o botão): toda conta
 # pede as normalizações ao Nexus, que espaça dois pedidos em 2 min (PEDIDO_INTERVALO_S do Nexus)
-_SO_GRID = {"comentario_extra", "reload_bd"}
+_SO_GRID = {"comentario_extra", "reload_bd", "pvop_conferencia", "pvop_conferencia_xlsx", "pvop_subir",
+            "pvop_justificar"}
 
 
 @app.before_request
@@ -2171,6 +2174,236 @@ def _usina_ano_mes():
     return usina, ano, mes, None
 
 
+# ── Conferência PV Operation (26/11/2026) ─────────────────────────────────────────────────────────────────────────
+# Levi: o relatório diário da PV Operation (a disponibilidade que a Thopen vê) "sempre fazendo a comparação com a
+# disponibilidade das ocorrências da grid... O que não tiver tem que ter alguma justificativa"; "na nossa conta de
+# performance da Thopen, dá para exportar essas diferenças. E aí já cruza automaticamente com as ocorrências do COS e já
+# dá as diferenças para o COS poder analisar". Só a conta Grid (`_SO_GRID`); o cliente não vê a aba nem as rotas.
+PVOP_CACHE_S = 300
+PVOP_MAX_BYTES = 20 * 1024 * 1024
+_pvop = {"ts": 0.0, "disp": None, "per": None, "jus": None}
+_pvop_trava = threading.Lock()
+PVOP_SITUACAO = {"bate": "Bate", "diferente": "Diferente", "justificada": "Diferente, justificada",
+                 "sem_dado_pvop": "PV Operation sem dado", "sem_conta_grid": "Grid sem conta"}
+
+
+def _pvop_livros():
+    """(disp_dia, periodo, justificativa) dos três livros, relidos no máximo a cada 5 min (subir e justificar derrubam).
+    Só as rotas da conferência leem: a trava não segura nenhuma outra tela."""
+    import time as _t
+    with _pvop_trava:
+        if _pvop["disp"] is None or _t.time() - _pvop["ts"] > PVOP_CACHE_S:
+            tok = fonte_api._token()
+            _pvop.update(disp=livro_banco.ler(pvop_relatorio.LIVRO_DISP, pvop_relatorio.ABA_DISP, tok),
+                         per=livro_banco.ler(pvop_relatorio.LIVRO_PER, pvop_relatorio.ABA_PER, tok),
+                         jus=livro_banco.ler(pvop_relatorio.LIVRO_JUS, pvop_relatorio.ABA_JUS, tok), ts=_t.time())
+        return _pvop["disp"], _pvop["per"], _pvop["jus"]
+
+
+def _pvop_invalidar():
+    with _pvop_trava:
+        _pvop["disp"] = None
+
+
+def _cos_do_mes(usina, ano, mes, dados):
+    """({data: [linhas]} do que formou a conta da Grid no dia, {data: [linhas]} das paradas fora do período solar): as
+    frases das OS com o relato do COS por cima (o mesmo do card), ou o comentário do BD na usina que a Grid conta pelo BD."""
+    if _pelo_bd(usina, ano, mes):
+        return dict(_disp_bd(usina, ano, mes)[1] or {}), {}
+    if not dados:
+        return {}, {}
+    osd = operacao_mes.os_por_dia(dados, usina, ano, mes, None, **_da_parte(usina)) or {}
+    cos = operacao_mes.cos_por_dia(dados, usina, ano, mes)
+    return {**osd, **cos}, operacao_mes.fora_do_sol_por_dia(dados, usina, ano, mes)
+
+
+def _pvop_viu(v, periodos):
+    """As linhas do que a PV Operation viu no dia: a parte com perda (geração ou comunicação abaixo de 100%) e os trechos
+    dos inversores."""
+    if v["sem_dado"]:
+        return ["A PV Operation não teve dado da usina no dia (comunicação e geração em 0%, sem período de problema)."]
+    out = []
+    for p in v["partes"]:
+        g, c = pvop_relatorio._num(p.get("disp_geracao")), pvop_relatorio._num(p.get("disp_comunicacao"))
+        if (g is not None and g < 100) or (c is not None and c < 100):
+            out.append("%s: geração %s · comunicação %s" % (str(p.get("nome") or "").strip(), _pct_br(g), _pct_br(c)))
+    return out + pvop_relatorio.resumo_periodos(periodos)
+
+
+def _pct_br(v):
+    return "—" if v is None else ("%.1f%%" % v).replace(".", ",")
+
+
+def conferencia_pvop(ano, mes):
+    """A conferência do mês: 1 linha por usina × dia que a PV Operation mandou, com o número dela (ponderado pelo kWp das
+    partes), o da Grid (`_disp_grid`: as ocorrências do COS de 07h30 a 17h30, ou o BD), a diferença, a situação, o que cada
+    lado registrou e a justificativa."""
+    disp, per, jus = _pvop_livros()
+    pu = pvop_relatorio.por_usina(disp, ano, mes)
+    pers = {}
+    for p in per or ():
+        pers.setdefault((str(p.get("usina") or ""), str(p.get("dia") or "")[:10]), []).append(p)
+    js = {}
+    for j in jus or ():
+        js[(str(j.get("usina") or ""), str(j.get("dia") or "")[:10])] = j        # a mais nova vence
+    dados = _op_dados()
+    linhas, cont = [], {k: 0 for k in PVOP_SITUACAO}
+    for u in sorted(pu):
+        grid = _disp_grid(u, ano, mes) or {}
+        cosd, fsd = _cos_do_mes(u, ano, mes, dados)
+        for d in sorted(pu[u]):
+            v, g = pu[u][d], grid.get(d)
+            j = js.get((u, d.isoformat())) or {}
+            texto = str(j.get("texto") or "").strip()
+            if v["sem_dado"]:
+                sit = "sem_dado_pvop"
+            elif g is None:
+                sit = "sem_conta_grid"
+            elif abs(v["pvop"] - g) <= pvop_relatorio.TOLERANCIA:
+                sit = "bate"
+            else:
+                sit = "justificada" if texto else "diferente"
+            cont[sit] += 1
+            linhas.append({"usina": u, "dia": d.isoformat(), "pvop": round(v["pvop"], 2),
+                           "grid": None if g is None else round(g, 2),
+                           "diferenca": None if (g is None or v["sem_dado"]) else round(v["pvop"] - g, 2),
+                           "situacao": sit, "pvop_viu": _pvop_viu(v, pers.get((u, d.isoformat()))),
+                           "cos": list(cosd.get(d) or []) + ["Fora do período solar: " + x for x in fsd.get(d) or []],
+                           "justificativa": texto, "justificada_em": str(j.get("em") or "")[:16]})
+    recebidos = sorted({str(l.get("dia") or "")[:10] for l in disp or ()
+                        if str(l.get("dia") or "")[:7] == "%04d-%02d" % (ano, mes)})
+    sem_depara = sorted({str(l.get("nome") or "").strip() for l in disp or ()
+                         if str(l.get("dia") or "")[:7] == "%04d-%02d" % (ano, mes) and not str(l.get("usina") or "")})
+    return {"ok": True, "ano": ano, "mes": mes, "linhas": linhas, "contagem": cont, "dias_recebidos": recebidos,
+            "sem_depara": sem_depara, "fora_da_pvop": sorted(set(CARTEIRAS["Thopen"]) - set(pu)) if recebidos else [],
+            "tolerancia": pvop_relatorio.TOLERANCIA, "situacoes": PVOP_SITUACAO,
+            "carregado": dados is not None}
+
+
+def _ano_mes_pvop():
+    hoje = dt.date.today()
+    try:
+        ano, mes = int(request.args.get("ano") or hoje.year), int(request.args.get("mes") or hoje.month)
+    except ValueError:
+        return 0, 0, (jsonify({"ok": False, "erro": "ano e mes precisam ser números"}), 400)
+    if not 1 <= mes <= 12 or not 2026 <= ano <= 2100:
+        return ano, mes, (jsonify({"ok": False, "erro": "ano ou mês inválido"}), 400)
+    return ano, mes, None
+
+
+@app.route("/api/t/pvop/conferencia")
+def pvop_conferencia():
+    ano, mes, erro = _ano_mes_pvop()
+    if erro:
+        return erro
+    try:
+        return jsonify(conferencia_pvop(ano, mes))
+    except livro_banco.GravacaoErro as e:
+        return jsonify({"ok": False, "erro": "o banco não respondeu (%s)" % e}), 502
+
+
+@app.route("/api/t/pvop/conferencia.xlsx")
+def pvop_conferencia_xlsx():
+    """O Exportar da conferência (?so=diferentes: só as diferentes, justificadas ou não; sem ele, todas)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    ano, mes, erro = _ano_mes_pvop()
+    if erro:
+        return erro
+    c = conferencia_pvop(ano, mes)
+    so = request.args.get("so") == "diferentes"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Conferência"
+    ws.append(["Usina", "Dia", "PV Operation (%)", "Grid · COS (%)", "Diferença (p.p.)", "Situação",
+               "O que a PV Operation viu", "O que o COS registrou", "Justificativa"])
+    for cel in ws[1]:
+        cel.font, cel.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F2E6E")
+        cel.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for l in c["linhas"]:
+        if so and l["situacao"] not in ("diferente", "justificada"):
+            continue
+        ws.append([l["usina"], dt.date.fromisoformat(l["dia"]), l["pvop"], l["grid"], l["diferenca"],
+                   PVOP_SITUACAO[l["situacao"]], "\n".join(l["pvop_viu"]), "\n".join(l["cos"]), l["justificativa"]])
+    for linha in ws.iter_rows(min_row=2):
+        linha[1].number_format = "dd/mm/yyyy"
+        for i in (2, 3, 4):
+            linha[i].number_format = "0.00"
+        for i in range(1, 6):
+            linha[i].alignment = Alignment(horizontal="center", vertical="top")
+        for i in (0, 6, 7, 8):
+            linha[i].alignment = Alignment(vertical="top", wrap_text=True)
+    for col, larg in zip("ABCDEFGHI", (24, 12, 16, 16, 16, 22, 60, 60, 40)):
+        ws.column_dimensions[col].width = larg
+    ws.freeze_panes, ws.auto_filter.ref = "A2", ws.dimensions
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="Conferencia_PV_Operation_%d-%02d.xlsx" % (ano, mes),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/t/pvop/subir", methods=["POST"])
+def pvop_subir():
+    """Recebe o zip do e-mail (ou a planilha e o debug soltos), liga cada usina da PV Operation à do dashboard e grava o
+    dia nos dois livros (o dia que já estava é trocado: o e-mail que chega de novo não duplica)."""
+    arqs = {}
+    for f in request.files.getlist("arquivos"):
+        if f and f.filename:
+            arqs[f.filename] = f.read(PVOP_MAX_BYTES + 1)
+    if not arqs:
+        return jsonify({"ok": False, "erro": "nenhum arquivo veio"}), 400
+    if sum(len(b) for b in arqs.values()) > PVOP_MAX_BYTES:
+        return jsonify({"ok": False, "erro": "os arquivos passam de 20 MB"}), 400
+    try:
+        dia, nome, plan, dbg, avisos = pvop_relatorio.ler_arquivos(arqs)
+    except (ValueError, KeyError, zipfile.BadZipFile) as e:
+        return jsonify({"ok": False, "erro": str(e) or "o arquivo não abriu"}), 400
+    if dia > dt.date.today():
+        return jsonify({"ok": False, "erro": "o relatório é de um dia que ainda não chegou (%s)" % dia.strftime("%d/%m/%Y")}), 400
+    tok = fonte_api._token()
+    try:
+        su, sk = pvop_relatorio.depara(livro_banco.ler("bd_performance", "Equipamentos", tok))
+        disp, per, sem = pvop_relatorio.montar(dia, nome, plan, dbg, su, sk, _agora())
+        n1 = pvop_relatorio.trocar_dia(livro_banco, tok, pvop_relatorio.LIVRO_DISP, pvop_relatorio.NOME_DISP,
+                                       pvop_relatorio.ABA_DISP, pvop_relatorio.CAB_DISP, dia, disp)
+        n2 = pvop_relatorio.trocar_dia(livro_banco, tok, pvop_relatorio.LIVRO_PER, pvop_relatorio.NOME_PER,
+                                       pvop_relatorio.ABA_PER, pvop_relatorio.CAB_PER, dia, per)
+    except livro_banco.GravacaoErro as e:
+        return jsonify({"ok": False, "erro": "não gravou no banco: %s" % e}), 502
+    finally:
+        _pvop_invalidar()
+    return jsonify({"ok": True, "dia": dia.isoformat(), "linhas": len(disp), "periodos": len(per),
+                    "usinas": len({l["usina"] for l in disp if l["usina"]}), "sem_depara": sem, "avisos": avisos,
+                    "no_livro": {"disp_dia": n1, "periodo": n2}})
+
+
+@app.route("/api/t/pvop/justificar", methods=["POST"])
+def pvop_justificar():
+    """{usina, dia, texto} → a justificativa da diferença do dia (a mais nova vence; texto vazio tira). Só o texto e a
+    hora vão ao banco."""
+    b = request.get_json(silent=True) or {}
+    usina, texto = str(b.get("usina") or "").strip(), str(b.get("texto") or "").strip()
+    try:
+        dia = dt.date.fromisoformat(str(b.get("dia") or "")[:10])
+    except ValueError:
+        return jsonify({"ok": False, "erro": "dia inválido"}), 400
+    if usina not in _usinas_do_5080():
+        return jsonify({"ok": False, "erro": "usina fora do dashboard"}), 400
+    if len(texto) > 1000:
+        return jsonify({"ok": False, "erro": "a justificativa passa de 1.000 caracteres"}), 400
+    em = _agora().isoformat(timespec="seconds")
+    try:
+        livro_banco.acrescentar(pvop_relatorio.LIVRO_JUS, pvop_relatorio.NOME_JUS, pvop_relatorio.ABA_JUS,
+                                pvop_relatorio.CAB_JUS, [{"usina": usina, "dia": dia.isoformat(), "texto": texto,
+                                                          "em": em}], fonte_api._token())
+    except livro_banco.GravacaoErro as e:
+        return jsonify({"ok": False, "erro": "não gravou no banco: %s" % e}), 502
+    finally:
+        _pvop_invalidar()
+    return jsonify({"ok": True, "em": em[:16]})
+
+
 # ── Rondas do mês e dúvida do cliente (rodada 3, Levi, 09/10/2026) ───────────────────────────────────────────────
 # O ícone do card abre as rondas do mês com as fotos ("Checklist + fotos, sem nome") e um campo de dúvida que avisa a
 # Grid Co. no Teams. O 5080 é público: foto e dúvida só de OS de ronda de usina do de-para do 5080, de 10/2026 em diante
@@ -2328,7 +2561,7 @@ def index():
     # Operação no Mês manda para o card (operacao_mes.REGUA); o HTML não repete frase nenhuma
     u = _usuario() if _login_ligado() else None
     return render_template("dashboard_thopen.html", regua=operacao_mes.REGUA, raiz=request.script_root,
-                           libera={k: _liberado(k) for k in LIBERADO_AO_CLIENTE},
+                           libera={k: _liberado(k) for k in LIBERADO_AO_CLIENTE}, e_grid=_e_grid(),
                            usuario={"nome": u["nome"], "email": u["email"], "usuario": u.get("usuario") or u["email"],
                                     "papel": u["papel"]} if u else None)
 

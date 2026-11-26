@@ -17,9 +17,10 @@ def _faixa(ini, fim):
 def test_paginas_numa_faixa_com_a_metodologia_a_direita():
     nav = _faixa('<nav class="nav"', "</nav>")
     ordem = [m for m in re.findall(r'data-page="(\w+)"', nav)]
-    assert ordem == ["capa", "geral", "mensal", "diario", "registros", "zeladoria", "metodologia"]
+    # a Conferência PV Operation (26/11/2026) só para a conta Grid, antes da Metodologia
+    assert ordem == ["capa", "geral", "mensal", "diario", "registros", "zeladoria", "conferencia", "metodologia"]
     assert nav.index('class="nav-sep"') < nav.index('data-page="metodologia"')
-    assert 'role="tablist"' in nav and nav.count('role="tab"') == 7
+    assert 'role="tablist"' in nav and nav.count('role="tab"') == 8
 
 
 def test_filtros_e_acoes_na_segunda_faixa():

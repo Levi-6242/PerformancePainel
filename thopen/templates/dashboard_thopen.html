@@ -512,6 +512,48 @@
     .rg-dias th{ white-space:normal; vertical-align:bottom; }
   }
   @media print{ #pageRegistros{ display:none !important; } }
+  /* Conferência PV Operation (26/11/2026): só a conta Grid; fora da impressão */
+  .pv-sobe{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; background:#fff; border:1px solid var(--line);
+    border-radius:12px; padding:14px 18px; margin-bottom:12px; }
+  .pv-sobe .t{ font-weight:700; color:var(--navy); }
+  .pv-sobe small{ display:block; font-weight:400; color:var(--muted); font-size:12px; margin-top:2px; }
+  .pv-sobe input[type=file]{ font-size:12.5px; max-width:100%; }
+  .pv-msg{ font-size:12.5px; color:var(--muted); }
+  .pv-msg.ok{ color:var(--pos); font-weight:600; } .pv-msg.erro{ color:var(--neg); font-weight:600; }
+  .pv-kpis{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px; }
+  .pv-k{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 16px; min-width:120px; }
+  .pv-k b{ display:block; font-size:20px; color:var(--txt); font-variant-numeric:tabular-nums; }
+  .pv-k span{ font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+  .pv-k.neg b{ color:var(--neg); } .pv-k.pos b{ color:var(--pos); }
+  .pv-acoes{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; }
+  .pv-filtro{ display:inline-flex; gap:2px; background:#f1f2f5; border-radius:8px; padding:3px; }
+  .pv-filtro button{ border:0; background:none; color:var(--muted); padding:6px 12px; border-radius:6px; cursor:pointer;
+    font:inherit; font-size:12.5px; font-weight:600; }
+  .pv-filtro button.on{ background:#fff; color:var(--navy); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .pv-filtro button:focus-visible{ outline:2px solid var(--navy); outline-offset:1px; }
+  .pv-aviso{ font-size:12.5px; color:var(--muted); margin:0 0 10px; line-height:1.5; }
+  .pv-tab-wrap{ overflow-x:auto; background:#fff; border:1px solid var(--line); border-radius:12px; }
+  .pv-tab{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .pv-tab th{ background:var(--navy); color:#fff; font-size:11px; padding:8px 8px; text-align:center; white-space:normal; }
+  .pv-tab td{ border-bottom:1px solid var(--line); padding:8px; vertical-align:top; text-align:left; }
+  .pv-tab td.c{ text-align:center; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .pv-tab td.n{ font-weight:700; white-space:nowrap; }
+  .pv-tab td.txt{ min-width:220px; width:30%; line-height:1.45; color:#33363d; white-space:normal; }
+  .pv-tab td:last-child{ width:20%; white-space:normal; }
+  .pv-tab td.d.neg{ color:var(--neg); font-weight:700; } .pv-tab td.d.pos{ color:var(--navy); font-weight:700; }
+  .pv-sit{ display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+  .pv-sit.bate{ background:#e6f5ec; color:var(--pos); } .pv-sit.diferente{ background:#fbe9e7; color:var(--neg); }
+  .pv-sit.justificada{ background:#eef0fb; color:var(--navy); }
+  .pv-sit.sem_dado_pvop, .pv-sit.sem_conta_grid{ background:#f1f2f5; color:var(--muted); }
+  .pv-jus{ min-width:220px; }
+  .pv-jus textarea{ width:100%; min-height:54px; font:inherit; font-size:12.5px; border:1px solid #d3d7de; border-radius:8px;
+    padding:6px 8px; resize:vertical; box-sizing:border-box; }
+  .pv-jus .lin{ display:flex; align-items:center; gap:8px; margin-top:4px; font-size:11.5px; color:var(--muted); }
+  .pv-jus button{ border:1px solid var(--navy); background:var(--navy); color:#fff; border-radius:6px; padding:3px 10px;
+    font:inherit; font-size:12px; cursor:pointer; }
+  .pv-vazio{ color:var(--muted); text-align:center; padding:28px 12px; }
+  @media (max-width:700px){ .pv-sobe{ padding:12px; } .pv-k{ min-width:0; flex:1 1 40%; } }
+  @media print{ #pageConferencia{ display:none !important; } }
   /* Zeladoria (Levi, 26/10/2026: "agora faz a mesma tela no dashboard do cliente"): a do Nexus > Campo · App >
      Zeladoria, com a conta pronta que o Nexus publica. Os níveis nas cores da régua (z1 a z5, as do card do Diário).
      Tela de consulta: fora do Ctrl+P, do Baixar PDF e do PDF Carteira */
@@ -609,6 +651,7 @@
     <button class="tab" type="button" role="tab" data-page="diario">Diário</button>
     <button class="tab" type="button" role="tab" data-page="registros">Registros</button>
     {% if libera.zeladoria %}<button class="tab" type="button" role="tab" data-page="zeladoria">Zeladoria</button>{% endif %}
+    {% if e_grid %}<button class="tab" type="button" role="tab" data-page="conferencia">Conferência PV Operation</button>{% endif %}
     <span class="nav-sep"></span>
     <button class="tab tab-met" type="button" role="tab" data-page="metodologia"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>Metodologia</button>
   </nav>
@@ -760,6 +803,36 @@
     <div id="rgLista"></div>
   </div>
 
+  <!-- ───────────── CONFERÊNCIA PV OPERATION (Levi, 26/11/2026) — só a conta Grid; fora da impressão ───────────── -->
+  {% if e_grid %}<div class="wrap hidden" id="pageConferencia">
+    <div class="sec">CONFERÊNCIA <u>PV OPERATION</u></div>
+    <p class="pv-aviso">A disponibilidade de cada dia no relatório diário da PV Operation (o monitoramento da Thopen) ao
+      lado da conta da Grid (as paradas registradas pelo COS, de 07h30 a 17h30, pela potência). Bate quando a diferença
+      fica em até 0,5 ponto. A diferença sem justificativa é a fila do COS. A janela da PV Operation no relatório é de
+      08h30 a 17h30; a parada só entre 07h30 e 08h30 tira da Grid e não da PV Operation. Só a conta Grid vê esta aba.</p>
+    <div class="pv-sobe">
+      <div class="t">Relatório diário da PV Operation<small>O zip do e-mail ou a planilha relatorio_usinas e o debug. O dia
+        que já estava é trocado.</small></div>
+      <input type="file" id="pvArq" multiple accept=".zip,.xlsx,.txt" aria-label="Arquivos do relatório da PV Operation">
+      <button class="btn pri" id="pvSubir" type="button">Subir</button>
+      <span class="pv-msg" id="pvMsg" role="status" aria-live="polite"></span>
+    </div>
+    <div class="pv-kpis" id="pvKpis"></div>
+    <div class="pv-acoes">
+      <span class="pv-filtro" role="group" aria-label="Mostrar">
+        <button type="button" data-f="pendentes" class="on">Sem justificativa</button>
+        <button type="button" data-f="diferentes">Diferentes</button>
+        <button type="button" data-f="todas">Todas</button>
+      </span>
+      <a class="rg-btn exp" id="pvExp" href="#" download>Exportar diferenças</a>
+      <a class="rg-btn" id="pvExpTodas" href="#" download>Exportar todas</a>
+    </div>
+    <p class="pv-aviso hidden" id="pvAviso"></p>
+    <div class="pv-tab-wrap"><table class="pv-tab"><thead><tr><th>Usina</th><th>Dia</th><th>PV Operation</th>
+      <th>Grid (COS)</th><th>Diferença</th><th>Situação</th><th>O que a PV Operation viu</th><th>O que o COS registrou</th>
+      <th>Justificativa</th></tr></thead><tbody id="pvLista"></tbody></table></div>
+  </div>{% endif %}
+
   <!-- ───────────── ZELADORIA (Levi, 26/10/2026) — a do Nexus, com a conta que o Nexus publica; fora da impressão ───────────── -->
   <div class="wrap hidden" id="pageZeladoria">
     <div class="sec">VEGETAÇÃO E SUJIDADE <u>DOS MÓDULOS</u></div>
@@ -875,6 +948,7 @@ async function tentarDeNovo(){
   try{ await loadUsina();
     if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa();
     else if(PAGE==='registros') renderRegistros(); else if(PAGE==='zeladoria') renderZeladoria();
+    else if(PAGE==='conferencia') renderConferencia();
   }catch(e){ _avisoFalha(true); }
 }
 const CFG={displayModeBar:false,responsive:true};
@@ -905,13 +979,15 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   $('pageMetodologia').classList.toggle('hidden',p!=='metodologia');
   $('pageRegistros').classList.toggle('hidden',p!=='registros');
   $('pageZeladoria').classList.toggle('hidden',p!=='zeladoria');
+  if($('pageConferencia')) $('pageConferencia').classList.toggle('hidden',p!=='conferencia');
   // Geral/Capa são por CARTEIRA (o filtro de MÊS é global — aparece em todas as abas); a Metodologia não é de usina
-  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa'||p==='metodologia'||p==='registros'||p==='zeladoria');
+  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa'||p==='metodologia'||p==='registros'||p==='zeladoria'||p==='conferencia');
   $('fldMes').classList.toggle('hidden', p==='zeladoria');          // a Zeladoria é por semana (o filtro dela)
   if(p==='geral') renderGeral();
   else if(p==='capa') renderCapa();
   else if(p==='registros') renderRegistros();
   else if(p==='zeladoria') renderZeladoria();
+  else if(p==='conferencia') renderConferencia();
   // Redimensiona os gráficos da página recém-exibida. `void offsetWidth` força o reflow do
   // display:block ANTES do resize — senão o Plotly mede a largura-fallback (~700px) e, em telas
   // < ~1840px, o gráfico estoura o card. Rede de segurança: o .card tem overflow:hidden.
@@ -938,6 +1014,7 @@ async function init(){
   $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');
     renderMensal(+m); renderAnual(+m); renderDiario(+a,+m);   // usina (OV já em memória, barato)
     if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa(); else if(PAGE==='registros') renderRegistros();
+    else if(PAGE==='conferencia') renderConferencia();
   };
   // filtro de MÊS GLOBAL (populado 1x): Jan → mês corrente do ano vigente. NÃO reseta ao trocar de
   // usina — vale igual p/ todas as abas e p/ o relatório da carteira (some o bug de mês 6 vs 7 no PDF)
@@ -1111,6 +1188,86 @@ async function renderRegistros(){
 }
 $('rgAbrir').onclick=()=>document.querySelectorAll('#rgLista .rg-us').forEach(el=>_rgAlterna(el,true));
 $('rgFechar').onclick=()=>document.querySelectorAll('#rgLista .rg-us').forEach(el=>_rgAlterna(el,false));
+
+// ---------- Conferência PV Operation (Levi, 26/11/2026) ----------
+// O relatório diário da PV Operation ao lado da conta da Grid (as ocorrências do COS): a diferença sem justificativa é a
+// fila do COS. A conta é da rota /api/t/pvop/conferencia; aqui só se desenha. Só a conta Grid tem a aba.
+let _pv={d:null, f:'pendentes', seq:0};
+const _pvP=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+const _pvD=v=>v==null?'—':(v>0?'+':'')+v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+const _pvL=a=>(a&&a.length)?a.map(_opEsc).join('<br>'):'—';
+function _pvLinha(l,i){
+  const dif=l.situacao==='diferente'||l.situacao==='justificada';
+  const jus=dif?`<div class="pv-jus"><textarea data-i="${i}" maxlength="1000" aria-label="Justificativa de ${_opEsc(l.usina)} em ${l.dia.slice(8,10)}/${l.dia.slice(5,7)}">${_opEsc(l.justificativa)}</textarea>`
+    +`<div class="lin"><button type="button" data-i="${i}">Salvar</button><span>${l.justificada_em?'salva em '+_opEsc(l.justificada_em.slice(8,10)+'/'+l.justificada_em.slice(5,7)+' '+l.justificada_em.slice(11,16)):''}</span></div></div>`:'—';
+  return `<tr><td class="n">${_opEsc(l.usina)}</td><td class="c">${l.dia.slice(8,10)}/${l.dia.slice(5,7)}</td>`
+    +`<td class="c">${_pvP(l.pvop)}</td><td class="c">${_pvP(l.grid)}</td>`
+    +`<td class="c d${l.diferenca==null?'':(Math.abs(l.diferenca)>_pv.d.tolerancia?(l.diferenca<0?' neg':' pos'):'')}">${_pvD(l.diferenca)}</td>`
+    +`<td class="c"><span class="pv-sit ${l.situacao}">${_opEsc(_pv.d.situacoes[l.situacao])}</span></td>`
+    +`<td class="txt">${_pvL(l.pvop_viu)}</td><td class="txt">${_pvL(l.cos)}</td><td>${jus}</td></tr>`;
+}
+function _pvDesenha(){
+  const d=_pv.d; if(!d) return;
+  const L=d.linhas.map((l,i)=>[l,i]).filter(([l])=>_pv.f==='todas'||(_pv.f==='diferentes'
+    ?(l.situacao==='diferente'||l.situacao==='justificada'):l.situacao==='diferente'));
+  $('pvLista').innerHTML=L.length?L.map(([l,i])=>_pvLinha(l,i)).join('')
+    :`<tr><td colspan="9" class="pv-vazio">${d.dias_recebidos.length?(_pv.f==='todas'?'Nenhuma linha neste mês.':'Nada pendente neste filtro.'):'Nenhum relatório da PV Operation neste mês. Suba o zip do e-mail acima.'}</td></tr>`;
+  $('pvLista').querySelectorAll('.pv-jus button').forEach(b=>b.onclick=()=>_pvJustificar(+b.dataset.i,b));
+}
+async function renderConferencia(){
+  // a aba aberta antes da lista dos meses chegar tenta de novo (senão ficava em branco até trocar de aba)
+  const mv=$('selMes').value; if(!mv){ setTimeout(()=>{ if(PAGE==='conferencia') renderConferencia(); },1000); return; }
+  const [a,m]=mv.split('-'), seq=++_pv.seq, q=`ano=${a}&mes=${m}`;
+  $('pvExp').href=`${RAIZ}/api/t/pvop/conferencia.xlsx?${q}&so=diferentes`;
+  $('pvExpTodas').href=`${RAIZ}/api/t/pvop/conferencia.xlsx?${q}`;
+  $('pvKpis').innerHTML=''; $('pvLista').innerHTML='<tr><td colspan="9" class="pv-vazio">Carregando a conferência…</td></tr>';
+  let d=null; try{ d=await get(`${RAIZ}/api/t/pvop/conferencia?${q}`); }catch(e){ d=null; }
+  if(seq!==_pv.seq) return;
+  if(!d||!d.ok){ $('pvLista').innerHTML=`<tr><td colspan="9" class="pv-vazio">${_opEsc((d&&d.erro)||'Não foi possível ler a conferência agora.')}</td></tr>`; return; }
+  _pv.d=d; const c=d.contagem;
+  const k=(v,t,cls)=>`<div class="pv-k${cls?' '+cls:''}"><b>${v}</b><span>${t}</span></div>`;
+  $('pvKpis').innerHTML=k(d.dias_recebidos.length,'dias recebidos')+k(c.bate,'batem','pos')
+    +k(c.diferente,'sem justificativa',c.diferente?'neg':'')+k(c.justificada,'justificadas')
+    +k(c.sem_dado_pvop,'PV Operation sem dado')+k(c.sem_conta_grid,'Grid sem conta');
+  const av=[];
+  if(!d.carregado) av.push('A conta da Grid ainda está carregando: use Atualizar em alguns segundos.');
+  if(d.sem_depara.length) av.push('Sem ligação com uma usina do dashboard (ficam de fora): '+d.sem_depara.map(_opEsc).join(', ')+'.');
+  if(d.fora_da_pvop.length) av.push('Da carteira Thopen sem linha na PV Operation: '+d.fora_da_pvop.map(_opEsc).join(', ')+'.');
+  $('pvAviso').innerHTML=av.join('<br>'); $('pvAviso').classList.toggle('hidden',!av.length);
+  _pvDesenha();
+}
+async function _pvJustificar(i,b){
+  const l=_pv.d.linhas[i], ta=$('pvLista').querySelector(`textarea[data-i="${i}"]`), info=b.nextElementSibling;
+  b.disabled=true; info.textContent='salvando…';
+  let r=null; try{ r=await fetch(RAIZ+'/api/t/pvop/justificar',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({usina:l.usina,dia:l.dia,texto:ta.value})}).then(x=>x.json()); }catch(e){ r=null; }
+  b.disabled=false;
+  if(!r||!r.ok){ info.textContent=(r&&r.erro)||'não salvou'; return; }
+  l.justificativa=ta.value.trim(); l.justificada_em=r.em;
+  if(l.situacao==='diferente'&&l.justificativa){ l.situacao='justificada'; _pv.d.contagem.diferente--; _pv.d.contagem.justificada++; }
+  else if(l.situacao==='justificada'&&!l.justificativa){ l.situacao='diferente'; _pv.d.contagem.justificada--; _pv.d.contagem.diferente++; }
+  info.textContent='salva em '+r.em.slice(8,10)+'/'+r.em.slice(5,7)+' '+r.em.slice(11,16);
+}
+if($('pageConferencia')){
+  document.querySelectorAll('.pv-filtro button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('.pv-filtro button').forEach(x=>x.classList.toggle('on',x===b)); _pv.f=b.dataset.f; _pvDesenha(); });
+  $('pvSubir').onclick=async()=>{
+    const fs=$('pvArq').files, msg=$('pvMsg');
+    if(!fs.length){ msg.className='pv-msg erro'; msg.textContent='Escolha o zip do e-mail (ou a planilha e o debug).'; return; }
+    const fd=new FormData(); for(const f of fs) fd.append('arquivos',f);
+    $('pvSubir').disabled=true; msg.className='pv-msg'; msg.textContent='Subindo e gravando no banco…';
+    let r=null; try{ r=await fetch(RAIZ+'/api/t/pvop/subir',{method:'POST',body:fd}).then(x=>x.json()); }catch(e){ r=null; }
+    $('pvSubir').disabled=false;
+    if(!r||!r.ok){ msg.className='pv-msg erro'; msg.textContent=(r&&r.erro)||'Não subiu.'; return; }
+    msg.className='pv-msg ok';
+    msg.textContent=`${r.dia.slice(8,10)}/${r.dia.slice(5,7)}/${r.dia.slice(0,4)} gravado: ${r.usinas} usinas, ${r.periodos} períodos de inversor`
+      +(r.sem_depara.length?` (${r.sem_depara.length} sem ligação)`:'')+(r.avisos.length?'. '+r.avisos.join('; '):'')+'.';
+    $('pvArq').value='';
+    const mes=r.dia.slice(0,4)+'-'+(+r.dia.slice(5,7));
+    if([...$('selMes').options].some(o=>o.value===mes)) $('selMes').value=mes;
+    renderConferencia();
+  };
+}
 
 // ---------- Zeladoria (Levi, 26/10/2026) ----------
 // A mesma tela do Nexus > Campo · App > Zeladoria, para o cliente: a conta é a que o Nexus publica (/api/t/zeladoria),

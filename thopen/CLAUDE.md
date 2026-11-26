@@ -390,6 +390,38 @@ a aba no `dashboard_thopen.html` (`renderZeladoria`, `_zlDesenha`, `abrirZelUsin
 - **Prova:** `tests/test_thopen_zeladoria.py` (semanas, carteira, números, fila, nível 3 que não pede ação, data_id,
   conferência, rota, portão, tela).
 
+## Conferência PV Operation (26/11/2026)
+
+Levi: o "Relatório Diário das Usinas" da PV Operation (o monitoramento da Thopen, que chega todo dia pelo responsável da
+Thopen) "sempre fazendo a comparação com a disponibilidade das ocorrências da grid, porque em tese é para estar tudo
+batendo. O que não tiver tem que ter alguma justificativa"; e "pode ter na nossa conta de performance da Thopen, dá para
+exportar essas diferenças. E aí já cruza automaticamente com as ocorrências do COS". **Só a conta Grid** (a aba sai com
+`e_grid`; as quatro rotas estão no `_SO_GRID`). Código: `pvop_relatorio.py` (puro) e as rotas `/api/t/pvop/*`.
+
+- **De onde.** Os anexos do e-mail: `relatorio_usinas_AAAA-MM-DD.xlsx` (1 linha por usina da PV Operation: geração,
+  prognóstico, irradiação, PR, Disponibilidade geração e comunicação do dia) e `debug_usinas_diario_DD-MM-AAAA.txt` (por
+  inversor, os trechos com potência ativa zerada ou sem comunicação, e a janela do dia: 08h30 às 17h30, 540 min, em
+  25/11). A `leituras_*.xlsx` vem vazia. Até a T.I. dar o Mail.Read ao app do Nexus, a conta Grid sobe o zip na aba
+  (`POST /api/t/pvop/subir`, campo `arquivos`; o zip ou os soltos). O dia que chega de novo troca as linhas daquele dia.
+- **Os livros** (o 5080 grava; donos declarados em `CONHECIDAS` no catálogo do Nexus): `thopen_pvop_disp` · `disp_dia`
+  (usina da PV Operation × dia, já com a usina do dashboard e o kWp da parte), `thopen_pvop_periodo` · `periodo` (1
+  trecho de 1 inversor) e `thopen_pvop_justificativa` · `justificativa` (usina do dashboard × dia; só o texto e a hora, a
+  mais nova vence, texto vazio tira). Lidos no máximo a cada 5 min só pelas rotas da conferência (`_pvop_livros`).
+- **O de-para** é o da planilha de outubro: a coluna "Usina supervisório" da aba Equipamentos do BD_Performance (sem o
+  "(id)") e os casos à mão (`pvop_relatorio.MANUAL`, `USINA_5080`). Em 25/11 as 115 linhas casaram com 59 usinas. A usina
+  com várias partes (Assis 1 a 5, Inhapi UC01 a 03) é a média das partes **pelo kWp** dos inversores de cada parte.
+- **A conta.** PV Operation (a Disponibilidade geração) contra `_disp_grid` (as ocorrências do COS de 07h30 a 17h30, ou o
+  BD na usina que a Grid conta pelo BD). Bate até 0,5 ponto (`TOLERANCIA`). Comunicação e geração em 0% numa usina inteira
+  = **a PV Operation sem dado** (Fernandópolis em 25/11), não parada. A janela dela começa às 08h30: a parada só entre
+  07h30 e 08h30 tira da Grid e não dela.
+- **A tela.** Subir, os números (dias recebidos, batem, sem justificativa, justificadas, sem dado, Grid sem conta), o
+  filtro (Sem justificativa, a fila do COS; Diferentes; Todas), a tabela com o que a PV Operation viu (a parte com perda e
+  os trechos dos inversores juntados) e o que o COS registrou (o relato do COS por cima das frases das OS, como no card;
+  a parada fora do período solar), a justificativa com Salvar e o Exportar (as diferenças ou todas). Fora do PDF.
+- **Falta:** a leitura do e-mail sozinha (precisa do Mail.Read da T.I.) e a fila no COS do Nexus.
+- **Prova:** `tests/test_thopen_pvop.py` (o zip, o debug de outro dia, o de-para, o kWp, o dia repetido, a conferência,
+  a justificativa, o Exportar, o cliente sem a aba e sem as rotas).
+
 ## Acoplamento com a plataforma
 
 `plataforma/app.py` importa este módulo (`sys.path` para `thopen/`) e usa **7 atributos**: `_CARTEIRA_DE`,
