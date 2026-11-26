@@ -12,6 +12,8 @@ import threading
 import unicodedata
 from collections import defaultdict
 
+import comentarios_pv       # 26/11/2026: os textos escritos à mão para os dias de outubro sem comentário (puro)
+
 DESDE = (2026, 10)          # Levi, 08/10: "somente a partir de outubro"
 FUSO_H = -3                 # Brasília (sem horário de verão desde 2019); as rondas chegam em UTC
 CLIENTE = "Thopen"          # as 4 carteiras do 5080 são do cliente Thopen nas falhas; a Ipixuna do Pará é da 2C
@@ -998,6 +1000,11 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
         cos_do_dia = cos_por_dia(dados, nome, ano, mes)
         if cos_do_dia:
             osd = {**bd[1], **cos_do_dia}
+    manual = comentarios_pv.por_dia(nome, ano, mes)
+    if manual and osd is not None:
+        # 26/11/2026: o dia de outubro abaixo de 100% que ficou sem comentário leva o texto escrito pela PV Operation
+        # (Fernando, Thopen: "coloca um comentário [...] só pra não deixar em branco"); qualquer comentário do dia vence
+        osd = {**manual, **{d: v for d, v in osd.items() if v}}
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], osd)
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"

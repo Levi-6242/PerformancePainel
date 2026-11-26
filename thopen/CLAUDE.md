@@ -186,6 +186,14 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   quando ele existe e, no dia sem relato, o do BD — nada que a equipe escreveu some. O número não muda (exceção e
   fechamento), nem as colunas "Comentário Thopen" e "Comentário Grid" da janela da disponibilidade. Prova:
   `tests/test_thopen_comentarios_cos.py` (bloco "outubro").
+- **Os dias de outubro/2026 sem comentário levam um texto escrito à mão (26/11/2026**, Fernando, Thopen: "As
+  inconsistências de 10 minutos, coloca um comentário sobre isso, só pra não deixar em branco mesmo"): `comentarios_pv`
+  guarda 36 textos. São 35 dos 42 dias de perda menor que 1 ponto, que não viram ocorrência na Ronda COS (regra da Ana:
+  só com 1 ponto ou mais), cada um com o que o histórico de alarmes da PV Operation mostra; os 7 da Segredo (o inversor
+  3.5 parado de 1 a 3 h toda tarde) foram cadastrados na Ronda COS. O 36º é Santo Antônio da Platina em 01/10 (baixa
+  isolação, informada pela Thopen). Em `operacao_mes.resposta` o texto entra só no dia que está
+  sem comentário: o relato do COS, a frase das OS e o comentário do BD vencem sempre. O nome é comparado sem acento.
+  Mês novo não entra aqui: o caminho é a ocorrência na Ronda COS. Prova: `tests/test_thopen_comentarios_pv.py`.
 - **Outubro/2026 por exceção (06/11/2026**, Levi, com a planilha "disponibilidades outubro.xlsx": "pegue a
   disponibilidade dessas UFVs e coloque como disponibilidade de outubro segundo a lista, será uma exceção para
   outubro!"): Rondonópolis, Aruanã, Lyon (as Sol Maior GD I a V), AP. do Taboado, Areia Branca (Pacaembu 1.1 e 1.2),
