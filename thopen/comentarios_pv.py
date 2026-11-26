@@ -100,8 +100,9 @@ COMENTARIOS = {
     ("Tanabi", _d(5)): ["13 inversores partiram de 40 min a 1 h depois dos outros (por volta de 06:10): 1.1, 1.2, 1.3, "
                         "1.6, 1.7 e 1.17 às 07:00–07:13; 1.11, 1.18, 2.12, 2.13, 2.15, 2.18 e 2.19 às 06:51–06:53.",
                         "Inversores 1.5, 1.7 e 2.3 parados das 17:16 às 17:35 (19 min)."],
-    ("São Bento do Una", _d(27)): ["Nenhum inversor parou. Estação solarimétrica sem comunicação das 10:06 às 10:42 "
-                                   "(36 min)."],
+    # 26/11/2026 (Ana: "insere este por favor e retira a parte de ETM"; o alarme das 17:2x conta até o fechamento das 17:30)
+    ("São Bento do Una", _d(27)): ["Os 10 inversores ficaram com potência zerada a partir de 17:20–17:27, no fim da "
+                                   "geração do dia, antes do fechamento da janela de disponibilidade (17:30)."],
 }
 
 
