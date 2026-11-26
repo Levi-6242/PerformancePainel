@@ -1005,6 +1005,14 @@ def resposta(dados, nome, ano, mes, hoje, trips=None, bd=None, pot_kwp=None, dis
         # 26/11/2026: o dia de outubro abaixo de 100% que ficou sem comentário leva o texto escrito pela PV Operation
         # (Fernando, Thopen: "coloca um comentário [...] só pra não deixar em branco"); qualquer comentário do dia vence
         osd = {**manual, **{d: v for d, v in osd.items() if v}}
+    extra = comentarios_pv.complementos(nome, ano, mes)
+    if extra and osd is not None:
+        # 26/11/2026 (conferência comentário × disponibilidade): no dia em que o comentário não explica a perda, o texto
+        # escrito vai DEPOIS dele, sem tirar nada (Nova Londrina: a perda vem da leitura da PV; o inversor gerou)
+        osd = dict(osd)
+        for d, ls in extra.items():
+            base = list(osd.get(d) or [])
+            osd[d] = base + [x for x in ls if x not in base]
     r["por_dia"] = _junta_dias(r["por_dia"], {d: round(v, 1) for d, v in dsp.items()}, rnd, r["strings"],
                                r["trackers"], osd)
     r["fonte_disp"] = "os" if bd is None else "bd_comentarios"
