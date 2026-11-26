@@ -111,7 +111,7 @@ nas usinas da API PV que têm logger. Detalhe e medições em `plataforma/CLAUDE
 ## Retornos de 16/11/2026 (23h30)
 
 A visão de strings mais limpa (o acompanhamento na lateral, uma linha de botões, a corrente em cada string), a Potência
-com o dia inteiro, até 5 dias e a correlação com os trackers, as cores (geração azul, POA laranja, GHI amarelo), o aviso
+com o dia inteiro, até 5 dias e a correlação com os trackers, as cores (geração azul, POA amarelo e GHI azul desde 26/11/2026; antes POA laranja e GHI amarelo), as linhas finas (1 de espessura nos gráficos de strings, trackers e ETM, 26/11/2026), o aviso
 de fontes que não batem no lugar da aba Conferir fontes, o de-para real, o PR do mês ao lado do nome, a aba Ocorrências
 (o que caiu junto em 10 min, com gráfico e Criar OS), os comentários na ordem data, nome e texto, e o tema claro. A
 análise das requisições está em `docs/sala-de-controle-requisicoes.md`.

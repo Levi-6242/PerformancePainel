@@ -805,7 +805,11 @@ def test_a_potencia_por_dia_com_ate_cinco_dias_as_cores_e_a_correlacao():
     assert 'cor: "var(--c-ger)", forte: true}' in pot and 'cor: "var(--c-poa)", dash: "6 4"' in pot and 'cor: "var(--c-ghi)", dash: "6 4"' in pot
     assert "CORES[" not in pot                                                                                     # sem a paleta de doze cores por inversor
     assert 'data-potcorr="1"' in pot and "if (POT.corr && temTrk) dias.forEach(d0 => lerTrk(u, d0));" in pot
-    assert "--c-ger:#5aa9f5;--c-poa:#f59a4a;--c-ghi:#e6c84f" in html and "--c-ger:#1f6fd0;--c-poa:#c8640f;--c-ghi:#a8860a" in html
+    # 26/11/2026: "POA eu quero amarelo, GHI eu quero azul" (o GHI azul-violeta, fora do azul da geração)
+    assert "--c-ger:#5aa9f5;--c-poa:#e6c84f;--c-ghi:#6f8cff" in html and "--c-ger:#1f6fd0;--c-poa:#a8860a;--c-ghi:#2f4fd8" in html
+    # e as linhas finas nos gráficos de strings, trackers e ETM ("bota ponto 1"); a Potência segue com as larguras dela
+    assert "const LARG_FINA = 1;" in html and 'stroke-width="${o.fino === false ? (s.larg || (s.forte ? 2.4 : 1.1)) : LARG_FINA}"' in html
+    assert 'Object.assign({dir, fino: false}, opt)' in pot
     etm = html[html.index("function etmGrafico(u, e) {"):html.index("// a curva dos trackers de um dia")] if "// a curva dos trackers de um dia" in html[html.index("function etmGrafico(u, e) {"):] else html[html.index("function etmGrafico(u, e) {"):]      # o gráfico da ETM mora no etmGrafico desde 18/11 (o histórico de até 4 dias)
     assert 'cor: "var(--c-poa)", forte: true}' in etm and 'cor: "var(--c-ghi)", forte: true}' in etm and 'data-solar="1"' in etm
     assert "POT_FORA[u.g] ||" in html and "pega(\"/api/pg/etm/chart?plant_id=\"" in html

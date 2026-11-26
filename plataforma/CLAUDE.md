@@ -3167,9 +3167,13 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     no histórico da SunOp, 1 pedido da cota por usina e dia, com a pausa e o teto de sempre (a SunOp pausada vira "não
     respondeu" com o motivo, não "sem dado"); vale na Sala, no ··· do Tempo real e no relatório (um teste amarra os
     três). O gestor pelo Nexus não abre a SunOp, como a API PV. A Axis continua FORA, e a tela diz isso.
-  - **Cores** (tokens `--c-ger`, `--c-poa`, `--c-ghi`, com par no tema claro): geração azul, POA laranja, GHI amarelo,
-    na Potência e na ETM; por inversor as linhas são todas azuis e o mouse no nome destaca. A ETM ganhou o dia inteiro
-    e o botão do período solar.
+  - **Cores** (tokens `--c-ger`, `--c-poa`, `--c-ghi`, com par no tema claro): geração azul, **POA amarelo, GHI
+    azul-violeta** (Levi, 26/11/2026: "POA eu quero amarelo, GHI eu quero azul"; o GHI fora do azul da geração para não
+    se confundirem na Potência), na Potência e na ETM; por inversor as linhas são todas azuis e o mouse no nome destaca.
+    A ETM ganhou o dia inteiro e o botão do período solar.
+  - **Linhas finas** (26/11/2026, "mais finas para conseguir ver [...] bota ponto 1"): nos gráficos de strings, trackers
+    e ETM toda linha tem 1 de espessura (`LARG_FINA` em `linhas()`), a destacada só pela cor; o mouse no nome engrossa a
+    dele (3). A Potência passa `fino: false` e segue com as larguras de antes.
   - **Conferir fontes deixou de ser aba** ("Não faz sentido esse botão [...] O mínimo seria ter algum símbolo de aviso
     ao lado da UFV"). A tela confere sozinha (`calcDvg`, com a lista do COS relida a cada 5 min, um pedido) e põe o
     **!** ao lado da usina quando a fonte e o logger do COS discordam na QUANTIDADE de inversores ou na COMUNICAÇÃO

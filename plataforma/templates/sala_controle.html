@@ -24,7 +24,7 @@
   /* Sala de controle da Performance (16/11/2026): o desenho aprovado pelo Levi em docs/mockups/sala-de-controle e as
      regras em docs/sala-de-controle.md. GERADO do mockup por um script na 1ª entrega; daqui em diante se edita aqui.
      Um nível de superfície; a cor só no estado. */
-  :root{--c-ger:#5aa9f5;--c-poa:#f59a4a;--c-ghi:#e6c84f;--neutro:#7b879d;--grade:#1f2940;--janela:#161d30;--fundo:#090d18;--sup:#161d30;--linha:#1f2940;--linha2:#2a3550;--tinta:#e9eef6;--mudo:#94a3b8;--fraco:#64748b;
+  :root{--c-ger:#5aa9f5;--c-poa:#e6c84f;--c-ghi:#6f8cff;--neutro:#7b879d;--grade:#1f2940;--janela:#161d30;--fundo:#090d18;--sup:#161d30;--linha:#1f2940;--linha2:#2a3550;--tinta:#e9eef6;--mudo:#94a3b8;--fraco:#64748b;
         --verde:#a3d900;--ok:#4ade80;--alerta:#ffd83d;--severo:#ff8f3c;--critico:#ff5b6e;--info:#7cb7ff;--violeta:#b497ff;
         --rolagem:#243154;--rolagem-hover:#34426b}
   *{box-sizing:border-box}
@@ -496,7 +496,7 @@
   .carrega{color:var(--mudo);padding:40px 0;text-align:center}
   .erro{background:var(--sup);border-left:3px solid var(--critico);border-radius:10px;padding:14px 16px;margin-top:14px}
   /* o tema claro do Nexus, pelos mesmos nomes */
-  html[data-tema="claro"]{--c-ger:#1f6fd0;--c-poa:#c8640f;--c-ghi:#a8860a;--neutro:#8a94a6;--grade:rgba(15,23,42,.10);--janela:#ffffff;--fundo:#ffffff;--sup:#eef1f5;--linha:rgba(15,23,42,.10);--linha2:rgba(15,23,42,.18);--tinta:#0f172a;--mudo:#475569;--fraco:#64748b;
+  html[data-tema="claro"]{--c-ger:#1f6fd0;--c-poa:#a8860a;--c-ghi:#2f4fd8;--neutro:#8a94a6;--grade:rgba(15,23,42,.10);--janela:#ffffff;--fundo:#ffffff;--sup:#eef1f5;--linha:rgba(15,23,42,.10);--linha2:rgba(15,23,42,.18);--tinta:#0f172a;--mudo:#475569;--fraco:#64748b;
     --verde:#566610;--ok:#15803d;--alerta:#a16207;--severo:#c2410c;--critico:#be123c;--info:#1d4ed8;--violeta:#6d28d9;--rolagem:#c7cdd8;--rolagem-hover:#aab2c0}
   /* O TEMA CLARO da Sala (Levi, 16/11/2026: "Trabalhe melhor o tema claro da sala de controle"): o que era cor fixa
      pensada para o navy ganha o par claro. A grade do gráfico e as linhas neutras seguem os tokens; as marcas de
@@ -1573,6 +1573,10 @@ function barras(vals, cor, rot) {
 }
 // linhas: series = [{nome, x[minutos do dia], y[], cor, forte, dash, larg, op}]; o = {x0, x1, alto}
 const CH = [];
+// As linhas finas (Levi, 26/11/2026: "as linhas dos gráficos de string, track e ETM, quero que sejam mais finas para
+// conseguir ver [...] bota ponto 1"): toda linha com 1 de espessura, a destacada só pela cor; o mouse no nome ainda engrossa
+// a dele (3). A potência (`fino: false`) segue com as larguras de antes.
+const LARG_FINA = 1;
 function linhas(series, rot, un, o) {
   o = o || {};
   const W = 900, H = o.alto || 250, L = 38, B = 22, T = 22, R = 22;
@@ -1587,7 +1591,7 @@ function linhas(series, rot, un, o) {
   if (o.dias) o.dias.forEach((d, k) => { eixo += (k ? `<line x1="${X(k * 1440)}" x2="${X(k * 1440)}" y1="${T}" y2="${H - B}" stroke="var(--grade)"/>` : "") + `<text x="${X(k * 1440 + 720)}" y="${H - 6}" text-anchor="middle">${d.slice(8)}/${d.slice(5, 7)}</text>`; });
   else for (let h = Math.ceil(x0 / 120) * 120; h <= x1; h += 120) eixo += `<text x="${X(h)}" y="${H - 6}" text-anchor="middle">${String(h / 60).padStart(2, "0")}h</text>`;
   const ps = series.slice().sort((a, b) => (a.forte ? 1 : 0) - (b.forte ? 1 : 0)).map(s => { let d = "", pen = false; s.y.forEach((v, i) => { const x = s.x[i]; if (v == null || (o.x0 != null && (x < o.x0 || x > o.x1))) { pen = false; return; } d += (pen ? "L" : "M") + X(x).toFixed(1) + " " + Y(v).toFixed(1); pen = true; });
-    return `<path data-sn="${esc(s.sn ?? s.nome)}" d="${d}" fill="none" stroke="${s.cor}" stroke-width="${s.larg || (s.forte ? 2.4 : 1.1)}" opacity="${s.op || (s.forte ? 1 : .7)}"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}><title>${esc(s.nome)}</title></path>`; }).join("");
+    return `<path data-sn="${esc(s.sn ?? s.nome)}" d="${d}" fill="none" stroke="${s.cor}" stroke-width="${o.fino === false ? (s.larg || (s.forte ? 2.4 : 1.1)) : LARG_FINA}" opacity="${s.op || (s.forte ? 1 : .7)}"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}><title>${esc(s.nome)}</title></path>`; }).join("");
   let d2 = "";
   if (o.dir && o.dir.length) { const p2 = o.dir.flatMap(s => s.y.filter((v, i) => v != null && s.x[i] >= x0 && s.x[i] <= x1)), h2 = Math.max(1, ...p2), Y2 = v => T + (H - B - T) * (1 - v / h2);
     d2 = [0, .5, 1].map(f => `<text x="${W - 2}" y="${Y2(h2 * f) - 3}" text-anchor="end">${nf(h2 * f)}</text>`).join("") + o.dir.map(s => { let dd = "", pen = false; s.y.forEach((v, i) => { const x = s.x[i]; if (v == null || x < x0 || x > x1) { pen = false; return; } dd += (pen ? "L" : "M") + X(x).toFixed(1) + " " + Y2(v).toFixed(1); pen = true; });
@@ -2275,7 +2279,8 @@ function detalhe(u, bx) {
     if (Pp.sem) h += `<div class="aviso">${esc(Pp.sem)}</div>`;
     else {
       const campo = (a, v) => `<input type="date" class="campo" style="background:var(--fundo);padding:4px 8px" data-pot="${a}" value="${v}" min="${addDia(HOJE, -45)}" max="${HOJE}">`;
-      // As cores (Levi: "geração azul, POA laranja e GHI amarelo [...] cada um tenha seu contraste mas sem estourar cores"):
+      // As cores (Levi: "geração azul, POA laranja e GHI amarelo [...] cada um tenha seu contraste mas sem estourar cores";
+      // em 26/11/2026: "POA eu quero amarelo, GHI eu quero azul" — o GHI num azul-violeta, para não se confundir com a geração):
       // a potência é sempre azul (por inversor, as linhas em azul fino e o mouse no nome destaca a dele), a irradiância
       // tracejada, na escala da direita.
       const umDia = dia => { const Pd = Pp.dias[dia], tit = `<div class="lt" style="margin:14px 0 4px">${dm(dia)}${dia === HOJE ? " (hoje)" : ""}${Pd && Pd.lido ? ` <small style="text-transform:none;letter-spacing:0;color:var(--fraco)">lido às ${esc(Pd.lido)}</small>` : ""}</div>`;
@@ -2296,7 +2301,7 @@ function detalhe(u, bx) {
           else { const st = Object.entries(c.t).map(([id, v]) => { const b = RUIM(v.st); return {nome: id, x: v.p.map(q => q[0]), y: v.p.map(q => q[1]), cor: COR_T[v.st] || COR_T.normal, larg: b ? 1.7 : 0.9, op: b ? .95 : .45, forte: b}; });
             st.push({nome: "Alvo", x: c.alvo.map(q => q[0]), y: c.alvo.map(q => q[1]), cor: "var(--tinta)", larg: 1.8, dash: "7 5", op: .9, forte: true});
             trk = `<div class="mais" style="margin:8px 0 0">Ângulo dos trackers no mesmo dia e no mesmo eixo de horas (o alvo tracejado; em cor, quem está parado ou fora do alvo)</div>` + linhas(st, "Ângulo dos trackers em " + dm(dia), "Ângulo (°)", Object.assign({alto: 200}, opt)); } }
-        return `<div data-hlbox="1">${tit}${linhas(ser, "Potência ativa em " + dm(dia), "kW", Object.assign({dir}, opt))}
+        return `<div data-hlbox="1">${tit}${linhas(ser, "Potência ativa em " + dm(dia), "kW", Object.assign({dir, fino: false}, opt))}
           ${PV === "inv" ? `<div class="lin">${ser.map(s => `<span data-hl="${esc(s.nome)}" data-hlc="var(--tinta)" style="cursor:default"><i style="background:var(--c-ger)"></i>${esc(s.nome)}</span>`).join("")}</div>` : ""}${trk}</div>`; };
       const g1 = Object.values(Pp.dias).find(x => x && x.grandeza);
       h += `<div class="painel"><h3>${esc(g1 ? g1.grandeza : "Potência ativa")} ${PV === "usina" ? "da usina" : "dos inversores"} + POA e GHI · ${POT.ini === POT.fim ? dm(POT.ini) : dm(POT.ini) + " – " + dm(POT.fim)}</h3>
