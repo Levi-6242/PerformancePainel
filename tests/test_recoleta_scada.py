@@ -168,24 +168,27 @@ def test_nulo_nao_vira_zero_e_zero_medido_fica_zero():
 
 
 def test_traducao_para_a_coluna_do_bd_pelo_de_para_do_coletor():
-    """A coluna é a do BD (a do coletor), não a do cadastro do tempo real: na Rio do Peixe o 16 é o Inversor 3.5 do BD
-    (no scadagridco.FONTES seria o 2.5) e o 15, cópia do 14, fica de fora."""
+    """A coluna é a do BD (a do coletor), não a do cadastro do tempo real: na Rio do Peixe o 15 é o Inversor 3.5 do BD
+    (no scadagridco.FONTES seria o 2.5) e o 16 o 4.1, desde que o scadaGridco renumerou a usina para 1-20 (26/11/2026;
+    antes o 15 era cópia do 14 e ficava de fora)."""
     assert sc.USINAS["Castelo do Piauí"]["inversores"]["inversor-02-12"] == "Inversor 2.2"
     api = Scada(tele={("rio_do_peixe_1_2", "6", "2026-11-10", "inverter"): _dia_inteiro("6", 610.0),
+                      ("rio_do_peixe_1_2", "15", "2026-11-10", "inverter"): _dia_inteiro("15", 715.0),
                       ("rio_do_peixe_1_2", "16", "2026-11-10", "inverter"): _dia_inteiro("16", 716.0),
-                      ("rio_do_peixe_1_2", "21", "2026-11-10", "inverter"): _dia_inteiro("21", 721.0),
+                      ("rio_do_peixe_1_2", "20", "2026-11-10", "inverter"): _dia_inteiro("20", 720.0),
                       ("cedro", "inversor-03-12", "2026-11-10", "inverter"): _dia_inteiro("inversor-03-12", 503.0)},
-                mqtt={"rio_do_peixe_1_2": [str(i) for i in range(1, 23)],
+                mqtt={"rio_do_peixe_1_2": [str(i) for i in range(1, 22)],
                       "cedro": ["inversor-%02d" % i for i in range(1, 11)] + ["inversor-%02d-12" % i for i in range(1, 11)]})
     res = sc.buscar(_ctx(api), ["rio_do_peixe_1_2", "cedro_2"], [D1], True, False, False)
     rp = _por_coluna(res, "Rio do Peixe I e II")
-    assert (rp["Inversor 2.1"], rp["Inversor 3.5"], rp["Inversor 4.5"]) == (610.0, 716.0, 721.0)
-    assert len(rp) == 20 and "15" not in {p["equipamento"] for p in api.telemetrias()}
+    assert (rp["Inversor 2.1"], rp["Inversor 3.5"], rp["Inversor 4.1"], rp["Inversor 4.5"]) == (610.0, 715.0, 716.0,
+                                                                                                720.0)
+    assert len(rp) == 20 and "21" not in {p["equipamento"] for p in api.telemetrias()}
     assert _por_coluna(res, "Cedro 2")["Inversor 1.3"] == 503.0
     assert "Cedro 1" not in {r["usina"] for r in res["geracao"]}
     av = " | ".join(res["avisos"])
-    assert "Rio do Peixe I e II: equipamento(s) 22 do supervisório sem de-para" in av
-    assert "o equipamento 15 do supervisório fica de fora: cópia do 14" in av
+    assert "Rio do Peixe I e II: equipamento(s) 21 do supervisório sem de-para" in av
+    assert "cópia do 14" not in av
     assert "Cedro 1 e Cedro 2: equipamento" not in av       # os 20 da "cedro" estão no de-para das duas
 
 

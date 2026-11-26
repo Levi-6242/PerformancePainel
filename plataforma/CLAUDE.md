@@ -3358,6 +3358,11 @@ Acessos; a chave daqui é uma só). Uma rota por fonte, o MESMO contrato, nada g
   GHI da PEII nasceu em 25/11); Multimedidor da Rio do Peixe pelo relé 3, potência exportada integrada
   (`energia_exportada_do_dia`), junto com a geração. O "só vazio" do coletor não se aplica aqui (a Coletas compara com
   o BD ao montar a planilha): sai em aviso nas abas `so_vazio`.
+- **scada: Rio do Peixe 1-20 em sequência desde 26/11/2026**: o scadaGridco renumerou a usina (era 21 equipamentos, o
+  15 cópia do 14) e o de-para velho do coletor (11-14 e 16 = 3.x, 17-21 = 4.x) gravava 4.1-4.4 com o valor do 4.2-4.5
+  desde 13/11 e o 3.5 com o do 4.1 desde 16/11. Agora 11-15 = 3.1-3.5 e 16-20 = 4.1-4.5, igual ao coletor, e o
+  `FORA_DE_PROPOSITO` ficou vazio. Conferido ao centavo contra o export do supervisório da Apolo (12, 14, 17 e 24/11).
+  O de-para do TEMPO REAL (`scadagridco.FONTES["apolo"]`, 15 de fora) é outro e não foi mexido.
 - **Riscos conhecidos (17/11)**: o IPOA da SolarEdge pela régua do coletor veio 0,26-0,71 kWh/m² no 05/11 (dia de sol) e
   o coletor não gravou de 06 a 16/11: conferir com chamada real antes de confiar; a Tupi Paulista por inversor no
   `energy` só entra no 400 "grande demais" e nunca foi testada na API de verdade; a comparação valor a valor do porte do

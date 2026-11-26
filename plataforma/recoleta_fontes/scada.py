@@ -81,10 +81,9 @@ USINAS = {
     "Iramaia II": {"scada": "iramaia_ii_apolo", "so_vazio_ou_maior": True,
                    "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
     "Rio do Peixe I e II": {"scada": "rio_do_peixe_1_2", "so_vazio_ou_maior": True,
-                            "inversores": {**{str(i): f"Inversor 1.{i}" for i in range(1, 6)},
-                                           **{str(i): f"Inversor 2.{i - 5}" for i in range(6, 11)},
-                                           **{str(e): f"Inversor 3.{n}" for n, e in enumerate((11, 12, 13, 14, 16), 1)},
-                                           **{str(e): f"Inversor 4.{n}" for n, e in enumerate((17, 18, 19, 20, 21), 1)}}},
+                            # 1-20 em sequência desde a renumeração do scadaGridco (coletar_greenyellow, 26/11/2026)
+                            "inversores": {str(5 * (g - 1) + n): f"Inversor {g}.{n}"
+                                           for g in range(1, 5) for n in range(1, 6)}},
     "Marialva": {"scada": "marialva", "so_vazio_ou_maior": True,
                  "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 9)}},
     "PEII": {"scada": "pe_ii", "so_vazio_ou_maior": True,
@@ -118,10 +117,10 @@ BURACO_MAX_S = 900      # buraco maior que 15 min entre 05h e 19h = dia do relé
 TETO_KWH_M2 = 12.0      # o acumulado da PE II vem em kWh/m²: acima disso é lixo
 FIM_KWH_HORA = 17       # o acumulado da PE II já parou de subir: vale a mediana das leituras boas a partir daqui
 
-# Equipamento do supervisório que o coletor deixa de fora DE PROPÓSITO: não é "sem de-para", tem motivo.
-FORA_DE_PROPOSITO = {
-    "rio_do_peixe_1_2": {"15": "cópia do 14 (28/10/2026: 315 de 316 minutos com sol iguais em potência e em cada string)"},
-}
+# Equipamento do supervisório que o coletor deixa de fora DE PROPÓSITO: não é "sem de-para", tem motivo. Vazio desde
+# 26/11/2026: o 15 da Rio do Peixe era cópia do 14 (28/10: 315 de 316 minutos com sol iguais) até o scadaGridco
+# renumerar a usina para 1-20; hoje o 15 é o Inversor 3.5 (ver coletar_greenyellow).
+FORA_DE_PROPOSITO = {}
 
 # O id de cada planta = o id da usina no supervisório, menos onde ele junta duas abas: a "cedro" é a Cedro 1 e a Cedro 2,
 # e as duas viram cedro_1/cedro_2, o mesmo id que a descoberta da plataforma dá (`_sg_classifica`).
