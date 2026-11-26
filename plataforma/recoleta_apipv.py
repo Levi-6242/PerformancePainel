@@ -39,6 +39,13 @@ TRABALHADORES = 6
 
 _POA = ["IrPOA", "Ir", "Ir1", "piraPOA1"]               # os mesmos do coletor, na mesma ordem
 _GHI = ["piraGHI1", "IrGHI", "piraGHI2", "IrGHITotal"]  # piraGHI1 primeiro: o IrGHI vem zerado/fiado no POA em várias
+# Estação com o GHI fora dos canais de sempre (26/11/2026, Levi: "a Ana me passou que Sorocaba tem dados ETM...
+# acho que está como IRAD"): a da Sorocaba (18749437) manda o piranômetro horizontal no canal "IrAlbedo" (até
+# 1.422 W/m²; 1,5 a 7,4 kWh/m² por dia em 01-25/11, 0,93 a 1,14 vez o POA, abaixo dele em dia limpo e acima em dia
+# nublado, como um GHI; albedo de verdade seria ~20% disso) e nenhum dos campos de GHI: o BD ficou com GHI 0 desde
+# abril. Só nesta planta; nas outras o IrAlbedo é albedo mesmo.
+# o mesmo do coletor (coletar_pvoperation.GHI_POR_PLANTA)
+GHI_POR_PLANTA = {18749437: ["IrAlbedo"]}
 
 
 def chave_esperada(env_chave, pv_password):
@@ -142,7 +149,7 @@ def _irr(c, campos):
     return None
 
 
-def integrar(leituras):
+def integrar(leituras, ghi=None):
     """W/m² instantâneo -> kWh/m² do dia (trapézio), igual ao `integrate_meteo` do coletor. None sem 2 leituras; GHI
     None se veio tudo 0 (estação sem piranômetro horizontal)."""
     pts = []
@@ -160,7 +167,7 @@ def integrar(leituras):
                 c = json.loads(c)
             except ValueError:
                 continue
-        p, g = _irr(c, _POA), _irr(c, _GHI)
+        p, g = _irr(c, _POA), _irr(c, ghi or _GHI)
         pts.append((t, p or 0.0, g or 0.0))
     if len(pts) < 2:
         return None, None
@@ -255,7 +262,7 @@ def buscar_cru(post, ids, dias, geracao, etm, plantas_conta, cota_permite=lambda
             if etm or chuva:
                 met = post("/custom_query", {"id": pid, "data_type": "meteo", "period": per, "day": d.day})
                 if etm:
-                    res["ipoa"], res["ghi"] = integrar(met)
+                    res["ipoa"], res["ghi"] = integrar(met, GHI_POR_PLANTA.get(int(pid)))
                 if chuva:
                     res["chuva"], res["chuva_conf"] = analisa_chuva(met)
         except Exception as e:                            # um dia que falha não derruba o pedido
