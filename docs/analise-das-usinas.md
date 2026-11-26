@@ -65,8 +65,8 @@ menu passa a levar à Análise e as telas antigas viram redirecionamento.
    **Dias sem explicação** (Levi, 25/11/2026: "ser apontado os dias que não tem explicação [...] teve baixa performance,
    porém não tem nenhuma explicação [...] de queda de ocorrência de COS, ou qualquer outro expurgo"): o dia em que,
    devolvidas as perdas já explicadas (as ocorrências do COS e os expurgos mapeados), o PR ainda fica abaixo do limite
-   ganha a marca na linha das ocorrências. **Proposta de régua, a confirmar com ele**: PR do dia, somadas as perdas das
-   ocorrências, abaixo de 85% da meta. No clique, a faixa do dia mostra a **curva da usina** (potência × POA) e, no
+   ganha a marca na linha das ocorrências. **A régua (Levi, 25/11/2026: "85% tá ok")**: o PR do dia, somadas as perdas
+   das ocorrências, abaixo de 85% da meta. No clique, a faixa do dia mostra a **curva da usina** (potência × POA) e, no
    lugar da curva do gêmeo, a **curva dos inversores** (a potência de cada um sobre a POA), para achar o que caiu.
 6. **PR e inversores**: o PR do mês × meta ("Ver o PR mês a mês" no botão), as sugestões do gêmeo do mês, e a tabela dos
    inversores em % (PR com o traço do alvo, × alvo em p.p., outubro, o dia a dia contra os outros, disponibilidade, OS e
