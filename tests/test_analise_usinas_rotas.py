@@ -173,3 +173,63 @@ def test_a_poa_zerada_e_falta_de_dado_e_o_dia_vazio_do_fim_sai(diag, monkeypatch
     monkeypatch.setitem(VIEWS, "/api/g/diario", d)
     j = diag.get("/api/analise/usina?usina=Usina A&mes=2026-11").get_json()
     assert [(x["d"], x["poa"], x["pr"]) for x in j["dias"][2:]] == [(3, None, None), (4, 0.38, None)]   # 5 saiu; PR de 1.170% não é dado
+
+
+# ── velocidade e nome do BD (26/11/2026, Levi: "está demorando muito para calcular os expurgos") ───────────────────────
+def test_o_nome_do_gerencial_vira_o_da_aba_do_bd_thopen_so_quando_difere(monkeypatch):
+    import dashboard_thopen as dth
+    monkeypatch.setattr(dth, "_CARTEIRA_DE", {"Piracicaba 1": "Thopen", "Marajoara 1": "Thopen", "Santarém 2": "Thopen"})
+    # o Gerencial escreve 'Piracicaba I' (o PG); a aba do BD_Thopen é 'Piracicaba 1' e por aquele nome vinha 0 dia
+    assert app._au_nome_bd("Thopen", "Piracicaba I") == "Piracicaba 1"
+    assert app._au_nome_bd("Thopen", "Marajoara I") == "Marajoara 1"
+    assert app._au_nome_bd("Thopen", "Santarém 2") == "Santarém 2"
+    assert app._au_nome_bd("Athon", "Piracicaba I") == "Piracicaba I"     # fora do BD_Thopen, o nome fica
+
+
+def _cascata_dublada(monkeypatch, chamadas):
+    class _R:
+        def get_json(self):
+            return {"pot": 6.94, "meta": 0.698, "meta_ger": 32.19, "meta_poa": 6.6,
+                    "pontos": [{"dia": 1, "geracao": 30.0, "poa": 6.0}, {"dia": 2, "geracao": 28.0, "poa": 5.5}]}
+    monkeypatch.setattr(app, "api_g_diario", lambda: _R())
+    monkeypatch.setattr(app, "_fonte_da_usina", lambda u: "sunop")
+    monkeypatch.setattr(app, "_paradas_book_get", lambda f, force=False: {"rows": []})
+    monkeypatch.setattr(app, "_trk_frota_total", lambda f, u, sel=(): 0)
+    monkeypatch.setattr(app, "_frac_usina_ent", lambda u: None)
+    monkeypatch.setattr(app, "_frac_depara_falha", lambda u: None)
+    monkeypatch.setattr(app, "_strings_problema_rows", lambda f, force=False: chamadas.append(f) or [])
+
+
+def test_a_cascata_da_analise_nao_monta_a_lista_de_strings_abertas(monkeypatch):
+    # a lista pode baixar a curva de string do dia da SunOp (cota) ou da API PV (paga) dentro da página: a MRO100 levou
+    # 95,7 s fria; a Análise não a usa. O Gerencial (/api/cascata) segue com ela
+    chamadas = []
+    _cascata_dublada(monkeypatch, chamadas)
+    c = app._cascata_usina("Athon", "MRO100", 2026, 11, com_abertos=False)
+    assert c["ok"] and chamadas == [] and set(c["tempos"]) == {"serie", "trackers", "fracttal", "abertos"}
+    assert c["geracao"] == 58.0 and c["possivel"] == pytest.approx(11.5 * 6.94 * 0.698, abs=.1)
+    app._cascata_usina("Athon", "MRO100", 2026, 11)
+    assert chamadas == ["sunop"]
+    pedidos = []
+    monkeypatch.setattr(app, "_cascata_usina", lambda cli, u, a, m, com_abertos=True: pedidos.append(com_abertos) or {"ok": True})
+    app._au_cascata("Athon", "MRO100", 2026, 11)
+    assert pedidos == [False]
+
+
+def test_a_energia_pega_o_cliente_do_gerencial_e_o_nome_da_aba_do_bd(cli, monkeypatch):
+    import dashboard_thopen as dth
+    monkeypatch.setattr(dth, "_CARTEIRA_DE", {"Piracicaba 1": "Thopen"})
+    ger = {"usinas": [{"usina": "Piracicaba I", "cliente": "Thopen"}]}
+    monkeypatch.setattr(app, "_gerencial_payload", lambda **k: ger)
+    pedidos = []
+    monkeypatch.setattr(app, "_cascata_usina", lambda c, u, a, m, com_abertos=True: pedidos.append((c, u, m, com_abertos)) or {"ok": True, "geracao": 1})
+    app._AU_ENERGIA.clear()
+    j = cli.get("/api/analise/usina/energia?usina=Piracicaba I&mes=2026-11").get_json()
+    # antes o cliente vinha do Info Geral pelo nome ('Piracicaba I' não casa) e o nome ia cru: "sem série diária"
+    assert pedidos == [("Thopen", "Piracicaba 1", 11, False)] and j["usina"] == "Piracicaba I" and j["cascata"]["ok"]
+
+
+def test_o_diagnostico_diz_o_tempo_de_cada_etapa(diag):
+    j = diag.get("/api/analise/usina?usina=usina a&mes=2026-11").get_json()
+    assert set(j["tempos"]) == {"gerencial", "bd", "cos", "inversores_dia", "fonte_curva", "perdas", "disp_inversor", "falhas",
+                                "ronda", "gemeo"} and j["nome_bd"] is None

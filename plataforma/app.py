@@ -32460,8 +32460,48 @@ def _au_perdas(ocorr, inv_dias, dias_bd, curva):
     return ocorr
 
 
+def _au_nome_bd(cli, nome):
+    """O nome da usina no BD da fonte, quando difere do Gerencial: o Gerencial escreve 'Piracicaba I' e 'Marajoara I' (o
+    nome do PG) e a aba do BD_Thopen é 'Piracicaba 1' e 'Marajoara 1'; pelo nome do Gerencial o dia a dia e a cascata
+    vinham vazios ("sem série diária no período", 26/11/2026). Só o BD_Thopen; casou com mais de uma aba, fica o nome."""
+    if cli not in _g_th_carteiras():
+        return nome
+    try:
+        import dashboard_thopen as _dth
+        abas = list(_dth._CARTEIRA_DE.keys())
+    except Exception:                                        # noqa: BLE001 — sem o registro, o nome do Gerencial
+        return nome
+    if any(_nrm(x) == _nrm(nome) for x in abas):
+        return nome
+    cand = [x for x in abas if _ger_fold(x) and _ger_fold(x) == _ger_fold(nome)]
+    return cand[0] if len(cand) == 1 else nome
+
+
+def _au_cliente(usina, mes):
+    """(cliente, nome) da usina pela linha do Gerencial do mês, a mesma que o diagnóstico usa; sem ela, o Info Geral."""
+    agora = datetime.now()
+    a, m = int(mes[:4]), int(mes[5:7])
+    corrente = mes == agora.strftime("%Y-%m")
+    try:
+        g = _gerencial_payload(ano=None if corrente else a, mes=None if corrente else m)
+        row = next((x for x in g.get("usinas") or [] if _au_mesma(x.get("usina"), usina)), None)
+    except Exception:                                        # noqa: BLE001
+        row = None
+    if row:
+        return (row.get("cliente") or "").strip(), row.get("usina") or usina
+    ig = INFO_GERAL.get(_nrm(usina)) or next((x for x in (INFO_GERAL or {}).values() if _au_mesma(x.get("usina"), usina)), None) or {}
+    return (ig.get("cliente") or "").strip(), ig.get("usina") or usina
+
+
 def _au_diagnostico(usina, mes):
     agora = datetime.now()
+    # o tempo de cada etapa vai no retorno (26/11/2026, Levi: "está demorando muito para calcular"): a 1ª abertura de
+    # Santarém 2 levou 46,6 s e a mesma refeita, 6,3 s; é por ele que se sabe qual peça esfria
+    tempos, _tt = {}, [time.time()]
+
+    def _marca(etapa):
+        tempos[etapa] = round(time.time() - _tt[0], 2)
+        _tt[0] = time.time()
     a, m, ant, ini, fim = _au_mes(mes)
     corrente = mes == agora.strftime("%Y-%m")
     g = _gerencial_payload(ano=None if corrente else a, mes=None if corrente else m)
@@ -32469,13 +32509,17 @@ def _au_diagnostico(usina, mes):
     if row is None:
         return None
     nome, cli = row.get("usina"), row.get("cliente") or ""
-    diario = _au_view(api_g_diario, "/api/g/diario", cliente=cli, usina=nome, ano=a, mes=m)
-    mensal = _au_view(api_g_mensal, "/api/g/mensal", cliente=cli, usina=nome)
-    pinv = _au_view(api_g_inversores, "/api/g/inversores", cliente=cli, usina=nome, ini=ini, fim=fim)
+    nbd = _au_nome_bd(cli, nome)
+    _marca("gerencial")
+    diario = _au_view(api_g_diario, "/api/g/diario", cliente=cli, usina=nbd, ano=a, mes=m)
+    mensal = _au_view(api_g_mensal, "/api/g/mensal", cliente=cli, usina=nbd)
+    pinv = _au_view(api_g_inversores, "/api/g/inversores", cliente=cli, usina=nbd, ini=ini, fim=fim)
     a0, m0, _, ini0, fim0 = _au_mes(ant)
-    pinv0 = _au_view(api_g_inversores, "/api/g/inversores", cliente=cli, usina=nome, ini=ini0, fim=fim0)
+    pinv0 = _au_view(api_g_inversores, "/api/g/inversores", cliente=cli, usina=nbd, ini=ini0, fim=fim0)
     trk_ch = _au_view(api_g_tickets_trackers, "/api/g/tickets-trackers", usina=nome).get("trackers") or []
+    _marca("bd")
     disp = _falhas_disp_mes(mes)
+    _marca("cos")
     ig = INFO_GERAL.get(_nrm(nome)) or next((x for x in (INFO_GERAL or {}).values() if _au_mesma(x.get("usina"), nome)), None) or {}
     # o dia a dia do BD + a régua do COS
     ddisp = next((v for u, v in ((disp or {}).get("diario") or {}).items() if _au_mesma(u, nome)), None)
@@ -32493,9 +32537,12 @@ def _au_diagnostico(usina, mes):
     while dias and not dias[-1]["ger"] and dias[-1]["poa"] is None:
         dias.pop()                      # o dia que o BD ainda não fechou (geração 0 e sem POA) não vira barra no fim do mês
     ocorr = _au.ocorrencias_usina(disp, nome, agora.date())
-    inv_dias = _au_inv_dias(nome, a, m)
+    inv_dias = _au_inv_dias(nbd, a, m)
+    _marca("inversores_dia")
     curva = _au_curva_fonte(nome)
+    _marca("fonte_curva")
     _au_perdas(ocorr, inv_dias, dias, curva)
+    _marca("perdas")
     _au.teto_das_quedas(ocorr, [dict(d, iso=f"{mes}-{d['d']:02d}") for d in dias], diario.get("pot"))
     perda_dia = {}
     for o in ocorr:
@@ -32510,6 +32557,7 @@ def _au_diagnostico(usina, mes):
     dfull = next((u for u in (((_frac_disp_dados() or {}).get("meses") or {}).get(mes) or {}).get("usinas") or []
                   if _au_mesma(u.get("usina"), nome)), {}) or {}
     dinv = {_au.nrm(i.get("inversor")): i for i in dfull.get("inversores") or []}
+    _marca("disp_inversor")
     mat = _au.matriz_inversores({d: v for d, v in inv_dias.items()})
     ant_pr = {_au.nrm(i.get("inversor")): i.get("pr") for i in pinv0.get("inversores") or []}
     with _state_lock:
@@ -32532,18 +32580,22 @@ def _au_diagnostico(usina, mes):
     # ofensores: a Falhas do mês (e as OS de string do mês anterior, que ainda cobrem), os chamados e a ronda
     fal = _au_falhas(mes) or {}
     fal0 = _au_falhas(ant) or {}
+    _marca("falhas")
     ep = [e for e in ((fal.get("strings") or {}).get("episodios") or []) if _au_mesma(e.get("usina"), nome)]
     trk = [r for r in ((fal.get("trackers") or {}).get("rows") or []) if _au_mesma(r.get("usina"), nome)]
     sos = [o for o in (fal.get("strings_os") or []) + (fal0.get("strings_os") or []) if _au_mesma(o.get("usina"), nome)]
     uid = _au_uid(nome)
     veg = _au.vegetacao(_au_zeladoria(), uid)
+    _marca("ronda")
     parados = _au.parados_sem_ocorrencia(inv_dias, ocorr)
     ofs = _au.ofensores(ocorr, ep, sos, trk, trk_ch, veg, parados)
     obsv = _au.observacoes(mensal, a, m, None, veg, sem_expl, ocorr)
     ger_row = {"at": row.get("atingimento"), "pr": row.get("pr"), "meta": row.get("pr_meta"), "prod": row.get("prod"),
                "p50": row.get("p50"), "dias": row.get("dias_cob"), "motivo": row.get("pr_motivo") or row.get("anomalia_txt"),
                "mwp": row.get("pot_mwp")}
-    return {"usina": nome, "cliente": cli, "local": ig.get("estado") or "", "kwp": ig.get("potencia_kwp") or (pot or 0) * 1000 or None,
+    gid = _au_gemeo_id(nome)
+    _marca("gemeo")
+    return {"usina": nome, "cliente": cli, "nome_bd": nbd if nbd != nome else None, "tempos": tempos, "local": ig.get("estado") or "", "kwp": ig.get("potencia_kwp") or (pot or 0) * 1000 or None,
             "mob": ig.get("mobilizacao"), "mes": mes, "corrente": corrente, "ger": ger_row,
             "p50_dia": diario.get("meta_ger"), "poa_meta": diario.get("meta_poa"), "meta_pr": meta_pr, "pot": pot,
             "dias": dias, "ocorr": [dict(o, d=int(o["dia"][-2:])) for o in ocorr],
@@ -32551,7 +32603,7 @@ def _au_diagnostico(usina, mes):
                      "periodo": (disp or {}).get("periodo"), "cobre": cobre},
             "invs": invs, "alvo": pinv.get("alvo"), "mensal": mensal.get("pontos") or [],
             "ofensores": ofs, "observacoes": obsv, "vegetacao": veg, "sem_expl": sem_expl,
-            "curva": {"fonte": curva[0], "id": curva[2]} if curva else None, "gemeo": _au_gemeo_id(nome),
+            "curva": {"fonte": curva[0], "id": curva[2]} if curva else None, "gemeo": gid,
             "trk_chamados": trk_ch, "n_trk_falhas": len({r.get("tracker") for r in trk}),
             "frescor": {"gerencial": g.get("cache_ts"), "disp": (disp or {}).get("periodo"),
                         "falhas": fal.get("gerado_em"), "bd_ult": max((d["d"] for d in dias if d.get("ger") is not None), default=None),
@@ -32591,12 +32643,14 @@ def api_analise_usina():
 
 
 def _au_cascata(cli, nome, a, m):
+    # sem a lista de strings ainda abertas: a tela não a usa, e montá-la pode baixar a curva de string do dia da SunOp
+    # (cota) ou da API PV (paga) dentro da página (26/11/2026: a MRO100 levou 95,7 s)
     try:
-        c = _cascata_usina(cli, nome, a, m)
+        c = _cascata_usina(cli, nome, a, m, com_abertos=False)
     except Exception as e:                                       # noqa: BLE001
         return {"ok": False, "motivo": f"{type(e).__name__}: {str(e)[:120]}"}
     keys = ("ok", "motivo", "p50", "possivel", "geracao", "perda_rede", "perda_equip", "perda_trk", "perda_ipoa",
-            "nao_explicado", "poa", "poa_prev", "pr_real", "pr_meta", "dias", "trk")
+            "nao_explicado", "poa", "poa_prev", "pr_real", "pr_meta", "dias", "trk", "tempos")
     out = {k: c.get(k) for k in keys if k in c}
     if isinstance(out.get("trk"), dict):
         out["trk"] = {k: out["trk"].get(k) for k in ("trackers", "frota", "paradas", "horas_solares")}
@@ -32617,13 +32671,12 @@ def api_analise_usina_energia():
     if ent and time.time() - ent[0] < _AU_DIAG_TTL:
         return jsonify(ent[1])
     a, m = int(mes[:4]), int(mes[5:7])
-    ig = INFO_GERAL.get(_nrm(usina)) or {}
-    cli = (ig.get("cliente") or "").strip()
-    nome = ig.get("usina") or usina
+    cli, nome = _au_cliente(usina, mes)
+    nbd = _au_nome_bd(cli, nome)
     lista = list(range(1, m + 1)) if meses else [m]
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=4) as ex:
-        res = dict(zip(lista, ex.map(lambda mm: _au_cascata(cli, nome, a, mm), lista)))
+        res = dict(zip(lista, ex.map(lambda mm: _au_cascata(cli, nbd, a, mm), lista)))
     out = {"usina": nome, "mes": mes, "cascata": res.get(m),
            "meses": [dict(res[mm], m=mm) for mm in lista] if meses else None}
     with _AU_LOCK:
@@ -35821,12 +35874,20 @@ def _fecha_dia_loop():
 TRK_GANHO_RASTREIO = 0.20      # ganho do rastreamento vs fixo (1 eixo, Brasil). Premissa — calibrável.
 
 
-def _cascata_usina(cliente, usina, ano, mes):
+def _cascata_usina(cliente, usina, ano, mes, com_abertos=True):
+    """`com_abertos=False` (a Análise das usinas): sem a lista de ofensores em aberto, que para as strings pode buscar a
+    curva do dia na SunOp ou na API PV. `tempos` = segundos de cada etapa (26/11/2026: a MRO100 levou 95,7 s fria)."""
     from flask import current_app  # noqa: F401  (mantém o import local barato)
+    tempos, _tt = {}, [time.time()]
+
+    def _marca(etapa):
+        tempos[etapa] = round(time.time() - _tt[0], 2)
+        _tt[0] = time.time()
     dias_mes = calendar.monthrange(ano, mes)[1]
     # 1) série diária (mesma fonte do gráfico de PR: banco p/ Thopen, BD_Performance p/ o resto)
     with app.test_request_context(f"/api/g/diario?cliente={cliente}&usina={usina}&ano={ano}&mes={mes}"):
         base = api_g_diario().get_json()
+    _marca("serie")
     pts = [p for p in (base.get("pontos") or []) if p.get("geracao") is not None]
     if not pts:
         return {"ok": False, "motivo": "sem série diária no período"}
@@ -35859,6 +35920,7 @@ def _cascata_usina(cliente, usina, ano, mes):
     trk_tot = _trk_frota_total(fonte, usina, sel)
     frac = (h_trk / (12.0 * n * trk_tot)) if (trk_tot and n) else 0.0
     perda_trk = round(possivel * min(1.0, frac) * TRK_GANHO_RASTREIO, 1)
+    _marca("trackers")
     # 3) DESLIGAMENTO — o conceito da '1 - TFalhas Fracttal' do BI antigo (Indisponibilidade em horas ÷
     #    dias×12h), só que SEM planilha manual: a plataforma já calcula a indisponibilidade de cada OS
     #    em HORAS SOLARES (evento → fim, campo horas_solares do _frac_os_filtradas). Usina desligada
@@ -35891,6 +35953,7 @@ def _cascata_usina(cliente, usina, ano, mes):
     except Exception as e:
         print(f"[cascata] fracttal {usina}: {e}")
         fr_falhas.append(f"{type(e).__name__}: {str(e)[:160]}")
+    _marca("fracttal")
     h_os, n_os = h_rede + h_equip, n_rede + n_equip
     frac_os = (h_os / (12.0 * n)) if n else 0.0
     perda_rede  = round(possivel * min(1.0, (h_rede / (12.0 * n)) if n else 0.0), 1)
@@ -35914,7 +35977,7 @@ def _cascata_usina(cliente, usina, ano, mes):
     except Exception:
         pass
     try:
-        if fonte in _STR_EV_FONTES:                       # strings sem corrente ainda abertas (com "desde")
+        if com_abertos and fonte in _STR_EV_FONTES:       # strings sem corrente ainda abertas (com "desde")
             _hoje = datetime.now().strftime("%Y-%m-%d")
             _alvo = _nrm(usina)
             _cnt = 0
@@ -35929,7 +35992,8 @@ def _cascata_usina(cliente, usina, ano, mes):
                                 "desde": _d.strftime("%Y-%m-%d") if _d else None})
     except Exception as e:
         print(f"[cascata] abertos {usina}: {e}")
-    return {"ok": True, "usina": base.get("usina") or usina, "ano": ano, "mes": mes, "dias": n,
+    _marca("abertos")
+    return {"ok": True, "usina": base.get("usina") or usina, "ano": ano, "mes": mes, "dias": n, "tempos": tempos,
             "pot": pot, "pr_meta": prm, "pr_real": round(ger / (poa * pot), 4) if (poa and pot) else None,
             "p50": p50, "poa": poa, "poa_prev": poa_prev, "possivel": possivel, "geracao": ger,
             "perda_ipoa": perda_ipoa, "perda_trk": perda_trk, "perda_deslig": perda_deslig,

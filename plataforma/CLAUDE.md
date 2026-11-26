@@ -2662,7 +2662,19 @@ Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py
   `usina_id` do Nexus, que é o SITE ("Santarem 1 e 2" = 122): `_au_uid` casa pelo Registro mestre e pelo de-para (qualquer
   sistema); casou com mais de um id, fica sem a ronda (nunca chutar).
 - `GET /api/analise/usina/energia?usina=&mes=[&meses=1]`: a cascata do mês (e a de cada mês do ano, em paralelo) À PARTE,
-  porque a do mês corrente leva uns 24 s na 1ª vez (medido no servidor em 26/11; os meses fechados, 0,3 s).
+  porque a do mês corrente leva uns 24 s na 1ª vez (medido no servidor em 26/11; os meses fechados, 0,3 s). O "Sol
+  abaixo" dela é a POA meta menos a real em energia: (POA real × potência × PR meta) − P50 (MRO100 em novembro: 161,2
+  kWh/m² contra 198,0 previstos = −184,6 MWh, expurgo).
+- **Velocidade (26/11/2026, Levi: "está demorando muito para calcular os expurgos").** A cascata é a do Gerencial
+  (`_cascata_usina`) e faz coisas ao vivo dentro da página: o Fracttal da usina (10 min de cópia), o livro de paradas de
+  tracker quando a cópia do web passa de 1 h e a lista de strings ainda abertas, que pode baixar a curva de string do
+  dia da SunOp (cota) ou da API PV (paga). A MRO100 fria levou **95,7 s**. A Análise pede a cascata com
+  `com_abertos=False` (a tela nunca usou a lista; o `/api/cascata` do Gerencial segue com ela). A cascata e o
+  diagnóstico devolvem `tempos` (segundos de cada etapa): é por ele que se mede qual peça pesa, antes de mexer em outra.
+- **O nome do BD** (`_au_nome_bd`): o Gerencial escreve 'Piracicaba I' e 'Marajoara I' (o PG) e a aba do BD_Thopen é
+  'Piracicaba 1' e 'Marajoara 1'; por aquele nome o dia a dia, o PR por inversor e a cascata vinham vazios ("sem série
+  diária no período"). A rota da energia pega o cliente e o nome da linha do Gerencial (`_au_cliente`), como o diagnóstico;
+  antes ia pelo Info Geral, que não casa 'Piracicaba I'.
 - `GET /api/analise/curvas?usina=&dia=`: só no clique (o Comparar inversores e o dia sem explicação): a potência de cada
   inversor e a POA, e as strings (banco da Thopen e scadaGridco). **Só fonte gratuita** (`_AU_FONTES_CURVA`: o banco e
   o scadaGridco). **A Athon que já está no SCADA da Grid** (CPP100, SMP100, TIM200 e MAB200, `_athon_sg_cfg`, fonte

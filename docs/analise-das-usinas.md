@@ -145,7 +145,19 @@ Cada entrega sobe fora do período solar, em lote (a regra do deploy), com a pro
   das 06 às 18 h), marcada "estimativa".
 - O mês a mês do PR é o do BD (`/api/g/mensal`); o PR do topo é o do Gerencial.
 
+## Velocidade (26/11/2026)
+
+Medido no servidor: o diagnóstico refeito leva de 1,5 a 7 s; a 1ª abertura com as cópias frias chegou a 46,6 s (Santarém
+2). Os expurgos (a cascata) levam de 0,1 a 1,8 s, mas a MRO100 fria levou 95,7 s: a cascata é a do Gerencial e consulta
+ao vivo o Fracttal, o livro de paradas de tracker e, nas usinas da Athon e da API PV, a lista de strings abertas (que
+pode baixar curva da SunOp ou da API PV). A Análise deixou de pedir a lista; o resto se decide pelos `tempos` que a
+cascata e o diagnóstico passaram a devolver.
+
 ## Achados de dado no caminho (para conferir)
+
+- A Piracicaba I e a Marajoara I têm outro nome no BD_Thopen ('Piracicaba 1', 'Marajoara 1'): o diagnóstico vinha sem dia
+  a dia e sem cascata. Corrigido pelo nome da aba (`_au_nome_bd`, 26/11/2026). A Vargem Grande 1 não tem dia nenhum no
+  BD_Thopen em novembro.
 
 - A Santarém 2 foi mobilizada em **20/10/2025** em todas as fontes (o Levi achava junho).
 - O gêmeo acusa a "string 5" do 2.10 e a "string 15" do 2.5, mas o banco lista só 20 strings por inversor e não tem
