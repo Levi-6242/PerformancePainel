@@ -70,7 +70,7 @@ COMENTARIOS = {
 
     ("Pharma II", _d(29)): ["A usina partiu às 07:37 e o inversor 1.3 às 08:42, 1 h 05 depois dos outros."],
 
-    ("Santo Antônio da Platina", _d(1)): ["Baixa isolação nos inversores até cerca de 09:30 (informado pela Thopen)."],
+    ("Santo Antônio da Platina", _d(1)): ["Baixa isolação nos inversores até cerca de 09:30."],
     ("Santo Antônio da Platina", _d(29)): ["Partida tardia: a sub-usina 1 partiu às 08:00 e a 2 às 06:59.",
                                            "Inversor 1.1 partiu às 09:02 e os 1.2 e 1.13 às 08:40; os 2.1 e 2.5, cerca "
                                            "de 20 min depois dos outros."],
