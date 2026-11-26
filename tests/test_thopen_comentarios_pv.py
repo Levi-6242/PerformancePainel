@@ -69,6 +69,26 @@ def test_o_dia_sem_comentario_leva_o_texto_e_o_dia_com_comentario_fica_com_o_del
     assert set(r) == set(operacao_mes.CHAVES)
 
 
+def test_o_complemento_vai_depois_do_comentario_do_dia_sem_tirar_nada(_card, monkeypatch):
+    monkeypatch.setattr(comentarios_pv, "_COMPL_POR_USINA", {"usina a": {D15: ["A perda vem da leitura da PV."],
+                                                                          D16: ["Texto num dia sem comentário."]}})
+    r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 26))
+    dia = {p["dia"]: p for p in r["por_dia"]}
+    assert dia["15/10"]["os"] == ["OS 9 - linha seca", "A perda vem da leitura da PV."]
+    assert dia["16/10"]["os"] == ["Texto num dia sem comentário."]
+    assert dia["14/10"]["os"] == ["Inversor 1.1 parado das 10:00 às 10:10."]
+
+
+def test_os_complementos_de_outubro():
+    nl = comentarios_pv.complementos("Nova Londrina", 2026, 10)
+    assert {d.day for d in nl} == {2, 3, 7, 17, 18, 20, 21, 22, 23, 24, 25, 26}
+    assert all("inversor 3" in ls[0] for ls in nl.values())
+    assert set(comentarios_pv.complementos("Mandaguaçu", 2026, 10)) == {dt.date(2026, 10, 12)}
+    assert comentarios_pv.complementos("Nova Londrina", 2026, 11) == {}
+    santana = sum(comentarios_pv.por_dia("Santana do Ipanema", 2026, 10).values(), [])
+    assert not any("1.20" in x or "1.21" in x for x in santana)
+
+
 def test_com_o_bd_tambem_so_no_dia_sem_comentario(_card):
     bd = ({D14: 99.1, D15: 98.0}, {D15: ["Comentário da equipe no BD"]})
     r = operacao_mes.resposta(_card, "Usina A", 2026, 10, dt.date(2026, 11, 26), bd=bd)

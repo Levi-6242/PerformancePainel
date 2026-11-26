@@ -194,6 +194,11 @@ prova) vê tudo, como o `_e_grid`. Fechada hoje: `zeladoria`. Prova:
   isolação, informada pela Thopen). Em `operacao_mes.resposta` o texto entra só no dia que está
   sem comentário: o relato do COS, a frase das OS e o comentário do BD vencem sempre. O nome é comparado sem acento.
   Mês novo não entra aqui: o caminho é a ocorrência na Ronda COS. Prova: `tests/test_thopen_comentarios_pv.py`.
+  `COMPLEMENTOS` (26/11/2026, conferência comentário × disponibilidade) é diferente: o texto vai DEPOIS do comentário que
+  o dia já tem, sem tirar nada. Serve para o dia em que o comentário do COS não explica a perda. Em Nova Londrina, a PV zera
+  o inversor 3 da Nova Londrina 2, que tem falha de comunicação aberta, e a perda da Thopen segue esse zero; o contador do
+  supervisório mostra que ele gerou. Na Santana do Ipanema, o texto usa a numeração da PV (1 a 24), porque o catálogo vai
+  de 1.1 a 12.2.
 - **Outubro/2026 por exceção (06/11/2026**, Levi, com a planilha "disponibilidades outubro.xlsx": "pegue a
   disponibilidade dessas UFVs e coloque como disponibilidade de outubro segundo a lista, será uma exceção para
   outubro!"): Rondonópolis, Aruanã, Lyon (as Sol Maior GD I a V), AP. do Taboado, Areia Branca (Pacaembu 1.1 e 1.2),

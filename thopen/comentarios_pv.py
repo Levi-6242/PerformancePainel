@@ -24,15 +24,18 @@ def _d(dia):
 
 
 COMENTARIOS = {
-    ("Santana do Ipanema", _d(6)): ["Inversor 1.20 parado das 13:31 às 13:41 (10 min)."],
-    ("Santana do Ipanema", _d(11)): ["Inversor 1.3 parado das 09:05 às 09:14 (9 min)."],
-    ("Santana do Ipanema", _d(18)): ["Inversor 1.21 parado das 13:22 às 13:32 (10 min).",
-                                     "Inversor 1.24 desligou às 17:12, 10 min antes dos outros."],
-    ("Santana do Ipanema", _d(27)): ["Inversor 1.2 parado das 11:54 às 12:04 (10 min).",
+    # Santana do Ipanema: a PV numera os 24 inversores de 1 a 24 (o catálogo da Ronda COS vai de 1.1 a 12.2); o texto usa
+    # a numeração da PV, que é a que a Thopen vê
+    ("Santana do Ipanema", _d(6)): ["Inversor 20 (numeração da PV Operation) parado das 13:31 às 13:41 (10 min)."],
+    ("Santana do Ipanema", _d(11)): ["Inversor 3 (numeração da PV Operation) parado das 09:05 às 09:14 (9 min)."],
+    ("Santana do Ipanema", _d(18)): ["Inversor 21 (numeração da PV Operation) com potência zerada das 13:22 às 13:32 "
+                                     "(10 min); o contador de energia do supervisório mostra que ele gerou nesse intervalo.",
+                                     "Inversor 24 desligou às 17:12, 10 min antes dos outros."],
+    ("Santana do Ipanema", _d(27)): ["Inversor 2 (numeração da PV Operation) parado das 11:54 às 12:04 (10 min).",
                                      "Os 24 inversores zeraram às 08:30 por menos de 2 min.",
                                      "Estação solarimétrica sem comunicação das 10:05 às 10:42."],
-    ("Santana do Ipanema", _d(28)): ["Inversor 1.16 parado das 10:14 às 10:23 (9 min)."],
-    ("Santana do Ipanema", _d(29)): ["Inversor 1.3 parado das 09:30 às 09:40 (10 min)."],
+    ("Santana do Ipanema", _d(28)): ["Inversor 16 (numeração da PV Operation) parado das 10:14 às 10:23 (9 min)."],
+    ("Santana do Ipanema", _d(29)): ["Inversor 3 (numeração da PV Operation) parado das 09:30 às 09:40 (10 min)."],
 
     ("Lyon", _d(2)): ["Inversor 4.1 (Sol Maior GD IV) parado das 09:10 às 09:15 (5 min)."],
     ("Lyon", _d(16)): ["Nenhum inversor parou. Estação solarimétrica do GD IV sem comunicação das 09:05 às 10:27 "
@@ -88,8 +91,10 @@ COMENTARIOS = {
     ("Guatambu", _d(5)): ["Inversor 2.5 partiu às 09:19 e o 3.1 às 07:58 (os outros às 06:08).",
                           "Inversor 1.3 desligou às 17:58, 19 min antes dos outros."],
     ("Junco", _d(23)): ["Inversor 1.1 parado das 15:20 às 15:34 (14 min)."],
-    ("Nova Londrina", _d(27)): ["Nova Londrina 2, inversor 3, com potência zerada das 09:40 às 10:26, das 11:48 às 12:05, "
-                                "das 12:28 às 12:40, das 12:48 às 13:00 e das 16:10 às 16:13 (cerca de 1 h 30 no total).",
+    ("Nova Londrina", _d(27)): ["Nova Londrina 2, inversor 3: a PV Operation mostrou potência zerada entre 09:40 e 16:13, "
+                                "com intermitência (cerca de 1 h 30 no total), mas o contador de energia do supervisório "
+                                "mostra que ele gerou normalmente no dia (1.471 kWh, contra 1.470 kWh de mediana dos outros "
+                                "inversores). A perda vem da leitura da PV: o inversor tem falha de comunicação em tratamento.",
                                 "Estação solarimétrica sem comunicação das 10:03 às 10:38."],
     ("Primavera", _d(25)): ["Primavera 2, inversor 3, parado das 14:15 às 14:20 (5 min)."],
     ("Tanabi", _d(5)): ["13 inversores partiram de 40 min a 1 h depois dos outros (por volta de 06:10): 1.1, 1.2, 1.3, "
@@ -97,6 +102,36 @@ COMENTARIOS = {
                         "Inversores 1.5, 1.7 e 2.3 parados das 17:16 às 17:35 (19 min)."],
     ("São Bento do Una", _d(27)): ["Nenhum inversor parou. Estação solarimétrica sem comunicação das 10:06 às 10:42 "
                                    "(36 min)."],
+}
+
+
+# 26/11/2026, conferência comentário × disponibilidade: dias que já têm comentário (do COS), mas em que ele não explica a
+# perda. O texto daqui vai DEPOIS do comentário do dia, sem tirar nada. Nova Londrina: a PV zera o inversor 3 da Nova
+# Londrina 2 (NVL200-INVR1.3, falha de comunicação aberta desde março, OS 19685) e a perda da Thopen segue esse zero, mas o
+# contador de energia do supervisório (coletor NOLOB, modbus 10) dá ao inversor a mesma energia dos outros, todo dia.
+_LEIT = ("Nova Londrina 2, inversor 3: a PV Operation mostrou potência zerada {janela}, mas o contador de energia do "
+         "supervisório mostra que ele gerou normalmente no dia ({kwh} kWh, contra {med} kWh de mediana dos outros inversores). "
+         "A perda vem da leitura da PV: o inversor tem falha de comunicação em tratamento.")
+COMPLEMENTOS = {
+    ("Nova Londrina", _d(2)): ["Nova Londrina 2, inversor 3: a PV Operation mostrou potência zerada das 11:32 às 12:05 e das "
+                               "12:42 às 12:57. O supervisório não tem leitura neste dia; é o inversor com falha de "
+                               "comunicação em tratamento, que nos outros dias do mês gerou normalmente pelo contador de energia."],
+    ("Nova Londrina", _d(3)): [_LEIT.format(janela="entre 10:22 e 12:44, com intermitência", kwh="1.367", med="1.369")],
+    ("Nova Londrina", _d(7)): [_LEIT.format(janela="das 08:07 às 10:05, das 11:02 às 11:09 e das 16:32 às 17:00", kwh="2.015", med="2.039")],
+    ("Nova Londrina", _d(17)): [_LEIT.format(janela="entre 07:40 e 13:23, com intermitência, e das 17:00 às 17:06", kwh="1.978", med="2.018")],
+    ("Nova Londrina", _d(18)): [_LEIT.format(janela="entre 07:17 e 17:06, com intermitência", kwh="2.466", med="2.489")],
+    ("Nova Londrina", _d(20)): [_LEIT.format(janela="entre 07:23 e 11:47 e das 15:00 às 15:41", kwh="2.404", med="2.430")],
+    ("Nova Londrina", _d(21)): [_LEIT.format(janela="das 12:50 às 13:00, das 13:52 às 14:04 e das 15:49 às 16:08", kwh="1.146", med="1.152")],
+    ("Nova Londrina", _d(22)): [_LEIT.format(janela="das 08:43 às 09:16", kwh="1.057", med="1.078")],
+    ("Nova Londrina", _d(23)): [_LEIT.format(janela="das 11:14 às 11:24", kwh="1.238", med="1.270"),
+                                "No fim da tarde, a geração caiu aos poucos com o tempo fechado, de cerca de 850 kW às 15:45 "
+                                "até zerar às 17:15, sem desligamento; a PV registrou potência zerada nos inversores da "
+                                "Nova Londrina 1 das 17:17 às 18:23."],
+    ("Nova Londrina", _d(24)): [_LEIT.format(janela="entre 08:36 e 12:22, com intermitência", kwh="1.962", med="1.979")],
+    ("Nova Londrina", _d(25)): [_LEIT.format(janela="das 15:55 às 16:06", kwh="959", med="944")],
+    ("Nova Londrina", _d(26)): [_LEIT.format(janela="entre 07:26 e 17:14, com intermitência", kwh="2.493", med="2.570")],
+    ("Mandaguaçu", _d(12)): ["Inversor 4.4 só partiu às 09:41, 2 h 25 depois dos outros (07:16), confirmado pelo "
+                             "supervisório (09:45)."],
 }
 
 
@@ -111,6 +146,16 @@ for (_u, _dia), _linhas in COMENTARIOS.items():
     _POR_USINA.setdefault(_chave(_u), {})[_dia] = list(_linhas)
 
 
+_COMPL_POR_USINA = {}
+for (_u, _dia), _linhas in COMPLEMENTOS.items():
+    _COMPL_POR_USINA.setdefault(_chave(_u), {})[_dia] = list(_linhas)
+
+
 def por_dia(nome, ano, mes):
     """{dia: [linhas]} da usina no mês; {} sem texto. Cópias (a tela pode mexer na lista)."""
     return {d: list(v) for d, v in (_POR_USINA.get(_chave(nome)) or {}).items() if (d.year, d.month) == (ano, mes)}
+
+
+def complementos(nome, ano, mes):
+    """{dia: [linhas]} que vão DEPOIS do comentário do dia (o do COS fica inteiro); {} sem texto."""
+    return {d: list(v) for d, v in (_COMPL_POR_USINA.get(_chave(nome)) or {}).items() if (d.year, d.month) == (ano, mes)}
