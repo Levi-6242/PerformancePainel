@@ -157,6 +157,10 @@ def test_a_athon_no_scada_da_grid_le_as_curvas_de_la_e_a_da_sunop_diz_a_cota(dia
     assert pedidos == [("scadagridco", "athonscada", "cpp_100", "2026-11-06")] and j["fonte"] == "athonscada" and not j["sem_curva"]
     assert j["pot"]["Inversor 1.1"] == [[600, 50.0], [610, 52.0]] and j["poa"] == []
     assert j["str"]["Inversor 1.1"]["s"] == {"ST 07": [8.1, 8.3]} and j["str"]["Inversor 1.1"]["info"] == {"ST 07": [None, True]}
+    assert j["motivo"] is None
+    monkeypatch.setattr(app, "_pa_dia", lambda fam, fonte, pid, dia, agora=None: {"inversores": []})   # antes de a Athon entrar no SCADA
+    v = diag.get("/api/analise/curvas?usina=CPP100&dia=2026-11-06").get_json()
+    assert v["sem_curva"] and "a Athon entrou no SCADA" in v["motivo"]
     m = diag.get("/api/analise/curvas?usina=JCD100&dia=2026-11-06").get_json()
     assert m["sem_curva"] and "SCADA da Grid" in m["motivo"] and "SunOp" in m["motivo"]
     assert "API PV" in diag.get("/api/analise/curvas?usina=Tucano 2&dia=2026-11-06").get_json()["motivo"]

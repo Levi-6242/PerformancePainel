@@ -32679,7 +32679,13 @@ def api_analise_curvas():
                                               for x in inv.get("strings") or []}}
         except Exception as e:                                   # noqa: BLE001
             print(f"[analise] strings {pid} {dia}: {type(e).__name__}: {e}")
-    return jsonify({"dia": dia, "fonte": fonte, "pot": pot, "poa": poa, "str": strs, "sem_curva": not pot})
+    motivo = None
+    if not pot:                         # a CPP100 só tem o SCADA da Grid de ~16/11/2026 em diante (a Athon entrou nele em novembro)
+        motivo = ("o SCADA da Grid não tem leitura desta usina neste dia (a Athon entrou no SCADA em novembro de 2026; antes "
+                  "disso, só na SunOp, que tem cota)" if fonte == ATHON_SG_FONTE else
+                  "o SCADA da Grid não tem leitura desta usina neste dia" if fam == "scadagridco" else
+                  "o banco não tem a curva desta usina neste dia")
+    return jsonify({"dia": dia, "fonte": fonte, "pot": pot, "poa": poa, "str": strs, "sem_curva": not pot, "motivo": motivo})
 
 
 @app.route("/api/analise/gemeo")
