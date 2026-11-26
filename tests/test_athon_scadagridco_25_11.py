@@ -148,3 +148,24 @@ def test_com_a_sunop_parada_a_usina_dela_segura_a_ultima_boa_ao_lado_das_do_scad
     assert out["A"]["strings_ativas"] == 9 and out["A"]["retido"] is True  # pausada: segura sem prazo
     # sem nenhuma pelo scadaGridco, nada muda (a tabela inteira segue com o _sunop_guarda_vazio de sempre)
     assert app._athon_retem_linhas([dict(r, fonte_strings="SunOp") for r in novas], cache)[1]["sem_dados"] is True
+
+
+def test_sem_a_metadata_da_sunop_a_usina_do_scadagridco_monta_a_dela(athon, monkeypatch):
+    """25/11/2026: a SunOp no teto desde 14:50 e o servidor reiniciado às 17:58 (sem a metadata na memória): a tabela
+    inteira segurava as 14:50 com o supervisório respondendo. Agora a usina do scadaGridco monta a metadata do cadastro
+    (EQUIP_NAMES, as esperadas) e das strings que o supervisório manda, nos mesmos nomes de path, e entra na tabela
+    mesmo sem a lista de usinas da SunOp."""
+    monkeypatch.delitem(app._si("gridco")["meta"], U)
+    app._athon_sg_meta_memo.pop(U, None)
+    monkeypatch.setitem(app._sunop_plants_lista, "gridco", {})
+    monkeypatch.setattr(app, "_sunop_meta_monitorada", lambda inst="gridco": {})
+    monkeypatch.setattr(app, "_cob_entra", lambda fonte, chave: True)
+    rows = {r["plant_id"]: r for r in app.fetch_all_sunop("gridco")}
+    assert athon["sunop"] == 0
+    r = rows[U]
+    assert (r["strings_ativas"], r["str_esp"], r["diferenca"], r["fonte_strings"]) == (5, 6, -1, "scadaGridco")
+    meta = app._athon_meta(U)
+    assert meta["sintetica"] and meta["inv_strings"]["INV_2"] == [f"{U}.INV_2.MEDIDAS.STR.I_PV{n}" for n in (1, 2, 3)]
+    por = {i["id"]: i for i in app._sunop_plant_build(U, "gridco")}
+    assert athon["sunop"] == 0 and por["INV_2"]["strings_ativas"] == 2
+    app._athon_sg_meta_memo.pop(U, None)

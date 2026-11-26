@@ -1873,8 +1873,13 @@ de utilizar".
   fecharem pelo valor: rodar a conta de novo (o roteiro está na conversa de 25/11/2026) e acrescentar a usina na lista.
 - **A reserva:** a usina vai pela SunOp, no mesmo pedido, quando o de-para não cobre TODOS os inversores da metadata, o
   scadaGridco não respondeu (o 502 de 25/11/2026 à tarde), ou não há leitura boa de nenhum inversor nos últimos 30 min.
-  `ATHON_SCADA=0` no ambiente desliga tudo (volta a SunOp inteira). A metadata (os pathnames) continua vindo da SunOp,
-  uma vez por dia; sem ela a usina sai sem dados, como antes.
+  `ATHON_SCADA=0` no ambiente desliga tudo (volta a SunOp inteira).
+- **Sem a metadata da SunOp** (`_athon_sg_meta`, 25/11/2026 à noite): a SunOp parou no teto às 14:50 e o servidor
+  reiniciou às 17:58 (o push); sem a metadata na memória nem o caminho do scadaGridco rodava e a tabela inteira segurou as
+  14:50. Agora a usina do scadaGridco monta a dela (os INV_N do EQUIP_NAMES, as strings que o supervisório manda e as
+  esperadas, nos mesmos nomes de path), guardada 6 h FORA do `meta` da SunOp (quando ela volta, vale a dela), e entra na
+  tabela mesmo sem a lista de usinas da SunOp (`_athon_sg_usinas`). Medido às 22:11 nesse estado: as quatro pelo
+  scadaGridco em 2,5 s, o drill em 0,1 s.
 - **A SunOp parada** (domingo, teto do dia, borda): com parte da tabela pelo scadaGridco, ela tem leitura e o
   `_sunop_guarda_vazio` (que segurava a tabela INTEIRA quando nenhuma linha lia) não dispara. `_athon_retem_linhas` faz o
   mesmo usina a usina: a da SunOp sem leitura fica com a última linha boa dela (`retido`) se a SunOp está pausada ou se a

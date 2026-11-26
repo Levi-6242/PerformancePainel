@@ -8829,6 +8829,64 @@ def _athon_sg_mapa(plant_name, cfg, meta):
     return out or None
 
 
+# A metadata (os pathnames) é da SunOp e ela só a dá com a SunOp de pé. No dia 25/11/2026 a SunOp parou no teto às 14:50
+# e o servidor reiniciou às 17:58 (o push): sem a metadata na memória, nem o caminho do scadaGridco rodava, e a tabela
+# inteira da Athon ficou segurando a leitura das 14:50 com o supervisório respondendo. Sem a da SunOp, a usina do
+# scadaGridco monta a dela: os INV_N do EQUIP_NAMES (o cadastro), as strings que o supervisório manda e as esperadas, nos
+# MESMOS nomes de path ("CPP100.INV_3.MEDIDAS.STR.I_PV7"), então a chave das trancadas e dos tickets é a de sempre. Fica
+# fora do `meta` da SunOp (de propósito: quando ela voltar, o `ensure_sunop_meta` traz a de verdade e vale a dela).
+ATHON_SG_META_S = 6 * 3600
+_athon_sg_meta_memo = {}   # plant_name -> {"ts", "meta"}
+
+
+def _athon_sg_meta(plant_name):
+    """A metadata da usina da Athon montada do cadastro e do scadaGridco, ou None (fora da lista, de-para que não cobre
+    o cadastro, supervisório sem resposta)."""
+    cfg = _athon_sg_cfg(plant_name)
+    if not cfg:
+        return None
+    ent = _athon_sg_meta_memo.get(plant_name)
+    if ent and time.time() - ent["ts"] < ATHON_SG_META_S:
+        return ent["meta"]
+    por_nome = {}
+    for equip in (cfg.get("inversores") or {}):
+        nome = _sg.nome_inversor(cfg, equip)
+        if nome:
+            por_nome[nome] = str(equip)
+    invs = {inv: por_nome.get(nome) for inv, nome in (EQUIP_NAMES.get(plant_name) or {}).items()}
+    if not invs or any(eq is None for eq in invs.values()):
+        return None
+    try:
+        leit = {str(x.get("equip")): x for x in _sg.leituras(ATHON_SG_FONTE, cfg["id"])}
+    except Exception:                                           # noqa: BLE001 — sem o supervisório, sem a usina
+        return None
+    esp = ESPERADO_INV.get(plant_name) or {}
+    meta = {"inv_strings": {}, "inv_other": {}, "sintetica": True,
+            "plant_paths": {k: f"{plant_name}.CALC.{k}"
+                            for k in ("LOGGER.EPD", "LOGGER.TOT.P", "InvsProduzindo", "InvsParados", "InvsFalhaComunicacao")}}
+    for inv, eq in invs.items():
+        ns = set((leit.get(eq) or {}).get("strings") or {}) | set(range(1, int(esp.get(inv) or 0) + 1))
+        meta["inv_strings"][inv] = [f"{plant_name}.{inv}.MEDIDAS.STR.I_PV{n}" for n in sorted(ns)]
+        meta["inv_other"][inv] = {k: f"{plant_name}.{inv}.MEDIDAS.{k}" for k in ("P", "EPD", "TEMP_INT")}
+    _athon_sg_meta_memo[plant_name] = {"ts": time.time(), "meta": meta}
+    return meta
+
+
+def _athon_meta(plant_name, inst: str = "gridco"):
+    """A metadata da SunOp; sem ela, a da Athon do scadaGridco (`_athon_sg_meta`)."""
+    m = _si(inst)["meta"].get(plant_name)
+    if m or inst != "gridco":
+        return m
+    return _athon_sg_meta(plant_name)
+
+
+def _athon_sg_usinas(inst: str = "gridco") -> list:
+    """As usinas da Athon que o scadaGridco serve (para a lista da tabela, se a SunOp não a deu)."""
+    if inst != "gridco":
+        return []
+    return [c["usina"] for c in (_sg.FONTES.get(ATHON_SG_FONTE) or {}).get("usinas") or [] if _athon_sg_cfg(c["usina"])]
+
+
 def _athon_sg_marca(plant_name, fonte, motivo=""):
     ant = (_athon_sg_estado.get(plant_name) or {}).get("fonte")
     _athon_sg_estado[plant_name] = {"ts": time.time(), "fonte": fonte, "motivo": motivo}
@@ -8936,7 +8994,7 @@ def _sunop_last_values_multi(pedidos: dict, inst: str = "gridco", timeout: int =
     sg = {}
     if inst == "gridco":
         for u, ps in pedidos.items():
-            meta = _si(inst)["meta"].get(u)
+            meta = _athon_meta(u, inst)
             if meta and _athon_sg_cfg(u) and set(ps) <= set(_sunop_paths_tabela(meta)):
                 v = _athon_sg_valores(u, meta, ps)
                 if v is not None:
@@ -8988,7 +9046,7 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco", _lv=None) -> dict
         "energia_dia": None, "potencia_atual": None,
         "inv_desligados": 0, "strings_fora": 0, "inv_desligados_nomes": [],
     }
-    meta = _si(inst)["meta"].get(plant_name)
+    meta = _athon_meta(plant_name, inst)          # sem a da SunOp, a da Athon do scadaGridco (25/11/2026)
     if not meta:
         return base
 
@@ -9164,10 +9222,12 @@ def fetch_all_sunop(inst: str = "gridco") -> list:
     # Percorre a LISTA DE USINAS, não as que têm meta: usina sem metadata tem que virar linha
     # "sem dados" (que acende alarme de comunicação), e não sumir da tabela em silêncio.
     _nomes = (_sunop_plants_lista.get(inst) or {}).get("nomes") or list(_sunop_meta_monitorada(inst))
+    # a Athon do scadaGridco entra mesmo sem a lista da SunOp (25/11/2026: o reinício com a SunOp no teto)
+    _nomes = list(_nomes) + [n for n in _athon_sg_usinas(inst) if n not in _nomes]
     _nomes = [n for n in _nomes if _cob_entra(_sunop_fonte(inst), n)]      # Fontes do tempo real
     # o status de TODAS as usinas em lotes que atravessam usinas (SUNOP_LV_LOTE): 19 POSTs por leitura viraram 7
-    meta = _si(inst)["meta"]
-    pedidos = {p: _sunop_paths_tabela(meta[p]) for p in _nomes if meta.get(p)}
+    _metas = {p: _athon_meta(p, inst) for p in _nomes}
+    pedidos = {p: _sunop_paths_tabela(m) for p, m in _metas.items() if m}
     lv = _sunop_last_values_multi({p: ps for p, ps in pedidos.items() if ps}, inst)
     rows = [process_plant_sunop(pname, inst, _lv=lv.get(pname) or ([], 0)) for pname in _nomes]
     return sorted(rows, key=lambda x: (severidade(x), x["usina"]))
@@ -9317,7 +9377,7 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
     inversor (aí sem motivo: é o zero de verdade)."""
     ckey = (inst, plant_name)
     ensure_sunop_meta(inst)
-    meta = _si(inst)["meta"].get(plant_name)
+    meta = _athon_meta(plant_name, inst)          # sem a da SunOp, a da Athon do scadaGridco (25/11/2026)
     if not meta:
         # 2ª CHANCE, por usina: o ensure carrega tudo UMA vez por processo, e se algumas usinas
         # falharem naquele instante (throttle do SunOp) o dict fica PARCIAL para sempre — foi o
@@ -10688,7 +10748,7 @@ def _sunop_str_med_ent(plant_name: str, dia: str, inst: str = "gridco", hist: di
     ent = cache.get(key)
     if ent and (time.time() - ent["ts"]) < SUNOP_TTL and "curva" in ent:
         return ent
-    meta = _si(inst)["meta"].get(plant_name)
+    meta = _si(inst)["meta"].get(plant_name) if fonte == "sunop" else _athon_meta(plant_name, inst)
     med = 0.0
     curva = {"x": [], "y": []}
     vivas = {}   # {path: serie}  — strings vivas (não trancadas)
@@ -10863,7 +10923,7 @@ def _sunop_str_hist_varias(plants: list, dia: str, inst: str = "gridco") -> dict
 def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridco",
                          hist: dict = None) -> dict:
     ensure_sunop_meta(inst)
-    meta = _si(inst)["meta"].get(plant_name)
+    meta = _athon_meta(plant_name, inst)          # sem a da SunOp, a da Athon do scadaGridco (25/11/2026)
     if not meta:
         return {"plant_id": plant_name, "data": dia, "inversores": []}
     inv_strings = meta["inv_strings"]
