@@ -74,3 +74,64 @@ def test_a_data_de_mobilizacao_da_info_geral_vira_iso():
     assert app._data_iso("2025-10-20 00:00:00") == "2025-10-20"
     assert app._data_iso("20/10/2025") == "2025-10-20"
     assert app._data_iso(None) is None and app._data_iso("sem data") is None
+
+
+# ── entregas 2 e 3 (26/11/2026): o diagnóstico da usina, com as fontes dubladas ──────────────────────────────────────
+DIARIO = {"meta": 0.833, "pot": 3.256, "meta_ger": 18.0, "meta_poa": 7.4,
+          "pontos": [{"dia": 1, "realizado": 0.70, "geracao": 18.0, "poa": 7.9}, {"dia": 2, "realizado": 0.50, "geracao": 12.0, "poa": 7.4}]}
+DISP2 = {"periodo": ["2026-11-01", "2026-11-02"], "usinas": [{"usina": "Usina A"}],
+         "diario": {"Usina A": {"2026-11-02": {"disp": 90.0, "h_eq": 1.0, "os": [{"folio": 7, "h": 1.0, "trechos": "07:30-17:30"}]}}},
+         "oss": [{"folio": 7, "tipos": ["desligamento de inversor"], "origem": "equipamento", "aberta": True, "ini": "2026-11-02T07:30:00",
+                  "escopo": [{"usina": "Usina A", "rotulo": "Inversor 1.2"}], "protecoes": []}]}
+VIEWS = {"/api/g/diario": DIARIO, "/api/g/mensal": {"pontos": []}, "/api/g/tickets-trackers": {"trackers": []},
+         "/api/g/inversores": {"alvo": 0.833, "inversores": [{"inversor": "Inversor 1.1", "pr": 0.72, "alvo": 0.833, "ger_mwh": 9},
+                                                             {"inversor": "Inversor 1.2", "pr": 0.40, "alvo": 0.833, "ger_mwh": 5}]}}
+
+
+@pytest.fixture
+def diag(cli, monkeypatch):
+    monkeypatch.setattr(app, "_au_view", lambda fn, rota, **q: VIEWS[rota])
+    monkeypatch.setattr(app, "_falhas_disp_mes", lambda mes: DISP2)
+    monkeypatch.setattr(app, "_frac_disp_dados", lambda: {"meses": {}})
+    monkeypatch.setattr(app, "_au_inv_dias", lambda u, a, m: {"2026-11-01": {"Inversor 1.1": 9000, "Inversor 1.2": 9000, "Inversor 1.3": 9000},
+                                                            "2026-11-02": {"Inversor 1.1": 6000, "Inversor 1.2": 0.0, "Inversor 1.3": 6200}})
+    monkeypatch.setattr(app, "_au_curva_fonte", lambda u: None)          # só fonte paga: sem curva, nada na rede
+    monkeypatch.setattr(app, "_au_gemeo_id", lambda u, completo=False: None)
+    monkeypatch.setattr(app, "_au_falhas", lambda mes: {"strings": {"episodios": []}, "trackers": {"rows": []}, "strings_os": []})
+    monkeypatch.setattr(app, "_au_zeladoria", lambda: [])
+    monkeypatch.setattr(app, "_au_uid", lambda u: None)
+    app._AU_DIAG.clear()
+    return cli
+
+
+def test_o_diagnostico_junta_o_gerencial_o_bd_a_regua_do_cos_e_a_perda_de_cada_ocorrencia(diag):
+    j = diag.get("/api/analise/usina?usina=usina a&mes=2026-11").get_json()
+    assert j["usina"] == "Usina A" and j["ger"]["at"] == 96.6 and j["ger"]["meta"] == 83.3 and j["mob"] == "2025-10-20"
+    assert [d["d"] for d in j["dias"]] == [1, 2] and j["dias"][0]["disp"] == 100.0 and j["dias"][1]["disp"] == 90.0
+    oc, = j["ocorr"]
+    assert oc["os"] == "7" and oc["escopo"] == "Inversor 1.2" and oc["perda"] == 6100 and oc["metodo"] == "inversor"
+    # o limite é 85% de 83,3% = 70,8%. Dia 1: PR 70%, sem ocorrência nenhuma = sem explicação. Dia 2: PR 50% + 6,1 MWh ÷
+    # (7,4 × 3,256) = 75,3%: o inversor parado explica
+    assert j["sem_expl"] == [1] and j["dias"][0]["sem_expl"] and not j["dias"][1]["sem_expl"]
+    assert j["ofensores"][0]["t"] == "Inversor parado" and j["curva"] is None
+    assert [o["t"] for o in j["observacoes"]] == ["Dias sem explicação"]
+    assert [i["n"] for i in j["invs"]] == ["Inversor 1.1", "Inversor 1.2", "Inversor 1.3"] and j["invs"][1]["os"] == ["7"]
+
+
+def test_o_diagnostico_recusa_o_pedido_torto_e_diz_a_usina_que_nao_esta_no_gerencial(diag):
+    assert diag.get("/api/analise/usina?mes=2026-11").status_code == 400
+    assert diag.get("/api/analise/usina?usina=Usina A&mes=11-2026").status_code == 400
+    r = diag.get("/api/analise/usina?usina=Nenhuma&mes=2026-11")
+    assert r.status_code == 404 and "Nenhuma" in r.get_json()["erro"]
+    assert diag.get("/api/analise/curvas?usina=Usina A&dia=2026-11-02").get_json()["sem_curva"] is True
+    assert diag.get("/api/analise/gemeo?usina=Usina A&dia=2026-11-02").get_json()["sem_gemeo"] is True
+
+
+def test_a_observacao_do_inversor_grava_para_a_equipe_e_texto_vazio_apaga(diag):
+    r = diag.post("/api/analise/observacao", json={"usina": "Usina A", "inversor": "Inversor 1.2", "texto": "Aguardando peça"})
+    assert r.get_json()["obs"]["Inversor 1.2"]["txt"] == "Aguardando peça"
+    j = diag.get("/api/analise/usina?usina=Usina A&mes=2026-11").get_json()
+    assert j["invs"][1]["obs"]["txt"] == "Aguardando peça"
+    diag.post("/api/analise/observacao", json={"usina": "usina a", "inversor": "Inversor 1.2", "texto": ""})
+    assert json.load(open(app.STATE_PATH, encoding="utf-8"))["analise_obs"]["Usina A"] == {}
+    assert diag.post("/api/analise/observacao", json={"usina": "Usina A"}).status_code == 400

@@ -32228,6 +32228,496 @@ def api_analise_ocultas():
     return jsonify({"ok": True, "ocultas": res})
 
 
+# ── Análise das usinas, entregas 2 e 3 (26/11/2026): o diagnóstico da usina. Junta o que a plataforma já tem, sem fonte
+#    paga e sem Fracttal na hora: o Gerencial (os números do topo), o BD do dia e por inversor, a régua do COS (as
+#    ocorrências e a disponibilidade), o pacote da Falhas do mês (strings sem corrente, trackers parados e as OS de
+#    string), os chamados de tracker, a Zeladoria que o Nexus publica (a vegetação da última ronda) e as curvas do banco.
+#    As contas moram em analise_usinas.py. A cascata (24 s no mês corrente) e o mês a mês vêm em rotas à parte, para a
+#    tela não esperar por elas. ─────────────────────────────────────────────────────────────────────────────────────
+_AU_DIAG, _AU_ENERGIA, _AU_FALHAS = {}, {}, {}
+_AU_DIAG_TTL = 600
+_AU_LOCK = threading.Lock()
+_AU_FONTES_CURVA = ("pg", "greenyellow", "apolo")          # as curvas que não gastam fonte paga (banco e scadaGridco)
+_AU_ZEL = {}
+AU_ZEL_LIVRO, AU_ZEL_ABA = "nexus_zeladoria", "zeladoria_semana"
+AU_ZEL_CAB = ("semana", "data_id_semana", "usina_id", "vegetacao_nivel", "sujidade_nivel", "vala", "data_id_leitura", "os",
+              "leituras_qtd", "recomendacao", "situacao_vegetacao", "data_id_prazo_vegetacao", "data_id_situacao_vegetacao",
+              "os_zeladoria_vegetacao", "situacao_sujidade", "data_id_prazo_sujidade", "data_id_situacao_sujidade",
+              "os_zeladoria_sujidade", "data_id_ultima_supressao", "data_id_ultima_limpeza")
+
+
+def _au_view(fn, rota, **q):
+    """Uma rota GET da plataforma por dentro (o mesmo que o Criador de relatório faz com o /api/g/diario): o JSON dela."""
+    with app.test_request_context(rota, query_string=q):
+        r = fn()
+    r = r[0] if isinstance(r, tuple) else r
+    return r.get_json(silent=True) or {}
+
+
+def _au_mes(mes):
+    """(ano, mês, o mês anterior AAAA-MM, primeiro dia, último dia) de 'AAAA-MM'."""
+    a, m = int(mes[:4]), int(mes[5:7])
+    ult = calendar.monthrange(a, m)[1]
+    ant = f"{a - 1}-12" if m == 1 else f"{a}-{m - 1:02d}"
+    return a, m, ant, f"{mes}-01", f"{mes}-{ult:02d}"
+
+
+def _au_falhas(mes):
+    """O pacote da Falhas do mês (o arquivo que o worker grava, 7 MB), lido uma vez por versão do arquivo."""
+    arq = _falhas_arquivo(mes)
+    try:
+        mt = os.path.getmtime(arq)
+    except OSError:
+        return None
+    ent = _AU_FALHAS.get(mes)
+    if ent and ent[0] == mt:
+        return ent[1]
+    pac = _falhas_ler(arq)
+    with _AU_LOCK:
+        if len(_AU_FALHAS) > 3:
+            _AU_FALHAS.clear()
+        _AU_FALHAS[mes] = (mt, pac)
+    return pac
+
+
+def _au_mesma(a, b) -> bool:
+    """A mesma usina escrita por duas bases ('Santarém 2' e 'Santarem 2'; 'Piracicaba I' e 'Piracicaba 1')."""
+    return _au.nrm(a) == _au.nrm(b) or (_ger_fold(a) and _ger_fold(a) == _ger_fold(b))
+
+
+def _au_uid(usina):
+    """O usina_id do Nexus pelo Registro mestre e pelo de-para (qualquer sistema), como na disponibilidade da Thopen:
+    'Santarém 2' é a 'Santarem 1 e 2' (122) pelo BD_Thopen. Casou com mais de uma, None (nunca chutar)."""
+    try:
+        reg, _c1, _l1 = _dpf_livro("usinas").linhas()
+        dp, _c2, _l2 = _dpf_livro("de_para").linhas()
+    except Exception:                                        # noqa: BLE001 — sem o Registro, a usina fica sem a ronda
+        return None
+    k = _dpf._nome_chave(usina)
+    ids = set()
+    for x in reg or ():
+        d = _dpf._como_dict(x, _dpf.CAB_USINAS)
+        if _dpf._nome_chave(d.get("nome")) == k:
+            ids.add(str(d.get("usina_id")).split(".")[0])
+    for x in dp or ():
+        d = _dpf._como_dict(x, _dpf.CAB_DE_PARA)
+        if _dpf._nome_chave(d.get("chave_externa")) == k:
+            ids.add(str(d.get("usina_id")).split(".")[0])
+    return next(iter(ids)) if len(ids) == 1 else None
+
+
+def _au_zeladoria():
+    """As linhas da Zeladoria do Nexus (10 min de cópia, a última boa em disco), como dicts."""
+    caminho = _p_cache("analise_zeladoria.json")
+    if caminho not in _AU_ZEL:
+        _AU_ZEL[caminho] = _cob.Decisoes(_bd_api.API_BASE, lambda: "", caminho, ttl=600, livro=AU_ZEL_LIVRO, aba=AU_ZEL_ABA,
+                                         cab=AU_ZEL_CAB, nome_livro=AU_ZEL_LIVRO)
+    try:
+        return [dict(zip(AU_ZEL_CAB, x)) for x in (_AU_ZEL[caminho].linhas() or [])]
+    except Exception as e:                                   # noqa: BLE001 — sem o livro, sem a vegetação
+        print(f"[analise] zeladoria: {type(e).__name__}: {e}")
+        return []
+
+
+def _au_curva_fonte(usina):
+    """(fonte, família, plant_id) da usina numa fonte de curva gratuita (o banco da Thopen e o scadaGridco), pelo nome do
+    Tempo real; sem ela, pelo catálogo do gêmeo (o plant_id do banco). None = a usina só tem curva em fonte paga."""
+    fam = {f["fonte"]: f["familia"] for f in _pa.FONTES}
+    for f in _AU_FONTES_CURVA:
+        try:
+            for x in _pa_usinas(f):
+                if _au_mesma(re.sub(r"^\s*\(\d+\)\s*", "", x["nome"]), usina):
+                    return f, fam.get(f), x["id"]
+        except Exception:                                    # noqa: BLE001
+            continue
+    g = _au_gemeo_id(usina, completo=True)
+    if g and g.get("fonte") == "pg" and g.get("fonte_ref"):
+        return "pg", "pg", str(g["fonte_ref"])
+    return None
+
+
+_AU_GEMEO_CAT = {"ts": 0.0, "l": None}
+
+
+def _au_gemeo_get(caminho, **params):
+    r = requests.get(f"{GEMEO_URL}/gemeo/{caminho}", params=params, headers={"X-Gemeo-Senha": GEMEO_SENHA, "Accept": "application/json"},
+                     timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def _au_gemeo_id(usina, completo=False):
+    """A usina no catálogo do gêmeo ('(298) Aparecida 3' é a 'Aparecida 3'), 1 h de cópia; None sem o gêmeo."""
+    if not GEMEO_SENHA:
+        return None
+    if _AU_GEMEO_CAT["l"] is None or time.time() - _AU_GEMEO_CAT["ts"] > 3600:
+        try:
+            _AU_GEMEO_CAT.update(l=_au_gemeo_get("api/catalogo") or [], ts=time.time())
+        except Exception as e:                               # noqa: BLE001 — o gêmeo fora não derruba a tela
+            print(f"[analise] catálogo do gêmeo: {type(e).__name__}: {e}")
+            _AU_GEMEO_CAT.update(l=[], ts=time.time() - 3000)
+    for c in _AU_GEMEO_CAT["l"] or []:
+        if _au_mesma(re.sub(r"^\s*\(\d+\)\s*", "", str(c.get("nome") or "")), usina):
+            return c if completo else c.get("id")
+    return None
+
+
+def _au_curva_dia(fam, fonte, pid, dia):
+    """{pot: {inversor: {minuto: kW}}, poa: {minuto: W/m²}} de um dia, do banco ou do scadaGridco. Vazio sem leitura."""
+    out = {"pot": {}, "poa": {}}
+    try:
+        d = _pa_dia(fam, fonte, pid, datetime.strptime(dia, "%Y-%m-%d").date())
+        for i in d.get("inversores") or []:
+            out["pot"][i["nome"]] = {int(q[0]): q[1] for q in i.get("pontos") or [] if q[1] is not None}
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[analise] potência {fonte}/{pid} {dia}: {type(e).__name__}: {e}")
+    if fam == "pg":
+        try:
+            et = _au_view(api_pg_etm_chart, "/api/pg/etm/chart", plant_id=pid, date=dia)
+            for x, v in zip(et.get("labels") or [], et.get("poa") or []):
+                if v is not None:
+                    out["poa"][_au.minuto(x)] = float(v)
+        except Exception as e:                               # noqa: BLE001
+            print(f"[analise] POA {pid} {dia}: {type(e).__name__}: {e}")
+    return out
+
+
+def _au_poa_dia(pid, dia):
+    """{minuto: W/m²} da estação do banco num dia (só a POA, 0,5 s), para o dia típico; vazio sem leitura."""
+    try:
+        et = _au_view(api_pg_etm_chart, "/api/pg/etm/chart", plant_id=pid, date=dia)
+        return {_au.minuto(x): float(v) for x, v in zip(et.get("labels") or [], et.get("poa") or []) if v is not None}
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[analise] POA {pid} {dia}: {type(e).__name__}: {e}")
+        return {}
+
+
+def _au_inv_dias(usina, ano, mes):
+    """{dia ISO: {inversor: kWh}} da usina no mês pelo BD (BD_Thopen para a Thopen, BD_Performance de reserva), a mesma
+    base do histórico por inversor do Diagnóstico; por dia vale a primeira base com dado."""
+    out = {}
+    try:
+        for _origem, m_ in _inv_dias_por_base(None, usina, ano, mes):
+            for d, e in (m_ or {}).items():
+                if e.get("inv") and d not in out:
+                    out[d] = dict(e["inv"])
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[analise] inversores {usina}: {type(e).__name__}: {e}")
+    return out
+
+
+def _au_perdas(ocorr, inv_dias, dias_bd, curva):
+    """Põe em cada ocorrência quanto a usina geraria sem ela (analise_usinas): o inversor pelos outros inversores do dia,
+    a queda pela POA (as curvas do dia, em paralelo, só dos dias de queda) e, sem curva, a estimativa pelo dia típico."""
+    quedas = sorted({o["dia"] for o in ocorr if not _au.e_inversor(o["escopo"])})
+    curvas = {}
+    if curva and quedas:
+        from concurrent.futures import ThreadPoolExecutor
+        fonte, fam, pid = curva
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            for dia, c in zip(quedas, ex.map(lambda d: _au_curva_dia(fam, fonte, pid, d), quedas)):
+                curvas[dia] = c
+    poas = [c["poa"] for c in curvas.values() if c["poa"]]
+    ger = {f"{d['d']:02d}": d.get("ger") for d in dias_bd}
+    # o dia típico da queda sem curva (Santarém 2, 01 a 04/11: o banco não tem a usina) sai da POA de até 8 dias do mês
+    # com sol medido, como o mockup aprovado (lá, 18 dias: 0,83 MWh na de 03/11; só com os 2 dias de queda dava 0,77)
+    sem_curva = [d for d in quedas if not (curvas.get(d) or {}).get("pot")]
+    if curva and curva[1] == "pg" and sem_curva:
+        mes = quedas[0][:7]
+        outros = [f"{mes}-{d['d']:02d}" for d in dias_bd if d.get("ger") and f"{mes}-{d['d']:02d}" not in curvas]
+        outros = outros[-8:]
+        if outros:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                poas += [p for p in ex.map(lambda d: _au_poa_dia(curva[2], d), outros) if p]
+    for o in ocorr:
+        pe = None
+        if _au.e_inversor(o["escopo"]):
+            pe = _au.perda_inversor(inv_dias.get(o["dia"]) or {}, o["escopo"])
+        else:
+            jans = _au.janelas(o["trechos"])
+            c = curvas.get(o["dia"]) or {}
+            if c.get("pot") and c.get("poa"):
+                tot = {}
+                for pts in c["pot"].values():
+                    for m_, v in pts.items():
+                        tot[m_] = tot.get(m_, 0) + v
+                pe = _au.perda_queda(tot, c["poa"], jans)
+            if pe is None:
+                pe = _au.perda_estimada(ger.get(o["dia"][-2:]), _au.fracao_do_sol(jans, poas))
+        o.update(pe or {"geraria": None, "gerou": None, "perda": None, "metodo": None})
+    return ocorr
+
+
+def _au_diagnostico(usina, mes):
+    agora = datetime.now()
+    a, m, ant, ini, fim = _au_mes(mes)
+    corrente = mes == agora.strftime("%Y-%m")
+    g = _gerencial_payload(ano=None if corrente else a, mes=None if corrente else m)
+    row = next((x for x in g.get("usinas") or [] if _au_mesma(x.get("usina"), usina)), None)
+    if row is None:
+        return None
+    nome, cli = row.get("usina"), row.get("cliente") or ""
+    diario = _au_view(api_g_diario, "/api/g/diario", cliente=cli, usina=nome, ano=a, mes=m)
+    mensal = _au_view(api_g_mensal, "/api/g/mensal", cliente=cli, usina=nome)
+    pinv = _au_view(api_g_inversores, "/api/g/inversores", cliente=cli, usina=nome, ini=ini, fim=fim)
+    a0, m0, _, ini0, fim0 = _au_mes(ant)
+    pinv0 = _au_view(api_g_inversores, "/api/g/inversores", cliente=cli, usina=nome, ini=ini0, fim=fim0)
+    trk_ch = _au_view(api_g_tickets_trackers, "/api/g/tickets-trackers", usina=nome).get("trackers") or []
+    disp = _falhas_disp_mes(mes)
+    ig = INFO_GERAL.get(_nrm(nome)) or next((x for x in (INFO_GERAL or {}).values() if _au_mesma(x.get("usina"), nome)), None) or {}
+    # o dia a dia do BD + a régua do COS
+    ddisp = next((v for u, v in ((disp or {}).get("diario") or {}).items() if _au_mesma(u, nome)), None)
+    cobre = disp is not None and any(_au_mesma(x.get("usina"), nome) for x in disp.get("usinas") or [])
+    dias = []
+    for p in sorted(diario.get("pontos") or [], key=lambda p: p.get("dia") or 0):
+        k = f"{mes}-{int(p['dia']):02d}"
+        if k >= agora.strftime("%Y-%m-%d") and not p.get("geracao") and not p.get("poa"):
+            continue                    # o BD_Performance traz o mês inteiro: o dia que ainda não fechou sai do gráfico
+        dd = (ddisp or {}).get(k) or {}
+        dias.append({"d": int(p["dia"]), "ger": p.get("geracao"), "poa": p.get("poa"), "pr": p.get("realizado"),
+                     "disp": dd.get("disp") if dd else (100.0 if cobre and k <= disp["periodo"][1] else None)})
+    ocorr = _au.ocorrencias_usina(disp, nome, agora.date())
+    inv_dias = _au_inv_dias(nome, a, m)
+    curva = _au_curva_fonte(nome)
+    _au_perdas(ocorr, inv_dias, dias, curva)
+    _au.teto_das_quedas(ocorr, [dict(d, iso=f"{mes}-{d['d']:02d}") for d in dias], diario.get("pot"))
+    perda_dia = {}
+    for o in ocorr:
+        perda_dia[int(o["dia"][-2:])] = perda_dia.get(int(o["dia"][-2:]), 0) + (o.get("perda") or 0) / 1000
+    pot = diario.get("pot")
+    meta_pr = diario.get("meta")
+    sem_expl = _au.dias_sem_explicacao(dias, perda_dia, pot, meta_pr)
+    for d in dias:
+        d["sem_expl"] = d["d"] in sem_expl
+    dm, hm = _au.disp_mes(ddisp or {}, (disp or {}).get("periodo")) if cobre else (None, None)
+    # inversores: o PR do mês (o do Gerencial), o do mês anterior, a matriz contra os outros, a disponibilidade e as OS
+    dfull = next((u for u in (((_frac_disp_dados() or {}).get("meses") or {}).get(mes) or {}).get("usinas") or []
+                  if _au_mesma(u.get("usina"), nome)), {}) or {}
+    dinv = {_au.nrm(i.get("inversor")): i for i in dfull.get("inversores") or []}
+    mat = _au.matriz_inversores({d: v for d, v in inv_dias.items()})
+    ant_pr = {_au.nrm(i.get("inversor")): i.get("pr") for i in pinv0.get("inversores") or []}
+    with _state_lock:
+        obs_all = dict(_load_state().get("analise_obs") or {})
+    obs = next((v for k, v in obs_all.items() if _au_mesma(k, nome)), {}) or {}
+    nomes = sorted({i.get("inversor") for i in pinv.get("inversores") or [] if i.get("inversor")} | set(mat),
+                   key=lambda s: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", str(s))])
+    prinv = {_au.nrm(i.get("inversor")): i for i in pinv.get("inversores") or []}
+    dias_inv = sorted(inv_dias)
+    invs = []
+    for n in nomes:
+        p, di = prinv.get(_au.nrm(n)) or {}, dinv.get(_au.nrm(n)) or {}
+        cel = next((v for k, v in mat.items() if _au.nrm(k) == _au.nrm(n)), [])
+        invs.append({"n": n, "pr": p.get("pr"), "alvo": p.get("alvo") if p.get("alvo") is not None else pinv.get("alvo"),
+                     "ger": p.get("ger_mwh"), "esp": p.get("esp_mwh"), "out": ant_pr.get(_au.nrm(n)),
+                     "cel": [[int(dd[-2:]), c] for dd, c in zip(dias_inv, cel)],
+                     "disp": di.get("disp"), "dh": di.get("h_perdidas"),
+                     "os": sorted({o["os"] for o in ocorr if _au.nrm(o["escopo"]) == _au.nrm(n)}),
+                     "obs": (obs.get(n) or {}) if isinstance(obs.get(n), dict) else None})
+    # ofensores: a Falhas do mês (e as OS de string do mês anterior, que ainda cobrem), os chamados e a ronda
+    fal = _au_falhas(mes) or {}
+    fal0 = _au_falhas(ant) or {}
+    ep = [e for e in ((fal.get("strings") or {}).get("episodios") or []) if _au_mesma(e.get("usina"), nome)]
+    trk = [r for r in ((fal.get("trackers") or {}).get("rows") or []) if _au_mesma(r.get("usina"), nome)]
+    sos = [o for o in (fal.get("strings_os") or []) + (fal0.get("strings_os") or []) if _au_mesma(o.get("usina"), nome)]
+    uid = _au_uid(nome)
+    veg = _au.vegetacao(_au_zeladoria(), uid)
+    parados = _au.parados_sem_ocorrencia(inv_dias, ocorr)
+    ofs = _au.ofensores(ocorr, ep, sos, trk, trk_ch, veg, parados)
+    obsv = _au.observacoes(mensal, a, m, None, veg, sem_expl, ocorr)
+    ger_row = {"at": row.get("atingimento"), "pr": row.get("pr"), "meta": row.get("pr_meta"), "prod": row.get("prod"),
+               "p50": row.get("p50"), "dias": row.get("dias_cob"), "motivo": row.get("pr_motivo") or row.get("anomalia_txt"),
+               "mwp": row.get("pot_mwp")}
+    return {"usina": nome, "cliente": cli, "local": ig.get("estado") or "", "kwp": ig.get("potencia_kwp") or (pot or 0) * 1000 or None,
+            "mob": ig.get("mobilizacao"), "mes": mes, "corrente": corrente, "ger": ger_row,
+            "p50_dia": diario.get("meta_ger"), "poa_meta": diario.get("meta_poa"), "meta_pr": meta_pr, "pot": pot,
+            "dias": dias, "ocorr": [dict(o, d=int(o["dia"][-2:])) for o in ocorr],
+            "disp": {"mes": round(dm, 2) if dm is not None else None, "h": round(hm, 3) if hm is not None else None,
+                     "periodo": (disp or {}).get("periodo"), "cobre": cobre},
+            "invs": invs, "alvo": pinv.get("alvo"), "mensal": mensal.get("pontos") or [],
+            "ofensores": ofs, "observacoes": obsv, "vegetacao": veg, "sem_expl": sem_expl,
+            "curva": {"fonte": curva[0], "id": curva[2]} if curva else None, "gemeo": _au_gemeo_id(nome),
+            "trk_chamados": trk_ch, "n_trk_falhas": len({r.get("tracker") for r in trk}),
+            "frescor": {"gerencial": g.get("cache_ts"), "disp": (disp or {}).get("periodo"),
+                        "falhas": fal.get("gerado_em"), "bd_ult": max((d["d"] for d in dias if d.get("ger") is not None), default=None),
+                        "inv_ult": dias_inv[-1] if dias_inv else None}}
+
+
+@app.route("/api/analise/usina")
+def api_analise_usina():
+    """O diagnóstico de uma usina no mês (?usina=&mes=AAAA-MM; o corrente sem ele): ver _au_diagnostico. 10 min de cópia
+    por usina e mês (?force=1 refaz)."""
+    usina = " ".join(str(flask_request.args.get("usina") or "").split())
+    mes = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
+    if not usina:
+        return jsonify({"erro": "usina obrigatória"}), 400
+    if not _au.mes_valido(mes):
+        return jsonify({"erro": "mes: AAAA-MM"}), 400
+    k = (_au.nrm(usina), mes)
+    ent = _AU_DIAG.get(k)
+    if ent and time.time() - ent[0] < _AU_DIAG_TTL and flask_request.args.get("force") != "1":
+        return jsonify(ent[1])
+    t0 = time.time()
+    try:
+        d = _au_diagnostico(usina, mes)
+    except Exception as e:                                       # noqa: BLE001 — o motivo na tela, não um 500 mudo
+        import traceback
+        traceback.print_exc()
+        return jsonify({"erro": f"o diagnóstico não montou ({type(e).__name__}: {str(e)[:160]})"}), 503
+    if d is None:
+        return jsonify({"erro": f"a usina '{usina}' não está no Gerencial do mês"}), 404
+    d["montado_em"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    d["montado_s"] = round(time.time() - t0, 1)
+    with _AU_LOCK:
+        if len(_AU_DIAG) > 200:
+            _AU_DIAG.clear()
+        _AU_DIAG[k] = (time.time(), d)
+    return jsonify(d)
+
+
+def _au_cascata(cli, nome, a, m):
+    try:
+        c = _cascata_usina(cli, nome, a, m)
+    except Exception as e:                                       # noqa: BLE001
+        return {"ok": False, "motivo": f"{type(e).__name__}: {str(e)[:120]}"}
+    keys = ("ok", "motivo", "p50", "possivel", "geracao", "perda_rede", "perda_equip", "perda_trk", "perda_ipoa",
+            "nao_explicado", "poa", "poa_prev", "pr_real", "pr_meta", "dias", "trk")
+    out = {k: c.get(k) for k in keys if k in c}
+    if isinstance(out.get("trk"), dict):
+        out["trk"] = {k: out["trk"].get(k) for k in ("trackers", "frota", "paradas", "horas_solares")}
+    return out
+
+
+@app.route("/api/analise/usina/energia")
+def api_analise_usina_energia():
+    """Para onde foi a energia: a cascata do mês (?usina=&mes=) e, com ?meses=1, a de cada mês do ano até ele (em
+    paralelo; o mês fechado a cascata guarda). À parte do diagnóstico: a do mês corrente leva uns 24 s na 1ª vez."""
+    usina = " ".join(str(flask_request.args.get("usina") or "").split())
+    mes = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
+    if not usina or not _au.mes_valido(mes):
+        return jsonify({"erro": "usina e mes (AAAA-MM)"}), 400
+    meses = flask_request.args.get("meses") == "1"
+    k = (_au.nrm(usina), mes, meses)
+    ent = _AU_ENERGIA.get(k)
+    if ent and time.time() - ent[0] < _AU_DIAG_TTL:
+        return jsonify(ent[1])
+    a, m = int(mes[:4]), int(mes[5:7])
+    ig = INFO_GERAL.get(_nrm(usina)) or {}
+    cli = (ig.get("cliente") or "").strip()
+    nome = ig.get("usina") or usina
+    lista = list(range(1, m + 1)) if meses else [m]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        res = dict(zip(lista, ex.map(lambda mm: _au_cascata(cli, nome, a, mm), lista)))
+    out = {"usina": nome, "mes": mes, "cascata": res.get(m),
+           "meses": [dict(res[mm], m=mm) for mm in lista] if meses else None}
+    with _AU_LOCK:
+        if len(_AU_ENERGIA) > 200:
+            _AU_ENERGIA.clear()
+        _AU_ENERGIA[k] = (time.time(), out)
+    return jsonify(out)
+
+
+@app.route("/api/analise/curvas")
+def api_analise_curvas():
+    """As curvas de um dia para o Comparar inversores e o dia sem explicação (?usina=&dia=AAAA-MM-DD): a potência de
+    cada inversor e a POA (banco ou scadaGridco) e, no banco da Thopen, a corrente de cada string. Só no clique; a usina
+    que só tem curva em fonte paga (API PV, SunOp) volta sem curva e com o motivo."""
+    usina = " ".join(str(flask_request.args.get("usina") or "").split())
+    dia = (flask_request.args.get("dia") or "").strip()
+    if not usina or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", dia):
+        return jsonify({"erro": "usina e dia (AAAA-MM-DD)"}), 400
+    cf = _au_curva_fonte(usina)
+    if not cf:
+        return jsonify({"dia": dia, "sem_curva": True,
+                        "motivo": "a curva desta usina só existe numa fonte paga (API PV ou SunOp); a tela não a consulta"})
+    fonte, fam, pid = cf
+    c = _au_curva_dia(fam, fonte, pid, dia)
+    janela = lambda m_: 330 <= m_ <= 1110
+    pot = {n: [[m_, round(v, 1)] for m_, v in sorted(p.items()) if janela(m_) and m_ % 10 == 0] for n, p in c["pot"].items()}
+    poa = [[m_, round(v)] for m_, v in sorted(c["poa"].items()) if janela(m_) and m_ % 10 == 0]
+    strs = {}
+    if fam == "pg":
+        try:
+            cv = _pg_curva_com_copia(int(pid), dia, None)
+            for inv in cv.get("inversores") or []:
+                ss, grade = {}, set()
+                for nome_s, s in (inv.get("curva") or {}).items():
+                    vis = {}
+                    for x, y in zip(s.get("x") or [], s.get("y") or []):
+                        m_ = _au.minuto(x)
+                        if janela(m_) and m_ not in vis:
+                            vis[m_] = y
+                    ss[nome_s] = vis
+                    grade |= set(vis)
+                g_ = sorted(grade)
+                strs[inv["nome"]] = {"x": g_, "s": {n: [None if v.get(m_) is None else round(v[m_], 1) for m_ in g_] for n, v in sorted(ss.items())},
+                                     "info": {x["nome"]: [x.get("pct"), x.get("ativa")] for x in inv.get("strings") or []}}
+        except Exception as e:                                   # noqa: BLE001
+            print(f"[analise] strings {pid} {dia}: {type(e).__name__}: {e}")
+    return jsonify({"dia": dia, "fonte": fonte, "pot": pot, "poa": poa, "str": strs, "sem_curva": not pot})
+
+
+@app.route("/api/analise/gemeo")
+def api_analise_gemeo():
+    """O gêmeo de um dia da usina (?usina=&dia=AAAA-MM-DD) para a faixa do dia: a curva medida × o que o sol pedia (15
+    min) e as sugestões do dia. Pelo serviço do gêmeo, com a senha do servidor; sem o gêmeo, vazio com o motivo."""
+    usina = " ".join(str(flask_request.args.get("usina") or "").split())
+    dia = (flask_request.args.get("dia") or "").strip()
+    if not usina or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", dia):
+        return jsonify({"erro": "usina e dia (AAAA-MM-DD)"}), 400
+    gid = _au_gemeo_id(usina)
+    if not gid:
+        return jsonify({"dia": dia, "sem_gemeo": True, "motivo": "a usina não está no gêmeo digital"})
+    try:
+        g = _au_gemeo_get(f"api/usina/{gid}", periodo="dia", dia=dia)
+    except Exception as e:                                       # noqa: BLE001
+        return jsonify({"dia": dia, "sem_gemeo": True, "motivo": f"o gêmeo não respondeu ({type(e).__name__})"})
+    curva = [[c.get("hora"), c.get("esperado_kw"), c.get("medido_kw")] for c in g.get("curva") or []
+             if c.get("hora") and "05:30" <= c["hora"] <= "18:30"]
+    acoes = [{"a": a.get("acao"), "eq": a.get("equipamento"), "kwh": a.get("kwh"), "p": a.get("porque"), "tipo": a.get("tipo")}
+             for a in g.get("acoes") or [] if a.get("tipo") != "sensor_em_falha"]
+    cas = g.get("cascata") or {}
+    return jsonify({"dia": dia, "curva": curva, "acoes": acoes,
+                    "esperado_kwh": cas.get("e_esperado"), "medido_kwh": cas.get("e_medido"),
+                    "modelo": (g.get("cabecalho") or {}).get("modelo_versao")})
+
+
+@app.route("/api/analise/observacao", methods=["POST"])
+def api_analise_observacao():
+    """A observação de um inversor na tabela de PR e inversores (Levi, 25/11/2026: "incluir talvez uma observação nessa
+    tabela de inversores"), para a equipe: {usina, inversor, texto} (texto vazio apaga). Quem escreveu é o da sessão; vai
+    para logs/analise_usinas.log. O gestor só lê: o portão da porta única recusa o POST."""
+    body = flask_request.get_json(force=True, silent=True) or {}
+    usina = " ".join(str(body.get("usina") or "").split())[:120]
+    inv = " ".join(str(body.get("inversor") or "").split())[:60]
+    texto = " ".join(str(body.get("texto") or "").split())[:300]
+    if not usina or not inv:
+        return jsonify({"erro": "usina e inversor obrigatórios"}), 400
+    ident = _ident_da_sessao()
+    nick, _email = _cm.autor(ident, body.get("nick"))
+    with _state_lock:
+        d = _load_state()
+        todas = d.setdefault("analise_obs", {})
+        chave = next((k for k in todas if _au.nrm(k) == _au.nrm(usina)), usina)
+        u = todas.setdefault(chave, {})
+        if texto:
+            u[inv] = {"txt": texto, "quem": nick or "—", "ts": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        else:
+            u.pop(inv, None)
+        _save_state(d)
+        res = dict(u)
+    for k in [k for k in _AU_DIAG if k[0] == _au.nrm(usina)]:
+        _AU_DIAG.pop(k, None)
+    try:
+        os.makedirs(os.path.dirname(_AU_LOG), exist_ok=True)
+        with open(_AU_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {_quem_na_sessao()}  observação  {usina} · {inv}: {texto or '(apagou)'}\n")
+    except Exception as e:                                       # noqa: BLE001
+        print(f"[analise] log da observação: {e}")
+    return jsonify({"ok": True, "obs": res})
+
+
 # ── Sala de controle, entrega 3 (16/11/2026): o que a tela precisava e a plataforma ainda não dizia. A regra mora em
 #    sala_controle.py; aqui só a ligação com a sessão, o pacote de falhas e o SCADA da Grid. ─────────────────────────
 import sala_controle as _sala  # noqa: E402

@@ -2635,7 +2635,46 @@ ocultar usina PARA A EQUIPE e o PDF (uma página por cliente).
   lê (`leitura_nexus`: `/api/analise` em `_GET_GESTOR`, as gravações em `GRAVACOES_GESTOR`).
 - As regras (o semáforo, o pior dos três sinais, o agregado do grupo pela conta do Gerencial, a disponibilidade do mês)
   moram em `analise_usinas.py`, puro. Testes: `tests/test_analise_usinas.py` e `tests/test_analise_usinas_rotas.py`.
-- O card ainda abre o Diagnóstico de usina de sempre: o diagnóstico novo é a entrega 2.
+- O card abre o diagnóstico da usina na mesma tela (`?usina=<nome>&mes=AAAA-MM` é o link direto; Esc ou "← Análise
+  das usinas" volta).
+
+**Entregas 2 e 3 (no código, 26/11/2026): o diagnóstico da usina.** Junta o que a plataforma já tem, sem fonte paga e sem
+Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py`, testadas em
+`tests/test_analise_usina_diag.py`):
+- `GET /api/analise/usina?usina=&mes=` (10 min de cópia por usina e mês; `?force=1` refaz): os números do topo do
+  **Gerencial** (a mesma linha da visão inicial); o dia a dia do `/api/g/diario` (BD) com a disponibilidade da régua do
+  COS; as **ocorrências do COS** da usina (o `diario[usina][dia]["os"]` do índice junto com a OS: tipo, origem, o rótulo do
+  escopo NESTA usina, proteções) e a **perda de cada uma**: inversor = a mediana dos outros inversores no dia menos a dele
+  (`_au_inv_dias` = `_inv_dias_por_base`, o BD_Thopen para a Thopen); queda = a razão potência ÷ POA da hora antes e da
+  hora depois vezes a POA da janela (as curvas só dos dias de queda, em paralelo); sem curva = a geração do dia vezes a
+  fatia da janela no sol de um dia típico ("estimativa"; sem POA nenhuma, o seno das 06 às 18 h);
+  **os dias sem explicação** (o PR do dia + as perdas das ocorrências ÷ POA × potência abaixo de 85% da meta, Levi
+  25/11/2026: "85% tá ok"); os **inversores** (o PR do `/api/g/inversores` no mês e no anterior, o dia a dia contra a
+  mediana dos outros, a disponibilidade do índice, as OS das ocorrências, a observação); os **ofensores** com o que os
+  cobre (inversor parado = a ocorrência do COS, e o inversor que zerou num dia SEM ocorrência entra descoberto; tracker
+  parado = as paradas do pacote da Falhas do mês contra os chamados do `/api/g/tickets-trackers`; string sem corrente =
+  os episódios da Falhas contra as `strings_os` do mês e do anterior; **vegetação** acima de 3 na última ronda contra a
+  situação da supressão, Levi 26/11/2026: "incluir a vegetação também [...] a última ronda feita"); e as observações (a
+  meta que mudou, a cascata que estourou, a última ronda, os dias sem explicação).
+- A **vegetação** sai do livro que o Nexus publica de hora em hora, `nexus_zeladoria · zeladoria_semana` (a semana mais
+  recente da usina: nível de vegetação e sujidade da última ronda, a OS dela, a situação e o prazo da supressão, a última
+  supressão e limpeza), lido em fundo (`_cob.Decisoes`, 10 min, cópia em `cache/analise_zeladoria.json`). O livro é por
+  `usina_id` do Nexus, que é o SITE ("Santarem 1 e 2" = 122): `_au_uid` casa pelo Registro mestre e pelo de-para (qualquer
+  sistema); casou com mais de um id, fica sem a ronda (nunca chutar).
+- `GET /api/analise/usina/energia?usina=&mes=[&meses=1]`: a cascata do mês (e a de cada mês do ano, em paralelo) À PARTE,
+  porque a do mês corrente leva uns 24 s na 1ª vez (medido no servidor em 26/11; os meses fechados, 0,3 s).
+- `GET /api/analise/curvas?usina=&dia=`: só no clique (o Comparar inversores e o dia sem explicação): a potência de cada
+  inversor e a POA, e as strings no banco da Thopen. **Só fonte gratuita** (`_AU_FONTES_CURVA`: o banco e o scadaGridco);
+  a usina que só tem curva na API PV ou na SunOp volta `sem_curva` com o motivo. A usina se acha pelo Tempo real da fonte
+  e, sem ele, pelo catálogo do gêmeo (`fonte_ref` = o plant_id do banco).
+- `GET /api/analise/gemeo?usina=&dia=`: a curva do gêmeo (medido × o que o sol pedia) e as sugestões do dia, pelo serviço
+  do gêmeo com a senha do servidor (o `/gemeo/` direto não está na lista do gestor; esta rota está, sob `/api/analise`).
+- `POST /api/analise/observacao {usina, inversor, texto}`: a observação do inversor, para a equipe (`analise_obs` no
+  estado; texto vazio apaga; log em `logs/analise_usinas.log`); o gestor só lê.
+- O PDF da usina é o molde do Criador de relatório (capa com o selo, ofensores, recurso solar, inversores em barras na
+  horizontal, contabilidade de energia, ocorrências e o que tiraram, o dia a dia, o mês a mês se aberto, metodologia).
+- **Como provar sem o servidor:** a bancada do scratchpad (`bancada_analise.py`) sobe ESTE código com as fontes que só o
+  servidor tem lidas da produção (só leitura) e a trava das fontes pagas do conftest.
 
 ## Sala de controle da Performance (`/painel/sala-de-controle`, `templates/sala_controle.html`, 16/11/2026)
 

@@ -349,7 +349,8 @@
 /* Análise das usinas (25/11/2026, docs/analise-das-usinas.md): a tela que substitui o Painel NOC, o Histórico de PR e a
    Disponibilidade. Entrega 1 = a visão inicial: as usinas em cards por cliente (ou "mais urgentes"), os filtros no molde
    do Histórico de OS do OS Creator, ocultar a usina para a equipe, a lista e o PDF. Lê /api/analise/usinas e grava em
-   /api/analise/ocultas (só quem grava: o gestor só lê). O desenho veio do mockup aprovado pelo Levi. */
+   /api/analise/ocultas (só quem grava: o gestor só lê). Entregas 2 e 3 (26/11/2026) = o diagnóstico da usina, no fim
+   deste arquivo. O desenho veio do mockup aprovado pelo Levi. */
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"}[c]));
 const n1 = (v, c = 1) => v == null || isNaN(v) ? "—" : Number(v).toLocaleString("pt-BR", {minimumFractionDigits: c, maximumFractionDigits: c});
@@ -389,11 +390,16 @@ function menuSel(id, rotulo, itens, sel, o = {}) {
       ${multi ? `<div class="dd-pe">${max ? `${sel.length} de ${max}` : `${sel.length} marcado${sel.length === 1 ? "" : "s"}`}${sel.length ? `<button class="lnk" data-ddlimpa="${id}">Desmarcar</button>` : ""}</div>` : ""}</div>` : ""}</div>`;
 }
 function aoEscolher(id, v) {
+  // os seletores do diagnóstico: a usina e o mês relêem; os do Comparar marcam até 4 inversores e até 3 dias
+  if (id === "usina") { ABERTO_DD = null; if (!U || v !== U.usina) lerUsina(v, U ? U.mes : MES); else tudo(); return; }
+  if (id === "mesu") { ABERTO_DD = null; if (U && v !== U.mes) lerUsina(U.usina, v); else tudo(); return; }
+  if (id === "cinv") { CMP = CMP.includes(v) ? CMP.filter(x => x !== v) : (CMP.length < 4 ? [...CMP, v] : CMP); tudo(); return; }
+  if (id === "cdia") { const d = +v; CMP_D = CMP_D.includes(d) ? CMP_D.filter(x => x !== d) : (CMP_D.length < 3 ? [...CMP_D, d] : CMP_D); tudo(); return; }
   if (id === "fmes") { ABERTO_DD = null; if (v !== MES) { MES = v; ler(); return; } }
   else if (id === "fcli") FLD.cli = FLD.cli.includes(v) ? FLD.cli.filter(x => x !== v) : [...FLD.cli, v];
   tudo();
 }
-function limparDd(id) { if (id === "fcli") FLD.cli = []; tudo(); }
+function limparDd(id) { if (id === "fcli") FLD.cli = []; if (id === "cinv") CMP = []; if (id === "cdia") CMP_D = []; tudo(); }
 
 /* ── a visão inicial ───────────────────────────────────────────────────────────────────────────────────────────────── */
 function agg(l) {
@@ -560,22 +566,28 @@ function htmlPdfGeral() {
   return h;
 }
 function htmlPdf() {
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Análise das usinas - ${esc(nomeMes(MES))}</title><style>
-    :root{--ink:#1a1d24;--muted:#5b6472;--faint:#8a929e;--line:#e4e7ec;--panel:#f7f8fa;--green:#6aa80e}
+  const tit = VIEW === "usina" && U ? `Análise da usina - ${U.usina} - ${nomeMes(U.mes)}` : `Análise das usinas - ${nomeMes(MES)}`;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>
+    :root{--ink:#1a1d24;--muted:#5b6472;--faint:#8a929e;--line:#e4e7ec;--panel:#f7f8fa;--green:#6aa80e;--greenD:#4f7d0a;--red:#d64550;--amber:#c9870d}
     *{box-sizing:border-box}body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);font-size:12.5px;line-height:1.5;background:#fff}
     .sec{padding:28px 34px;page-break-before:always}.sec:first-child{page-break-before:avoid}
     .sechead{font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--green);text-transform:uppercase;margin:0 0 3px}.sechead .n{color:var(--faint);margin-right:9px}
     .sectitle{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 3px}.secsub{font-size:12.5px;color:var(--muted);margin:0 0 16px}
     .capa-n{font-size:30px;font-weight:800;letter-spacing:-.03em;margin:14px 0 2px}.capa-s{font-size:13px;color:var(--muted)}
+    .kicker{font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin:18px 0 8px}
     .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:0 0 8px}.tile{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--panel)}
     .tile .l{font-size:10.5px;color:var(--muted);font-weight:600}.tile .v{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:2px;font-variant-numeric:tabular-nums}.tile .s{font-size:10.5px;color:var(--faint);margin-top:1px}
     table{width:100%;border-collapse:collapse;font-size:11px}th{text-align:right;font-size:9.5px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;padding:6px 8px;border-bottom:1.5px solid var(--line)}
-    th:first-child,td:first-child{text-align:left}td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}tr{page-break-inside:avoid}
+    th:first-child,td:first-child,th.e,td.e{text-align:left}td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}tr{page-break-inside:avoid}
     .leitura{background:var(--panel);border-left:3px solid var(--green);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;margin:10px 0}
+    .pt{background:#fff7e6;border:1px solid #f0d9a8;border-radius:8px;padding:8px 12px;font-size:11.5px;margin:6px 0}.pt b{color:var(--amber)}.pt b.t{color:var(--ink)}
+    .badge{display:inline-block;padding:3px 11px;border-radius:20px;font-size:11px;font-weight:700}
+    .metod{columns:2;column-gap:26px;font-size:11px;color:var(--muted)}.metod b{color:var(--ink)}.metod div{break-inside:avoid;margin-bottom:9px}
+    .leg{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:10.5px;color:var(--muted);margin-top:4px}.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
     .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
     .foot{margin-top:24px;padding-top:10px;border-top:1px solid var(--line);font-size:10.5px;color:var(--faint);display:flex;justify-content:space-between}
     @page{size:A4;margin:12mm}@media print{.sec{padding:0}}@media screen{html{background:#eceef1}body{max-width:820px;margin:22px auto;box-shadow:0 2px 18px rgba(20,30,50,.12)}}
-    </style></head><body>${htmlPdfGeral()}<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
+    </style></head><body>${VIEW === "usina" && U ? htmlPdfUsina() : htmlPdfGeral()}<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
 }
 function exportarPdf() {
   const w = window.open("", "_blank");
@@ -603,13 +615,14 @@ async function gravaOculta(usina, oc) {
   } catch (e) { AVISO = "Não deu para gravar: " + esc(String(e && e.message || e)); }
   tudo();
 }
-function abrirUsina(u) {
-  // a entrega 2 traz o diagnóstico; até lá, o Diagnóstico de usina de sempre
-  const v = (V.usinas || []).find(x => x.u === u) || {};
-  location.href = `/painel/usina/${encodeURIComponent(nrm(u))}?hist=1&cliente=${encodeURIComponent(v.c || "")}&nome=${encodeURIComponent(u)}`;
+function abrirUsina(u) { lerUsina(u, MES); }        // o diagnóstico da usina, no mês da visão inicial
+function voltarGeral() {
+  VIEW = "geral"; AVISO = ""; history.pushState({}, "", location.pathname); scrollTo(0, 0);
+  if (!V) ler(); else tudo();
 }
 function tudo() {
   const y = scrollY;
+  if (VIEW === "usina") { $("#pag").innerHTML = diagnostico(); scrollTo(0, y); return; }
   $("#pag").innerHTML = !V ? (ERRO ? `<div class="toast" style="border-left-color:var(--critico)">A Análise das usinas não leu agora: ${esc(ERRO)}. <button class="lnk" data-reler="1">Tentar de novo</button></div>` : `<div class="toast">Lendo as usinas…</div>`)
     : geral() + (ERRO ? `<div class="toast" style="border-left-color:var(--critico)">A última leitura falhou (${esc(ERRO)}); mostrando a anterior.</div>` : "");
   scrollTo(0, y);
@@ -681,9 +694,691 @@ document.addEventListener("keydown", e => {
   if (ABERTO_DD) { ABERTO_DD = null; tudo(); return; }
   if (!menu.hidden) { menu.hidden = true; return; }
   if (FLD) { FLD = null; tudo(); return; }
-  if (VER_OC) { VER_OC = false; tudo(); }
+  if (VER_OC) { VER_OC = false; tudo(); return; }
+  if (VIEW === "usina" && !OBS_ED) voltarGeral();      // Esc no diagnóstico volta à visão inicial
 });
-ler();
+
+/* ════════════════════════════════ DIAGNÓSTICO DA USINA (entregas 2 e 3, 26/11/2026) ════════════════════════════════
+   O desenho aprovado no mockup (Santarém 2), para qualquer usina: lê /api/analise/usina (o diagnóstico, 10 min de
+   cópia), /api/analise/usina/energia (a cascata, à parte: uns 24 s no mês corrente) e, só no clique, as curvas
+   (/api/analise/curvas) e o gêmeo (/api/analise/gemeo). A observação do inversor grava em /api/analise/observacao. */
+const SEM = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+const MN = ["", "jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const CORES_INV = ["#5aa9f5", "#a3d900", "#f59a4a", "#e9eef6"];
+const MET = {queda: ["pela POA", "Potência ÷ POA da hora antes e da hora depois, vezes a POA da janela; menos o que gerou"],
+             inversor: ["pelos outros inversores", "A mediana da geração dos outros inversores no dia (BD); menos o que ele gerou"],
+             dia_tipico: ["estimativa", "Sem curva do dia: a geração do dia vezes a fatia da janela num dia de sol típico"]};
+const COMO = k => (MET[k] || [""])[0];
+const brData = iso => iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "—";
+const dataBR = iso => iso ? String(iso).slice(8, 10) + "/" + String(iso).slice(5, 7) : "";
+const dd2 = d => String(d).padStart(2, "0");
+
+let VIEW = "geral", U = null, UERR = "", ULENDO = false, UE = null, UEERR = "", UM = null, UMLENDO = false;
+let DIA = null, MODO_DIA = "mes", PONTE = "mes", PR_MM = false, INV_ABERTO = null, ACH = null, ACH_REC = false, OBS_ED = null;
+let CMP = [], CMP_D = [], CMP_G = "pot", CMP_GEO = null;
+const SER = {ger: true, pr: true, poa: true};
+const CURVAS = {}, GEMEO = {};            // {dia ISO: resposta} (ou {lendo: true}) das curvas e do gêmeo, lidos no clique
+
+const ano = () => +String(U ? U.mes : MES).slice(0, 4), mesN = () => +String(U ? U.mes : MES).slice(5, 7);
+const diaIso = d => `${U.mes}-${dd2(d)}`;
+const nomeDia = d => `${dd2(d)}/${dd2(mesN())}, ${SEM[new Date(ano(), mesN() - 1, d).getDay()]}`;
+const perdaTipo = (d, tipo) => U.ocorr.filter(o => o.d === d && (tipo === "queda" ? !/^inversor/i.test(o.escopo) : /^inversor/i.test(o.escopo))).reduce((a, o) => a + (o.perda || 0), 0) / 1000;
+const perdaDia = d => U.ocorr.filter(o => o.d === d).reduce((a, o) => a + (o.perda || 0), 0) / 1000;
+const perdaMes = () => U.ocorr.reduce((a, o) => a + (o.perda || 0), 0) / 1000;
+const ehQueda = o => !/^inversor/i.test(o.escopo);
+const geradoMes = () => U.dias.reduce((a, d) => a + (d.ger || 0), 0);
+const metaPr = () => U.meta_pr || (U.ger.meta ? U.ger.meta / 100 : null);
+
+/* ── ler ─────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+async function lerJson(url) {
+  const r = await fetch(url, {credentials: "same-origin"});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erro || ("HTTP " + r.status));
+  return j;
+}
+async function lerUsina(nome, mes, empurra = true) {
+  VIEW = "usina"; U = null; UERR = ""; ULENDO = true; UE = null; UEERR = ""; UM = null; DIA = null; MODO_DIA = "mes"; PONTE = "mes"; PR_MM = false;
+  INV_ABERTO = null; ACH = null; OBS_ED = null; CMP = []; CMP_D = []; AVISO = "";
+  for (const k of Object.keys(CURVAS)) delete CURVAS[k];
+  for (const k of Object.keys(GEMEO)) delete GEMEO[k];
+  if (empurra) history.pushState({usina: nome, mes}, "", `?usina=${encodeURIComponent(nome)}&mes=${encodeURIComponent(mes)}`);
+  scrollTo(0, 0); tudo();
+  try {
+    U = await lerJson(`/api/analise/usina?usina=${encodeURIComponent(nome)}&mes=${encodeURIComponent(mes)}`);
+    const comDado = U.dias.filter(d => d.ger != null);
+    DIA = U.sem_expl.length ? U.sem_expl[U.sem_expl.length - 1] : (comDado.length ? comDado[comDado.length - 1].d : null);
+    const piores = U.invs.filter(v => v.pr != null).sort((a, b) => a.pr - b.pr);
+    CMP = piores.slice(0, 2).map(v => v.n).concat(piores.length > 2 ? [piores[piores.length - 1].n] : []);
+    CMP_D = DIA ? [DIA] : [];
+  } catch (e) { UERR = String(e && e.message || e); }
+  ULENDO = false; tudo();
+  if (U) lerEnergia();
+}
+async function lerEnergia() {
+  try { UE = await lerJson(`/api/analise/usina/energia?usina=${encodeURIComponent(U.usina)}&mes=${encodeURIComponent(U.mes)}`); }
+  catch (e) { UEERR = String(e && e.message || e); }
+  tudo();
+}
+async function lerMeses() {
+  if (UM || UMLENDO) return;
+  UMLENDO = true; tudo();
+  try { UM = await lerJson(`/api/analise/usina/energia?usina=${encodeURIComponent(U.usina)}&mes=${encodeURIComponent(U.mes)}&meses=1`); }
+  catch (e) { UM = {erro: String(e && e.message || e)}; }
+  UMLENDO = false; tudo();
+}
+async function lerCurva(d) {
+  const k = diaIso(d);
+  if (CURVAS[k]) return;
+  CURVAS[k] = {lendo: true}; tudo();
+  try { CURVAS[k] = await lerJson(`/api/analise/curvas?usina=${encodeURIComponent(U.usina)}&dia=${k}`); }
+  catch (e) { CURVAS[k] = {erro: String(e && e.message || e)}; }
+  tudo();
+}
+async function lerGemeo(d) {
+  const k = diaIso(d);
+  if (GEMEO[k]) return;
+  GEMEO[k] = {lendo: true}; tudo();
+  try { GEMEO[k] = await lerJson(`/api/analise/gemeo?usina=${encodeURIComponent(U.usina)}&dia=${k}`); }
+  catch (e) { GEMEO[k] = {erro: String(e && e.message || e)}; }
+  tudo();
+}
+async function gravaObs(inv, texto) {
+  try {
+    const corpo = {usina: U.usina, inversor: inv, texto};
+    const r = await (EU.grava ? EU.grava("/api/analise/observacao", corpo) : fetch("/api/analise/observacao", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpo)}).then(x => x.json()));
+    const o = (r && r.obs) || {};
+    U.invs.forEach(v => { v.obs = o[v.n] || null; });
+    AVISO = "";
+  } catch (e) { AVISO = "Não deu para gravar a observação: " + esc(String(e && e.message || e)); }
+  tudo();
+}
+
+/* ── o topo, o parecer e os 5 números (a régua do topo é o Gerencial, decisão de 25/11/2026) ─────────────────────── */
+function itensUsina() { return V ? V.usinas.map(u => ({v: u.u, t: u.u, sub: u.c})) : (U ? [{v: U.usina, t: U.usina, sub: U.cliente}] : []); }
+function topoUsina() {
+  const fic = [esc(U.cliente), U.local ? esc(U.local) : "", U.kwp ? n1(U.kwp, 0) + " kWp" : "", U.invs.length ? U.invs.length + " inversores" : "",
+    U.n_trk_falhas ? (U.n_trk_falhas > 1 ? U.n_trk_falhas + " trackers pararam no mês" : "1 tracker parou no mês") : "", U.mob ? "mobilizada em " + brData(U.mob) : ""].filter(Boolean).join(" · ");
+  return `<div class="topo"><div><div class="olho"><button class="volta" data-view="geral">← Análise das usinas</button></div><h1>${esc(U.usina)}</h1>
+      <div class="ficha">${fic}</div></div>
+    <div class="filtros">${menuSel("usina", "Usina", itensUsina(), [U.usina], {multi: false, larg: 330, largBt: 230, ph: "Digite a usina"})}${menuSel("mesu", "Mês", ITENS_MES, [U.mes], {multi: false, larg: 250, largBt: 200})}${botaoExportar()}</div></div>
+    ${AVISO ? `<div class="toast">${AVISO}</div>` : ""}`;
+}
+function parecer() {
+  const g = U.ger, at = g.at != null ? g.at / 100 : null, rpr = g.pr != null && g.meta ? g.pr / g.meta : null;
+  const cor = [at == null ? "neutro" : sem3(at), rpr == null ? "neutro" : sem3(rpr), semDisp(U.disp.mes)].filter(x => x !== "neutro").sort((a, b) => ORDEM_SEM[a] - ORDEM_SEM[b])[0] || "neutro";
+  const of = U.ofensores[0], pm = perdaMes();
+  const txt = at == null ? `Sem a geração do mês no Gerencial${g.motivo ? ` (${esc(g.motivo)})` : ""}.`
+    : `Gerou <strong>${n1(g.at, 0)}% do P50</strong> com PR de <strong>${n1(g.pr)}%</strong>${g.meta ? ` (meta ${n1(g.meta)}%)` : ""}.`
+      + (pm > 0.05 ? ` As ocorrências do COS tiraram <strong>${n1(pm)} MWh</strong>.` : "")
+      + (of ? ` Comece por <strong>${esc(of.t.toLowerCase())}</strong>: ${esc(of.s)}.` : " Nenhum ofensor no mês.");
+  return `<section class="bloco parecer" style="border-left-color:${COR[cor]}"><span class="selo" style="color:${COR[cor]};border:1px solid ${COR[cor]}">${cor === "ok" ? "No esperado" : cor === "neutro" ? "Sem dado" : "Abaixo do esperado"}</span><p>${txt}</p></section>`;
+}
+function kpisUsina() {
+  const g = U.ger, at = g.at != null ? g.at / 100 : null, pm = perdaMes(), oss = new Set(U.ocorr.map(o => o.os));
+  const ab = new Set(U.ocorr.filter(o => o.aberta).map(o => o.os)), qd = new Set(U.ocorr.filter(ehQueda).map(o => o.os));
+  const k = [
+    ["Geração × P50", at == null ? "—" : n1(g.at) + "%", at == null ? "neutro" : sem3(at), at == null ? esc(g.motivo || "sem dado") : `<b>${n1(g.prod)}</b> de ${n1(g.p50)} MWh · ${g.dias || "—"} dias`],
+    ["PR", g.pr == null ? "—" : n1(g.pr) + "%", g.pr != null && g.meta ? sem3(g.pr / g.meta) : "neutro", g.meta ? `meta <b>${n1(g.meta)}%</b>${g.pr != null ? " · " + pp(g.pr - g.meta) : ""}` : "sem meta"],
+    ["Disponibilidade", U.disp.mes == null ? "—" : n1(U.disp.mes) + "%", semDisp(U.disp.mes), U.disp.mes == null ? "a régua do COS não cobre a usina" : `${n1(U.disp.h, 1)} h perdidas · ocorrências do COS`],
+    ["Perda nas ocorrências", n1(pm) + " MWh", pm <= 0 ? "ok" : g.prod && pm / (g.prod + pm) > .05 ? "critico" : "alerta", g.prod ? `sem elas geraria <b>${n1(g.prod + pm)}</b> MWh${g.p50 ? " · " + n1((g.prod + pm) / g.p50 * 100, 0) + "% do P50" : ""}` : ""],
+    ["Ocorrências do COS", String(oss.size), oss.size ? "alerta" : "ok", `${ab.size} aberta${ab.size === 1 ? "" : "s"} · ${qd.size} queda${qd.size === 1 ? "" : "s"} no mês`],
+  ];
+  return `<section class="bloco kpis">${k.map(x => `<div class="kpi"><div class="r">${x[0]}</div><div class="v num" style="color:${COR[x[2]]}">${x[1]}</div><div class="e">${x[3]}</div></div>`).join("")}</section>`;
+}
+
+/* ── ofensores e observações (Levi, 25/11/2026; a vegetação em 26/11) ─────────────────────────────────────────────── */
+function achados() {
+  const it = U.ofensores, ob = U.observacoes;
+  if (!it.length && !ob.length) return "";
+  return `<section class="bloco" id="ach"><button class="cab cab-rec" data-achrec="1" aria-expanded="${!ACH_REC}"><h2><span class="seta">${ACH_REC ? "▸" : "▾"}</span> Ofensores</h2><span class="sub">${ACH_REC ? `${it.length} ofensores e ${ob.length} observações · clique para abrir` : "o que tira energia da usina e o que já cobre cada um · clique para recolher"}</span></button>
+    ${ACH_REC ? "" : `${it.length ? `<ol class="ach">${it.map((c, i) => `<li><button class="lin" data-ach="${i}" aria-expanded="${ACH === i}"><span class="n" style="background:${COR[c.sev]}">${i + 1}</span>
+      <span class="t">${esc(c.t)}<small>${esc(c.s)}</small></span><span class="cob cob-${c.cob.tom}">${esc(c.cob.txt)}</span><span class="p"><b>Próximo passo</b>${esc(c.p)}</span><span class="mais">${ACH === i ? "−" : "+"}</span></button>
+      ${ACH === i ? `<div class="corpo">${c.c.map(k => `<div><b>${esc(k[0])}</b>${esc(k[1])}</div>`).join("")}</div>` : ""}</li>`).join("")}</ol>` : `<div style="color:var(--mudo)">Nenhum ofensor no mês: sem ocorrência de inversor, tracker parado, string sem corrente nem vegetação alta.</div>`}
+    ${ob.length ? `<div class="obs-l"><div class="tit">Observações</div>${ob.map(o => `<div class="ob"><b>${esc(o.t)}</b> · ${esc(o.s)}. <span>${esc(o.p)}</span></div>`).join("")}</div>` : ""}`}</section>`;
+}
+
+/* ── para onde foi a energia: a cascata do mês (à parte) ou o mês a mês ───────────────────────────────────────────── */
+function ponte() {
+  const cab = `<div class="cab"><h2>Para onde foi a energia</h2><span class="seg" role="group" aria-label="Período">${[["mes", `${MN[mesN()]}/${String(ano()).slice(2)}`], ["mm", "Mês a mês"]].map(b => `<button data-ponte="${b[0]}" aria-pressed="${PONTE === b[0]}">${b[1]}</button>`).join("")}</span></div>`;
+  if (PONTE === "mm") return `<section class="bloco" id="ponte">${cab}${mesAMes()}</section>`;
+  if (!UE) return `<section class="bloco" id="ponte">${cab}<div class="toast">${UEERR ? `A conta de energia não veio: ${esc(UEERR)}.` : "Calculando a conta de energia do mês (a cascata leva alguns segundos)…"}</div></section>`;
+  const c = UE.cascata || {};
+  if (!c.ok) return `<section class="bloco" id="ponte">${cab}<div class="toast">Sem a cascata deste mês${c.motivo ? ": " + esc(c.motivo) : ""}.</div></section>`;
+  const sol = c.possivel - c.p50;
+  const hach = `<defs><pattern id="hx" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,143,60,.22)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--severo)" stroke-width="2.4"/></pattern>
+    <pattern id="hi" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(124,183,255,.2)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--info)" stroke-width="2.4"/></pattern></defs>`;
+  const P = [
+    {r: "P50", s: "meta do BD", v: c.p50, tipo: "total", cor: "var(--linha2)"},
+    {r: sol >= 0 ? "Sol acima" : "Sol abaixo", s: sol >= 0 ? "mais energia" : "expurgo", v: sol, tipo: "delta", cor: sol >= 0 ? "color-mix(in srgb,var(--info) 40%,transparent)" : "url(#hi)"},
+    {r: "Queda de rede", s: "expurgo", v: -(c.perda_rede || 0), tipo: "delta", cor: "url(#hx)"},
+    {r: "Equipamento", s: "operação", v: -(c.perda_equip || 0), tipo: "delta", cor: "var(--critico)"},
+    {r: "Trackers", s: "operação", v: -(c.perda_trk || 0), tipo: "delta", cor: "var(--alerta)"},
+    {r: "Não explicado", s: "o resto", v: -(c.nao_explicado || 0), tipo: "delta", cor: "var(--neutro)"},
+    {r: "Gerado", s: "BD", v: c.geracao, tipo: "total", cor: "var(--c-ger)"},
+  ];
+  const topo = Math.max(c.p50, c.possivel, c.geracao, c.possivel - (c.perda_rede || 0) + Math.max(0, -(c.nao_explicado || 0)));
+  const passo = topo > 2000 ? 500 : topo > 800 ? 200 : topo > 400 ? 100 : topo > 100 ? 50 : 10;
+  const max = Math.ceil(topo * 1.12 / passo) * passo;
+  const W = 900, Hh = 250, top = 24, bot = 40, y = v => top + (Hh - top - bot) * (1 - v / max), bw = 84, gap = (W - 40 - bw * P.length) / (P.length - 1);
+  let acc = 0, s = hach;
+  for (let t = 0; t <= max; t += passo) s += `<line x1="40" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="var(--linha)"/><text x="34" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="var(--fraco)">${t}</text>`;
+  P.forEach((p, i) => {
+    const x = 40 + i * (bw + gap);
+    let a, b;
+    if (p.tipo === "total") { a = 0; b = p.v; acc = p.v; } else { a = acc; b = acc + p.v; acc = b; }
+    const ya = y(Math.max(a, b)), yb = y(Math.min(a, b));
+    s += `<rect x="${x}" y="${ya}" width="${bw}" height="${Math.max(2, yb - ya)}" rx="3" fill="${p.cor}"><title>${p.r}: ${n1(p.v)} MWh</title></rect>`;
+    s += `<text x="${x + bw / 2}" y="${ya - 7}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--tinta)">${p.tipo === "total" ? n1(p.v) : (p.v > 0 ? "+" : p.v < 0 ? "−" : "") + n1(Math.abs(p.v))}</text>`;
+    s += `<text x="${x + bw / 2}" y="${Hh - bot + 17}" text-anchor="middle" font-size="12" fill="var(--tinta)">${p.r}</text><text x="${x + bw / 2}" y="${Hh - bot + 32}" text-anchor="middle" font-size="10.5" fill="${p.s === "expurgo" ? "var(--severo)" : "var(--fraco)"}">${p.s}</text>`;
+    if (i < P.length - 1) s += `<line x1="${x + bw}" x2="${x + bw + gap}" y1="${y(acc)}" y2="${y(acc)}" stroke="var(--fraco)" stroke-dasharray="2 3"/>`;
+  });
+  const pq = U.ocorr.filter(ehQueda).reduce((a, o) => a + (o.perda || 0), 0) / 1000, pi = U.ocorr.filter(o => !ehQueda(o)).reduce((a, o) => a + (o.perda || 0), 0) / 1000;
+  const exp = (c.perda_rede || 0) + Math.max(0, -sol), op = (c.perda_equip || 0) + (c.perda_trk || 0);
+  const lado = `<div class="resumo">
+      <div class="it" style="border-color:var(--severo)"><div class="r">Expurgos</div><div class="v num">${n1(exp)} MWh</div><div class="e">${sol < 0 ? `sol abaixo ${n1(-sol)} · ` : ""}queda de rede ${n1(c.perda_rede)} · pelas ocorrências do COS ${n1(pq)}</div></div>
+      <div class="it" style="border-color:var(--critico)"><div class="r">Operação</div><div class="v num">${n1(op)} MWh</div><div class="e">equipamento ${n1(c.perda_equip)} · trackers ${n1(c.perda_trk)} · inversor parado pelas ocorrências ${n1(pi)}</div></div>
+      <div class="it" style="border-color:var(--neutro)"><div class="r">Não explicado</div><div class="v num" style="${c.nao_explicado < 0 ? "color:var(--critico)" : ""}">${n1(c.nao_explicado)} MWh</div>
+        <div class="e">${c.nao_explicado < 0 ? "negativo: a conta estourou" : "o que a conta não atribui"}</div></div></div>`;
+  return `<section class="bloco" id="ponte">${cab}<div class="ponte-g"><div class="rola"><svg viewBox="0 0 ${W} ${Hh}" width="100%" style="min-width:640px" role="img" aria-label="Do P50 ao gerado">${s}</svg></div>${lado}</div>
+     ${c.nao_explicado < 0 ? `<div class="alerta-l">Neste mês a conta estourou: a cascata pôs mais perda em equipamento do que a usina perdeu (conta cada hora de OS como a usina inteira parada). Corrigir antes de usar como nota.</div>` : ""}
+     <div class="sub" style="margin-top:6px;color:var(--mudo)">A cascata tem a régua dela (PR ${pc(c.pr_real)}); os números do topo são os do Gerencial.</div></section>`;
+}
+function mesAMes() {
+  if (!UM) { lerMeses(); return `<div class="toast">Calculando a conta de energia de cada mês do ano…</div>`; }
+  if (UM.erro) return `<div class="toast">O mês a mês não veio: ${esc(UM.erro)}.</div>`;
+  const Hs = (UM.meses || []).filter(h => h.ok).map(h => ({...h, solab: Math.max(0, h.p50 - h.possivel)}));
+  if (!Hs.length) return `<div class="toast">Sem a cascata de nenhum mês do ano.</div>`;
+  const W = 1200, top = 26, hB = 200, x0 = 44, cw = (W - x0 - 10) / Hs.length;
+  const CAT = [["perda_equip", "Equipamento", "var(--critico)"], ["perda_trk", "Trackers", "var(--alerta)"], ["perda_rede", "Queda de rede", "url(#hx2)"], ["nao_explicado", "Não explicado", "var(--neutro)"], ["solab", "Sol abaixo", "url(#hi2)"]];
+  const tot = h => CAT.reduce((a, [k]) => a + Math.max(0, h[k] || 0), 0);
+  const srt = Hs.map(tot).sort((a, b) => a - b), max = Math.max(10, Math.ceil((srt[Math.floor(srt.length * .8)] || srt[srt.length - 1]) * 1.25 / 10) * 10);
+  const y = v => top + hB * (1 - Math.min(v, max) / max);
+  let s = `<defs><pattern id="hx2" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,143,60,.22)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--severo)" stroke-width="2.4"/></pattern><pattern id="hi2" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(124,183,255,.2)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--info)" stroke-width="2.4"/></pattern></defs>`;
+  [0, .25, .5, .75, 1].forEach(f => { const t = Math.round(max * f); s += `<line x1="${x0}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="var(--linha)"/><text x="${x0 - 6}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="var(--fraco)">${t}</text>`; });
+  Hs.forEach((h, i) => {
+    const x = x0 + i * cw, bw = cw * .5, xb = x + (cw - bw) / 2;
+    let acc = 0;
+    CAT.forEach(([k, r, cor]) => { const q = Math.max(0, h[k] || 0); if (!q) return; const ya = y(acc + q), yb = y(acc);
+      s += `<rect x="${xb}" y="${ya}" width="${bw}" height="${Math.max(0, yb - ya)}" fill="${cor}"><title>${MN[h.m]}: ${r} ${n1(h[k])} MWh</title></rect>`; acc += q; });
+    if (acc > max) s += `<text x="${x + cw / 2}" y="${top - 8}" text-anchor="middle" font-size="11" fill="var(--critico)" font-weight="600">${n1(acc, 0)} ↑</text>`;
+    s += `<text x="${x + cw / 2}" y="${top + hB + 16}" text-anchor="middle" font-size="12" fill="${h.m === mesN() ? "var(--verde)" : "var(--tinta)"}">${MN[h.m]}</text>`;
+    s += `<text x="${x + cw / 2}" y="${top + hB + 31}" text-anchor="middle" font-size="11" fill="${COR[sem3(h.p50 ? h.geracao / h.p50 : null)]}">${h.p50 ? pc(h.geracao / h.p50, 0) : "—"}</text>`;
+  });
+  s += `<text x="${x0 - 6}" y="${top + hB + 31}" text-anchor="end" font-size="10" fill="var(--fraco)">× P50</text>`;
+  const lin = Hs.map(h => `<tr><td>${MN[h.m]}</td><td>${n1(h.p50)}</td><td>${n1(h.geracao)}</td><td style="color:${COR[sem3(h.p50 ? h.geracao / h.p50 : null)]}">${h.p50 ? pc(h.geracao / h.p50, 0) : "—"}</td><td>${n1(h.solab)}</td><td>${n1(h.perda_rede)}</td><td>${n1(h.perda_equip)}</td><td>${n1(h.perda_trk)}</td><td style="${h.nao_explicado < 0 ? "color:var(--critico)" : ""}">${n1(h.nao_explicado)}</td><td style="color:${COR[sem3(h.pr_meta ? h.pr_real / h.pr_meta : null)]}">${pc(h.pr_real)}</td><td>${pc(h.pr_meta)}</td></tr>`).join("");
+  return `<div class="rola"><svg viewBox="0 0 ${W} ${top + hB + 40}" width="100%" style="min-width:700px" role="img" aria-label="Perda por mês">${s}</svg></div>
+    <div class="legenda" style="margin-top:4px"><b style="color:var(--tinta);font-weight:600">Expurgos</b><span><i style="background:repeating-linear-gradient(45deg,var(--info) 0 2px,transparent 2px 5px)"></i>sol abaixo do previsto</span><span><i style="background:repeating-linear-gradient(45deg,var(--severo) 0 2px,transparent 2px 5px)"></i>queda de rede</span>
+      <b style="color:var(--tinta);font-weight:600;margin-left:10px">Operação</b><span><i style="background:var(--critico)"></i>equipamento</span><span><i style="background:var(--alerta)"></i>trackers</span><span style="margin-left:10px"><i style="background:var(--neutro)"></i>não explicado</span>${srt[srt.length - 1] > max ? `<span>a seta marca o mês que passa da escala</span>` : ""}</div>
+    <details class="fontes" style="margin-top:10px"><summary>Ver os números (MWh)</summary><div class="rola"><table class="th"><thead><tr><th>Mês</th><th>P50</th><th>Gerado</th><th>× P50</th><th>Sol abaixo</th><th>Rede</th><th>Equip.</th><th>Trackers</th><th>Não expl.</th><th>PR</th><th>Meta</th></tr></thead><tbody>${lin}</tbody></table></div></details>`;
+}
+
+/* ── dia a dia: um gráfico só (geração, PR e POA; a legenda liga e desliga), o que as ocorrências tiraram em cima da
+   barra (amarelo = inversor parado, laranja = queda), os dias sem explicação marcados e o Comparar inversores ─────── */
+function diaADia() {
+  const bt = MODO_DIA === "mes" ? `<button class="btn" data-modo="cmp">Comparar inversores</button>` : `<button class="btn" data-modo="mes">← Voltar ao mês</button>`;
+  const gm = geradoMes(), pm = perdaMes(), pi = U.dias.reduce((a, d) => a + perdaTipo(d.d, "inv"), 0), pq = U.dias.reduce((a, d) => a + perdaTipo(d.d, "queda"), 0);
+  const conta = MODO_DIA === "mes" ? `<span class="sub conta">gerado <b>${n1(gm)} MWh</b>${pm > 0 ? ` · sem as ocorrências do COS geraria <b>${n1(gm + pm)} MWh</b> <b style="color:var(--alerta)">(+${n1(pm)})</b>: inversor parado ${n1(pi)} · quedas <b style="color:var(--severo)">${n1(pq)}</b>` : ""}</span>` : "";
+  if (!U.dias.length) return `<section class="bloco" id="dia"><div class="cab"><h2>Dia a dia</h2></div><div class="toast">Sem o dia a dia desta usina no BD neste mês.</div></section>`;
+  return `<section class="bloco" id="dia"><div class="cab"><div style="display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline"><h2>${MODO_DIA === "mes" ? "Dia a dia" : "Comparar inversores"}</h2>${conta}</div>${bt}</div>${MODO_DIA === "cmp" ? compararInversores() : graficoDias() + faixaDia()}</section>`;
+}
+function graficoDias() {
+  const mp = metaPr(), W = 1300, top = 30, hB = 210, n = U.dias.length, x0 = 44, xr = 92, cw = (W - x0 - xr) / Math.max(n, 1);
+  const gmax = Math.max(1, ...U.dias.map(d => (d.ger || 0) + perdaDia(d.d))), pg = gmax > 40 ? 10 : gmax > 15 ? 5 : gmax > 6 ? 2 : gmax > 2 ? .5 : .1, gtop = Math.ceil(gmax * 1.12 / pg) * pg;
+  const poamax = Math.max(1, ...U.dias.map(d => d.poa || 0)), ptop = Math.ceil(poamax * 1.15), prtop = Math.min(150, Math.max(100, Math.ceil(Math.max(...U.dias.map(d => (d.pr || 0) * 100)) / 25) * 25));   // o sensor de POA ruim (PR de 1.170% num dia) não achata o mês
+  const y = v => top + hB * (1 - v / gtop), yP = v => top + hB * (1 - Math.min(v, prtop) / prtop), yI = v => top + hB * (1 - v / ptop);
+  let s = "";
+  for (let t = 0; t <= gtop + 1e-9; t += pg) s += `<line x1="${x0}" x2="${W - xr}" y1="${y(t)}" y2="${y(t)}" stroke="var(--linha)"/>${SER.ger ? `<text x="${x0 - 6}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="var(--c-ger)">${n1(t, pg < 1 ? 1 : 0)}</text>` : ""}`;
+  if (SER.pr) for (let t = 0; t <= prtop; t += 25) s += `<text x="${W - xr + 6}" y="${yP(t) + 4}" font-size="11" fill="var(--tinta)">${t}%</text>`;
+  if (SER.poa) [0, .5, 1].forEach(f => { const t = ptop * f; s += `<text x="${W - 4}" y="${yI(t) + 4}" text-anchor="end" font-size="11" fill="var(--c-poa)">${n1(t, 0)}</text>`; });
+  s += `${SER.ger ? `<text x="${x0 - 6}" y="${top - 16}" text-anchor="end" font-size="10" fill="var(--c-ger)">MWh</text>` : ""}${SER.pr ? `<text x="${W - xr + 6}" y="${top - 16}" font-size="10" fill="var(--tinta)">PR</text>` : ""}${SER.poa ? `<text x="${W - 4}" y="${top - 16}" text-anchor="end" font-size="10" fill="var(--c-poa)">kWh/m²</text>` : ""}`;
+  const yD = top + hB + 20, yO = yD + 20, yX = yO + 22;
+  let lPR = "", lPOA = "", abPR = false, abPOA = false;
+  U.dias.forEach((d, i) => {
+    const x = x0 + i * cw, bw = cw * .58, xb = x + (cw - bw) / 2, sel = d.d === DIA, cx = x + cw / 2, ger = d.ger || 0;
+    s += `<g data-dia="${d.d}" style="cursor:pointer"><rect x="${x}" y="${top - 8}" width="${cw}" height="${yX - top + 14}" fill="${sel ? "rgba(163,217,0,.08)" : "transparent"}"/>`;
+    if (SER.ger && d.ger != null) s += `<rect x="${xb}" y="${y(ger)}" width="${bw}" height="${y(0) - y(ger)}" rx="3" fill="var(--c-ger)" opacity="${sel ? .8 : .55}"/>`;
+    const pi = perdaTipo(d.d, "inv"), pq = perdaTipo(d.d, "queda");
+    if (SER.ger && pi > 0) s += `<rect x="${xb}" y="${y(ger + pi)}" width="${bw}" height="${Math.max(1.5, y(ger) - y(ger + pi))}" rx="2" fill="var(--alerta)" opacity="${sel ? 1 : .8}"/>`;
+    if (SER.ger && pq > 0) s += `<rect x="${xb - 1}" y="${y(ger + pi + pq)}" width="${bw + 2}" height="${Math.max(3, y(ger + pi) - y(ger + pi + pq))}" rx="2" fill="var(--severo)"/>`;
+    s += `<rect x="${x + 3}" y="${yD - 8}" width="${cw - 6}" height="12" rx="2" fill="${d.disp == null ? "var(--linha2)" : d.disp >= 98 ? "color-mix(in srgb,var(--ok) 45%,transparent)" : COR[semDisp(d.disp)]}"/>`;
+    const temQ = U.ocorr.some(o => o.d === d.d && ehQueda(o));
+    if (d.sem_expl) s += `<rect x="${cx - 6}" y="${yO - 8}" width="12" height="12" rx="2" fill="none" stroke="var(--critico)" stroke-width="2.2"/>`;
+    else if (temQ) s += `<circle cx="${cx}" cy="${yO - 2}" r="5" fill="var(--severo)"/>`;
+    s += `<text x="${cx}" y="${yX}" text-anchor="middle" font-size="11" fill="${sel ? "var(--verde)" : "var(--mudo)"}" font-weight="${sel ? 600 : 400}">${d.d}</text></g>`;
+    if (d.pr != null) { lPR += `${abPR ? "L" : "M"}${cx} ${yP(d.pr * 100)} `; abPR = true; } else abPR = false;
+    if (d.poa != null) { lPOA += `${abPOA ? "L" : "M"}${cx} ${yI(d.poa)} `; abPOA = true; } else abPOA = false;
+  });
+  if (SER.poa) s += `<path d="${lPOA}" fill="none" stroke="var(--c-poa)" stroke-width="2" stroke-dasharray="6 4" pointer-events="none"/>`;
+  if (SER.pr) {
+    s += `<path d="${lPR}" fill="none" stroke="var(--tinta)" stroke-width="2.2" pointer-events="none"/>`;
+    U.dias.forEach((d, i) => { if (d.pr != null) s += `<circle cx="${x0 + i * cw + cw / 2}" cy="${yP(d.pr * 100)}" r="3.5" fill="${COR[sem3(mp ? d.pr / mp : null)]}" stroke="var(--sup)" stroke-width="1.5" pointer-events="none"/>`; });
+    if (mp) s += `<line x1="${x0}" x2="${W - xr}" y1="${yP(mp * 100)}" y2="${yP(mp * 100)}" stroke="var(--tinta)" stroke-opacity=".45" stroke-dasharray="3 4" pointer-events="none"/><text x="${W - xr - 4}" y="${yP(mp * 100) - 6}" text-anchor="end" font-size="11" fill="var(--mudo)">meta de PR ${pc(mp)}</text>`;
+  }
+  [["Disp.", yD], ["Ocorr.", yO]].forEach(r => { s += `<text x="${x0 - 6}" y="${r[1] + 2}" text-anchor="end" font-size="10.5" fill="var(--fraco)">${r[0]}</text>`; });
+  const lg = (k, r, ic) => `<button class="lg ${SER[k] ? "" : "off"}" data-ser="${k}" aria-pressed="${SER[k]}" title="${SER[k] ? "Clique para esconder" : "Clique para mostrar"}">${ic}${r}</button>`;
+  return `<div class="rola"><svg id="svg-dia" viewBox="0 0 ${W} ${yX + 6}" width="100%" style="min-width:760px" role="img" aria-label="O mês dia a dia">${s}</svg></div>
+    <div class="legenda" style="margin-top:6px;align-items:center">${lg("ger", "Geração (MWh)", `<i style="background:var(--c-ger);opacity:.7"></i>`)}${SER.ger ? `<span><i style="background:var(--alerta)"></i>inversor parado (ocorrência do COS)</span><span><i style="background:var(--severo)"></i>queda (ocorrência do COS)</span>` : ""}${lg("pr", "PR (%)", `<i style="border-top:2.4px solid var(--tinta);height:0;border-radius:0"></i>`)}${lg("poa", "POA (kWh/m²)", `<i style="border-top:2px dashed var(--c-poa);height:0;border-radius:0"></i>`)}
+      <span><i style="background:var(--critico)"></i>disponibilidade &lt; 95%</span><span><i style="background:var(--severo);border-radius:50%"></i>dia com queda</span><span><i style="background:transparent;border:2px solid var(--critico)"></i>dia sem explicação (PR + ocorrências &lt; 85% da meta)</span><span>mouse no dia: os números; clique: abre o dia</span></div>`;
+}
+function tipDia(d) {
+  const mp = metaPr(), oc = U.ocorr.filter(o => o.d === d.d), pd = perdaDia(d.d);
+  return `<b>${nomeDia(d.d)}</b><div class="d">clique para abrir o dia</div>
+    ${d.sem_expl ? `<div class="d" style="color:var(--critico)">Dia sem explicação: o PR fica abaixo de 85% da meta mesmo devolvendo as ocorrências</div>` : ""}
+    <div class="l"><span>Gerado (BD)</span><b class="num">${d.ger == null ? "—" : n1(d.ger, 1) + " MWh"}</b></div>
+    ${U.p50_dia ? `<div class="l"><span>P50 do dia (meta)</span><span class="num">${n1(U.p50_dia, 1)} MWh</span></div>` : ""}
+    ${pd > 0 ? `<div class="l"><span>Sem as ocorrências do COS</span><b class="num" style="color:var(--alerta)">${n1((d.ger || 0) + pd, 1)} MWh</b></div>` : ""}
+    <hr><div class="l"><span>PR (gerado ÷ o que o sol permite)</span><b class="num" style="color:${COR[sem3(mp && d.pr != null ? d.pr / mp : null)]}">${pc(d.pr)}</b></div>
+    ${mp ? `<div class="l"><span>Meta de PR</span><span class="num">${pc(mp)}</span></div>` : ""}
+    <div class="l"><span>POA (sol no plano dos painéis)</span><span class="num">${d.poa == null ? "—" : n1(d.poa, 2) + " kWh/m²"}</span></div>
+    <div class="l"><span>Disponibilidade (COS)</span><span class="num" style="color:${COR[semDisp(d.disp)]}">${d.disp == null ? "—" : n1(d.disp) + "%"}</span></div>
+    <hr>${oc.map(o => `<div class="l"><span><i class="ponto" style="background:${ehQueda(o) ? "var(--severo)" : "var(--alerta)"};margin-right:6px;vertical-align:0"></i>${ehQueda(o) ? "Queda " + esc(o.trechos) : esc(o.escopo) + " parado"} · OS ${esc(o.os)}</span><b class="num" style="color:var(--critico)">${o.perda == null ? "—" : "−" + n1(o.perda / 1000, 2) + " MWh"}</b></div>`).join("") || `<div class="l"><span>Ocorrências do COS</span><span>nenhuma</span></div>`}`;
+}
+/* a faixa do dia: os números numa linha; a curva do gêmeo e as sugestões dele (ou, no dia sem explicação, a curva da
+   usina e a de cada inversor, Levi 25/11/2026: "no lugar da curva do gêmeo"); e as ocorrências do COS em tabela larga */
+function faixaDia() {
+  const d = U.dias.find(x => x.d === DIA);
+  if (!d) return "";
+  const mp = metaPr(), oc = U.ocorr.filter(o => o.d === d.d), MWh = v => v == null ? "—" : n1(v / 1000, 2);
+  const mini = [["Gerado", d.ger == null ? "—" : `${n1(d.ger, 1)} MWh`, "var(--tinta)", U.p50_dia ? `P50 ${n1(U.p50_dia, 1)}` : ""],
+                ["PR", pc(d.pr, 0), COR[sem3(mp && d.pr != null ? d.pr / mp : null)], mp ? `meta ${pc(mp, 0)}` : ""], ["Disponib.", d.disp == null ? "—" : n1(d.disp, 1) + "%", COR[semDisp(d.disp)], "COS"],
+                ["Perda", `${n1(perdaDia(d.d), 2)} MWh`, "var(--critico)", "nas ocorrências"],
+                ["POA", d.poa == null ? "—" : `${n1(d.poa, 2)} kWh/m²`, "var(--c-poa)", U.poa_meta ? `prevista ${n1(U.poa_meta, 1)}` : ""]];
+  const osL = oc.map(o => `<tr><td class="num"><b>${esc(o.os)}</b></td><td>${esc(o.tipo)}</td><td>${esc(o.escopo)}</td>
+      <td class="num">${esc(o.trechos)}</td><td class="num">${n1(o.h, 2)} h</td><td>${o.prot ? "proteção " + esc(o.prot) : "—"}</td>
+      <td class="num">${MWh(o.geraria)}</td><td class="num">${MWh(o.gerou)}</td><td class="num" style="color:var(--critico)"><b>${o.perda == null ? "—" : "−" + MWh(o.perda)}</b></td>
+      <td class="met" title="${esc((MET[o.metodo] || [])[1] || "")}${o.limitada ? " · limitada ao que faltou na geração do dia (o PR típico da usina no mês)" : ""}">${esc(COMO(o.metodo))}${o.limitada ? " · limitada" : ""}</td></tr>`).join("");
+  const meio = d.sem_expl ? `<div><div class="tit">Curva da usina e dos inversores · o dia sem explicação</div>${curvaInversores(d)}</div>`
+    : `<div class="dia-g2"><div><div class="tit">Curva do gêmeo, a cada 15 min</div>${curvaGemeo(d)}</div><div class="sug-dia" id="sug-dia"><div class="tit">O gêmeo sugere no dia</div>${sugGemeo(d)}</div></div>`;
+  return `<div class="dia-f">
+    <div class="dia-cab"><h3>${nomeDia(d.d)}${d.sem_expl ? ` <span class="tag" style="border-color:var(--critico);color:var(--critico)">sem explicação</span>` : ""}</h3><div class="mini">${mini.map(m => `<span><em>${m[0]}</em><b class="num" style="color:${m[2]}">${m[1]}</b><i>${m[3]}</i></span>`).join("")}</div></div>
+    ${meio}
+    <div><div class="tit">Ocorrências do COS no dia · o que a usina geraria sem elas (MWh)</div>${osL ? `<div class="rola"><table class="osd"><thead><tr><th>OS</th><th>Tipo</th><th>Equipamento</th><th>Janela</th><th>Horas equiv.</th><th>Proteção</th><th>Geraria</th><th>Gerou</th><th>Perda</th><th>Como</th></tr></thead><tbody>${osL}</tbody></table></div>` : `<div style="color:var(--mudo)">Nenhuma ocorrência neste dia.</div>`}</div></div>`;
+}
+function curvaGemeo(d) {
+  const g = GEMEO[diaIso(d.d)];
+  if (!g) { setTimeout(() => lerGemeo(d.d), 0); return `<div style="color:var(--mudo);padding:24px 0">Lendo o gêmeo…</div>`; }
+  if (g.lendo) return `<div style="color:var(--mudo);padding:24px 0">Lendo o gêmeo…</div>`;
+  if (g.erro || g.sem_gemeo || !(g.curva || []).length) return `<div style="color:var(--mudo);padding:24px 0">${esc(g.erro || g.motivo || "O gêmeo não tem a curva deste dia.")}</div>`;
+  const cv = g.curva.filter(c => c[1] != null || c[2] != null), W = 640, Hc = 190, l = 34, b = 20, t = 8, hh = c => +c[0].slice(0, 2) + c[0].slice(3, 5) / 60;
+  const max = Math.max(1, ...cv.map(c => Math.max(c[1] || 0, c[2] || 0))) * 1.08, x = h => l + (W - l - 4) * (h - 5.5) / 13, y = v => t + (Hc - t - b) * (1 - v / max);
+  let s = "";
+  [6, 9, 12, 15, 18].forEach(h => { s += `<line x1="${x(h)}" x2="${x(h)}" y1="${t}" y2="${Hc - b}" stroke="var(--linha)"/><text x="${x(h)}" y="${Hc - 5}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${h}h</text>`; });
+  U.ocorr.filter(o => o.d === d.d && ehQueda(o)).forEach(o => String(o.trechos).split(/[;,]/).forEach(tr => { const [a, z] = tr.trim().split("-"); if (!z) return;
+    const ha = +a.slice(0, 2) + a.slice(3) / 60, hz = +z.slice(0, 2) + z.slice(3) / 60;
+    s += `<rect x="${x(ha) - 2}" y="${t}" width="${Math.max(4, x(hz) - x(ha) + 4)}" height="${Hc - b - t}" fill="color-mix(in srgb,var(--severo) 35%,transparent)"><title>OS ${esc(o.os)}: ${esc(tr)}</title></rect>`; }));
+  const pts = k => cv.filter(c => c[k] != null).map(c => `${x(hh(c))},${y(c[k])}`).join(" ");
+  const med = cv.filter(c => c[2] != null);
+  if (med.length) s += `<polygon points="${x(hh(med[0]))},${y(0)} ${pts(2)} ${x(hh(med[med.length - 1]))},${y(0)}" fill="color-mix(in srgb,var(--c-ger) 35%,transparent)" stroke="var(--c-ger)" stroke-width="1.4"/>`;
+  s += `<polyline points="${pts(1)}" fill="none" stroke="var(--tinta)" stroke-width="1.5" stroke-dasharray="5 3"/>`;
+  s += `<text x="${l - 5}" y="${t + 9}" text-anchor="end" font-size="10.5" fill="var(--fraco)">${n1(max / 1000, 1)}</text><text x="${l - 5}" y="${Hc - b}" text-anchor="end" font-size="10.5" fill="var(--fraco)">0</text>`;
+  return `<svg viewBox="0 0 ${W} ${Hc}" width="100%" role="img" aria-label="Curva do dia">${s}</svg>
+    <div class="legenda"><span><i style="background:var(--c-ger)"></i>medido (MW)</span><span><i style="border-top:1.5px dashed var(--tinta);height:0;border-radius:0"></i>o que o sol pedia</span><span><i style="background:color-mix(in srgb,var(--severo) 45%,transparent)"></i>janela da queda</span>${g.esperado_kwh ? `<span>o sol pedia ${n1(g.esperado_kwh / 1000, 1)} MWh; mediu ${n1((g.medido_kwh || 0) / 1000, 1)}</span>` : ""}</div>`;
+}
+// a OS que já cobre a sugestão do gêmeo (a mesma regra dos ofensores): o desligamento pela ocorrência do COS aberta, a
+// string pela OS de string do inversor (o que os ofensores já leram) e o tracker pelo chamado da usina
+function osDe(eq) {
+  if (!eq) return null;
+  const e = String(eq);
+  if (/string/i.test(e)) { const of = U.ofensores.find(o => o.t === "String sem corrente"); return of && of.cob.tom === "ok" ? "OS de string" : null; }
+  if (/^tracker/i.test(e)) { const n = (e.match(/\d+(?:\.\d+)?/) || [""])[0]; const c = (U.trk_chamados || []).find(t => String(t.tracker) === n); return c ? "chamado desde " + (c.desde || "—") : null; }
+  const o = U.ocorr.find(x => x.aberta && nrm(x.escopo) === nrm(e));
+  return o ? "OS " + o.os : null;
+}
+const nomeAcao = a => String(a || "").replace(/^Abrir OS corretiva — /, "Abrir OS: ").replace(/^Verificar string e fusível — /, "Verificar string: ").replace(/^Inspeção mecânica do tracker — /, "Inspecionar ").replace(/^Verificar tracker — /, "Verificar ");
+function sugGemeo(d) {
+  const g = GEMEO[diaIso(d.d)];
+  if (!g || g.lendo) return `<div style="color:var(--mudo)">Lendo…</div>`;
+  if (g.erro || g.sem_gemeo) return `<div style="color:var(--mudo)">${esc(g.erro || g.motivo)}</div>`;
+  const m = new Map();
+  (g.acoes || []).forEach(a => { const x = m.get(a.a) || {...a, kwh: 0}; x.kwh += a.kwh || 0; m.set(a.a, x); });
+  const l = [...m.values()].sort((a, b) => b.kwh - a.kwh).map(a => ({...a, os: osDe(a.eq)}));
+  if (!l.length) return `<ul class="lista"><li style="color:var(--mudo)">Nada neste dia.</li></ul>`;
+  return `<ul class="lista">${l.map(a => `<li><span class="ponto" style="background:${a.os ? "var(--linha2)" : a.tipo === "residuo_sem_causa" ? "var(--neutro)" : "var(--alerta)"};margin-top:6px"></span>
+      <span style="flex:1">${esc(nomeAcao(a.a))} ${a.os ? `<span class="tag os">já tem ${esc(a.os)}</span>` : ""}<br><span style="color:var(--mudo);font-size:12px">${esc(a.tipo === "residuo_sem_causa" ? "O gêmeo não acha a causa: sujeira, sombra ou o cadastro." : String(a.p || "").replace(/ com desvio máximo de [\d.,]+°/, ""))}</span></span><span class="num" style="color:var(--mudo)">${n1((a.kwh || 0) / 1000, 2)} MWh</span></li>`).join("")}</ul>`;
+}
+// o dia sem explicação: a potência da usina (a soma dos inversores) e a de cada inversor sobre a POA, para achar o que caiu
+function curvaInversores(d) {
+  const c = CURVAS[diaIso(d.d)];
+  if (!c) { setTimeout(() => lerCurva(d.d), 0); return `<div style="color:var(--mudo);padding:24px 0">Lendo as curvas do dia…</div>`; }
+  if (c.lendo) return `<div style="color:var(--mudo);padding:24px 0">Lendo as curvas do dia…</div>`;
+  if (c.erro || c.sem_curva) return `<div style="color:var(--mudo);padding:24px 0">${esc(c.erro || c.motivo || "O banco não tem a curva deste dia.")}</div>`;
+  const W = 1180, H = 260, x0 = 50, xr = 54, top = 12, b = 24, X = m => x0 + (W - x0 - xr) * (m - 330) / 780;
+  const nomes = Object.keys(c.pot).sort((a, b2) => a.localeCompare(b2, "pt-BR", {numeric: true}));
+  const tot = {}; nomes.forEach(n => c.pot[n].forEach(([m, v]) => { if (v != null) tot[m] = (tot[m] || 0) + v; }));
+  const totL = Object.entries(tot).map(([m, v]) => [+m, v]).sort((a, b2) => a[0] - b2[0]);
+  const imax = Math.max(1, ...nomes.flatMap(n => c.pot[n].map(q => q[1] || 0))) * 1.1, tmax = Math.max(1, ...totL.map(q => q[1])) * 1.1;
+  const pmax = Math.max(1000, ...c.poa.map(p => p[1] || 0)), yI = v => top + (H - top - b) * (1 - v / pmax);
+  const yA = v => top + (H - top - b) * (1 - v / imax), yT = v => top + (H - top - b) * (1 - v / tmax);
+  const cam = (pts, y) => { let s2 = "", ab = false; pts.forEach(([m, v]) => { if (v == null) { ab = false; return; } s2 += `${ab ? "L" : "M"}${X(m).toFixed(1)} ${y(v).toFixed(1)} `; ab = true; }); return s2; };
+  const meds = {}; nomes.forEach(n => { meds[n] = c.pot[n].reduce((a, q) => a + (q[1] || 0) / 6, 0); });
+  const ml = Object.values(meds).sort((a, b2) => a - b2), medE = ml.length ? ml[Math.floor(ml.length / 2)] : 0;
+  let s = "";
+  for (let h = 6; h <= 18; h += 2) s += `<line x1="${X(h * 60)}" x2="${X(h * 60)}" y1="${top}" y2="${H - b}" stroke="var(--linha)"/><text x="${X(h * 60)}" y="${H - 6}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${h}h</text>`;
+  [0, .5, 1].forEach(f => { s += `<text x="${x0 - 6}" y="${yA(imax / 1.1 * f) + 4}" text-anchor="end" font-size="10.5" fill="var(--fraco)">${n1(imax / 1.1 * f, 0)}</text>`; });
+  s += `<text x="${x0 - 6}" y="${top - 2}" text-anchor="end" font-size="10" fill="var(--fraco)">kW</text><text x="${W - xr + 6}" y="${top - 2}" font-size="10" fill="var(--c-poa)">W/m²</text>`;
+  [0, 500, 1000].forEach(t => { if (t <= pmax) s += `<text x="${W - xr + 6}" y="${yI(t) + 4}" font-size="10.5" fill="var(--c-poa)">${t}</text>`; });
+  s += `<path d="${cam(c.poa, yI)}" fill="none" stroke="var(--c-poa)" stroke-width="2" stroke-dasharray="6 4"/>`;
+  s += `<path d="${cam(totL, yT)}" fill="none" stroke="var(--tinta)" stroke-width="2.6" opacity=".85"><title>usina (soma dos inversores)</title></path>`;
+  nomes.forEach(n => { const baixo = medE && meds[n] < medE * .93;
+    s += `<path d="${cam(c.pot[n], yA)}" fill="none" stroke="${baixo ? "var(--critico)" : "rgba(124,183,255,.55)"}" stroke-width="${baixo ? 2.2 : 1.2}"><title>${esc(n)}: ${n1(meds[n] / 1000, 2)} MWh${medE ? " · " + n1(meds[n] / medE * 100, 0) + "% da mediana" : ""}</title></path>`; });
+  const baixos = nomes.filter(n => medE && meds[n] < medE * .93);
+  return `<div class="rola"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:720px" role="img" aria-label="Curva da usina e dos inversores">${s}</svg></div>
+    <div class="legenda" style="margin-top:4px"><span><i style="background:var(--tinta)"></i>usina (soma dos inversores, escala própria)</span><span><i style="background:rgba(124,183,255,.7)"></i>cada inversor (kW, à esquerda)</span><span><i style="background:var(--critico)"></i>inversor mais de 7% abaixo da mediana no dia</span><span><i style="border-top:2px dashed var(--c-poa);height:0;border-radius:0"></i>POA (W/m², à direita)</span></div>
+    <div style="color:var(--mudo);font-size:12.5px;margin-top:6px">${baixos.length ? `Abaixo dos outros no dia: <b style="color:var(--critico)">${baixos.map(n => `${esc(n)} (${n1(meds[n] / medE * 100, 0)}%)`).join(", ")}</b>. Passe o mouse na linha para o nome.` : "Nenhum inversor mais de 7% abaixo dos outros: a queda é da usina inteira (sol, sujeira, sombra, rede ou o sensor de POA)."}</div>`;
+}
+
+/* ── comparar inversores (Levi, 25/11/2026): até 4 inversores e até 3 dias, sobrepostos, com a POA ─────────────────── */
+function compararInversores() {
+  const todos = U.invs.map(v => v.n);
+  const itInv = todos.map(n => { const i = CMP.indexOf(n), v = U.invs.find(x => x.n === n) || {}; return {v: n, t: n, cor: i >= 0 ? CORES_INV[i] : null, sub: v.pr != null ? "PR " + pc(v.pr, 0) : ""}; });
+  const itDia = U.dias.filter(d => d.ger != null).map(d => d.d).sort((a, b) => b - a).map(d => ({v: d, t: `${dd2(d)}/${dd2(mesN())}`, sub: SEM[new Date(ano(), mesN() - 1, d).getDay()].slice(0, 3)}));
+  const ctl = `<div class="cmp-ctl">${menuSel("cinv", "Inversores", itInv, CMP, {max: 4, larg: 300, largBt: 300, vazio: "Escolha até 4", ph: "Digite o inversor"})}
+      ${menuSel("cdia", "Dias", itDia, CMP_D, {max: 3, larg: 330, largBt: 220, vazio: "Escolha até 3", ph: "Digite o dia (ex.: 18)"})}
+      <div class="dd"><span class="dd-r">Mostrar</span><span class="seg">${[["pot", "Potência e POA"], ["str", "Strings e POA"]].map(b => `<button data-cmpg="${b[0]}" aria-pressed="${CMP_G === b[0]}">${b[1]}</button>`).join("")}</span></div></div>`;
+  if (!CMP.length || !CMP_D.length) { CMP_GEO = null; return ctl + `<div class="toast" style="margin-top:12px">Escolha pelo menos um inversor e um dia.</div>`; }
+  const falta = CMP_D.filter(d => !CURVAS[diaIso(d)] || CURVAS[diaIso(d)].lendo);
+  falta.forEach(d => { if (!CURVAS[diaIso(d)]) setTimeout(() => lerCurva(d), 0); });
+  if (falta.length) return ctl + `<div class="toast" style="margin-top:12px">Lendo as curvas de ${falta.map(d => dd2(d)).join(", ")}/${dd2(mesN())}…</div>`;
+  const sem = CMP_D.map(d => CURVAS[diaIso(d)]).find(c => c.sem_curva || c.erro);
+  const dias = CMP_D.filter(d => { const c = CURVAS[diaIso(d)]; return c && !c.sem_curva && !c.erro; }).sort((a, b) => a - b);
+  if (!dias.length) return ctl + `<div class="toast" style="margin-top:12px">${esc((sem && (sem.motivo || sem.erro)) || "Sem curva nesses dias.")}</div>`;
+  const C_ = d => CURVAS[diaIso(d)];
+  const W = 1300, H = 320, x0 = 50, xr = 58, top = 30, b = 26, k = dias.length, segW = (W - x0 - xr) / k;
+  const X = (j, m) => x0 + j * segW + segW * (m - 330) / 780;
+  const poaMax = Math.max(1000, ...dias.flatMap(d => C_(d).poa.map(p => p[1] || 0))) * 1.05, yI = v => top + (H - top - b) * (1 - v / poaMax);
+  let vmax = 1;
+  if (CMP_G === "pot") dias.forEach(d => CMP.forEach(n => (C_(d).pot[n] || []).forEach(q => { vmax = Math.max(vmax, q[1] || 0); })));
+  else dias.forEach(d => CMP.forEach(n => Object.values(((C_(d).str || {})[n] || {}).s || {}).forEach(l => l.forEach(v => { vmax = Math.max(vmax, v || 0); }))));
+  vmax *= 1.08;
+  const y = v => top + (H - top - b) * (1 - v / vmax);
+  const cam = (pts, j, yy) => { let s2 = "", ab = false; pts.forEach(([m, v]) => { if (v == null) { ab = false; return; } s2 += `${ab ? "L" : "M"}${X(j, m).toFixed(1)} ${yy(v).toFixed(1)} `; ab = true; }); return s2; };
+  let s = "";
+  [0, .25, .5, .75, 1].forEach(f => { s += `<line x1="${x0}" x2="${W - xr}" y1="${y(vmax / 1.08 * f)}" y2="${y(vmax / 1.08 * f)}" stroke="var(--linha)"/><text x="${x0 - 6}" y="${y(vmax / 1.08 * f) + 4}" text-anchor="end" font-size="11" fill="var(--fraco)">${n1(vmax / 1.08 * f, CMP_G === "pot" ? 0 : 1)}</text>`; });
+  s += `<text x="${x0 - 6}" y="${top - 14}" text-anchor="end" font-size="10" fill="var(--fraco)">${CMP_G === "pot" ? "kW" : "A"}</text><text x="${W - xr + 6}" y="${top - 14}" font-size="10" fill="var(--c-poa)">POA W/m²</text>`;
+  [0, 500, 1000].forEach(t => { if (t <= poaMax) s += `<text x="${W - xr + 6}" y="${yI(t) + 4}" font-size="11" fill="var(--c-poa)">${t}</text>`; });
+  let semStr = false;
+  dias.forEach((d, j) => {
+    const dd = C_(d);
+    if (j) s += `<line x1="${x0 + j * segW}" x2="${x0 + j * segW}" y1="${top - 18}" y2="${H - b}" stroke="var(--linha2)" stroke-width="1.5"/>`;
+    s += `<text x="${x0 + j * segW + segW / 2}" y="${top - 14}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--tinta)">${nomeDia(d)}</text>`;
+    [6, 9, 12, 15, 18].forEach(h => { s += `<text x="${X(j, h * 60)}" y="${H - 8}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${h}h</text>`; });
+    s += `<path d="${cam(dd.poa, j, yI)}" fill="none" stroke="var(--c-poa)" stroke-width="2" stroke-dasharray="6 4"/>`;
+    CMP.forEach((n, i) => {
+      if (CMP_G === "pot") s += `<path d="${cam(dd.pot[n] || [], j, y)}" fill="none" stroke="${CORES_INV[i]}" stroke-width="2.2"/>`;
+      else { const c = (dd.str || {})[n]; if (!c) { semStr = true; return; }
+        Object.entries(c.s).forEach(([nome, ys]) => { const inf = c.info[nome] || [], ruim = inf[1] === false || (inf[0] != null && inf[0] < 90);
+          s += `<path d="${cam(c.x.map((m, q) => [m, ys[q]]), j, y)}" fill="none" stroke="${CORES_INV[i]}" stroke-opacity="${ruim ? 1 : .4}" stroke-width="${ruim ? 2.4 : 1.1}"/>`; }); }
+    });
+  });
+  s += `<line id="cmp-guia" x1="0" x2="0" y1="${top - 4}" y2="${H - b}" stroke="var(--tinta)" stroke-opacity=".5" visibility="hidden"/>`;
+  CMP_GEO = {W, x0, segW, dias};
+  const leg = CMP.map((n, i) => `<span><i style="background:${CORES_INV[i]}"></i>${esc(n)}</span>`).join("") + `<span><i style="border-top:2px dashed var(--c-poa);height:0;border-radius:0"></i>POA (W/m², à direita)</span>`
+    + (CMP_G === "str" ? `<span>cada linha é uma string; mais forte = abaixo de 90% da mediana</span>` : "");
+  return ctl + `<div class="rola" style="margin-top:12px"><svg id="svg-cmp" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:760px" role="img" aria-label="Inversores sobrepostos">${s}</svg></div>
+    <div class="legenda" style="margin-top:4px">${leg}<span>passe o mouse para os valores do instante</span></div>
+    ${CMP_G === "str" && semStr ? `<div class="sub" style="color:var(--mudo)">Strings só nas usinas do banco da Thopen; nesta fonte, use a Potência.</div>` : ""}${sem ? `<div class="sub" style="color:var(--mudo)">${esc(sem.motivo || sem.erro || "")}</div>` : ""}`;
+}
+function tipComparar(e) {
+  const g = CMP_GEO, svg = $("#svg-cmp"); if (!g || !svg) return null;
+  const r = svg.getBoundingClientRect(), xv = (e.clientX - r.left) * g.W / r.width, j = Math.floor((xv - g.x0) / g.segW);
+  if (j < 0 || j >= g.dias.length) return null;
+  const m = Math.round((330 + (xv - g.x0 - j * g.segW) / g.segW * 780) / 10) * 10;
+  if (m < 330 || m > 1110) return null;
+  const guia = $("#cmp-guia"); if (guia) { const gx = g.x0 + j * g.segW + g.segW * (m - 330) / 780; guia.setAttribute("x1", gx); guia.setAttribute("x2", gx); guia.setAttribute("visibility", "visible"); }
+  const d = g.dias[j], dd = CURVAS[diaIso(d)], perto = (l, mm) => { let b = null, bd = 99; l.forEach(p => { const z = Math.abs(p[0] - mm); if (z < bd && p[1] != null) { bd = z; b = p[1]; } }); return bd <= 6 ? b : null; };
+  const hora = dd2(Math.floor(m / 60)) + ":" + dd2(m % 60), poa = perto(dd.poa, m);
+  let h = `<b>${nomeDia(d)} às ${hora}</b><div class="l"><span>POA</span><span class="num" style="color:var(--c-poa)">${poa == null ? "—" : n1(poa, 0) + " W/m²"}</span></div><hr>`;
+  CMP.forEach((n, i) => {
+    if (CMP_G === "pot") { const v = perto(dd.pot[n] || [], m); h += `<div class="l"><span><i class="ponto" style="background:${CORES_INV[i]};margin-right:6px"></i>${esc(n)}</span><b class="num">${v == null ? "—" : n1(v, 1) + " kW"}</b></div>`; }
+    else { const c = (dd.str || {})[n]; if (!c) return; const q = c.x.reduce((bi, mm, qi) => Math.abs(mm - m) < Math.abs(c.x[bi] - m) ? qi : bi, 0);
+      const vs = Object.entries(c.s).map(([nome, l]) => [nome, l[q]]).filter(x => x[1] != null).sort((a, b) => a[1] - b[1]);
+      const med = vs.length ? vs[Math.floor(vs.length / 2)][1] : null;
+      h += `<div class="l"><span><i class="ponto" style="background:${CORES_INV[i]};margin-right:6px"></i>${esc(n)}</span><span class="num">mediana <b>${med == null ? "—" : n1(med, 1) + " A"}</b></span></div>${vs.length ? `<div class="d" style="margin:0 0 4px 14px">menor ${esc(vs[0][0])} ${n1(vs[0][1], 1)} A · maior ${esc(vs[vs.length - 1][0])} ${n1(vs[vs.length - 1][1], 1)} A</div>` : ""}`; }
+  });
+  return h;
+}
+
+/* ── PR e inversores: o PR do mês, o de cada inversor contra o alvo (em %), o dia a dia contra os outros e a
+   observação editável (para a equipe) ─────────────────────────────────────────────────────────────────────────── */
+function prEInversores() {
+  const g = U.ger, cor = COR[sem3(g.pr != null && g.meta ? g.pr / g.meta : null)];
+  const lado = `<div class="pr-lado"><div class="grande"><div class="tit">PR de ${MESES[mesN()]}</div><div class="v num" style="color:${cor}">${g.pr == null ? "—" : n1(g.pr) + "%"}</div>
+      <div class="e">${g.meta ? `meta <b>${n1(g.meta)}%</b>${g.pr != null ? ` · <b style="color:${cor}">${pp(g.pr - g.meta)}</b>` : ""}` : "sem meta"}</div></div>
+      <button class="btn" data-prmm="1" aria-expanded="${PR_MM}">${PR_MM ? "Fechar o mês a mês" : "Ver o PR mês a mês"}</button></div>`;
+  return `<section class="bloco" id="pr"><div class="cab"><h2>PR e inversores</h2><span class="sub">PR = gerado ÷ o que o sol medido permitia, em %</span></div>
+    ${PR_MM ? prMesAMes() : ""}<div class="pr-g">${lado}<div>${U.invs.length ? tabelaInversores() : `<div style="color:var(--mudo)">Sem o PR por inversor desta usina no BD neste mês.</div>`}</div></div></section>`;
+}
+function prMesAMes() {
+  const Hs = (U.mensal || []).filter(h => h.ano === ano() && h.realizado != null);
+  if (!Hs.length) return `<div class="toast">Sem o PR mês a mês desta usina.</div>`;
+  const W = 1200, top = 20, hB = 150, x0 = 44, cw = (W - x0 - 6) / Hs.length, y = v => top + hB * (1 - Math.min(v, 100) / 100);
+  let s = "", meta = "", ab = false;
+  [0, 25, 50, 75, 100].forEach(t => { s += `<line x1="${x0}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="var(--linha)"/><text x="${x0 - 6}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="var(--fraco)">${t}%</text>`; });
+  Hs.forEach((h, i) => {
+    const x = x0 + i * cw, bw = cw * .5, xb = x + (cw - bw) / 2;
+    s += `<rect x="${xb}" y="${y(h.realizado * 100)}" width="${bw}" height="${y(0) - y(h.realizado * 100)}" rx="3" fill="${COR[sem3(h.meta ? h.realizado / h.meta : null)]}" opacity="${h.mes === mesN() ? 1 : .75}"><title>${MN[h.mes]}: PR ${pc(h.realizado)} · meta ${pc(h.meta)}</title></rect>`;
+    s += `<text x="${x + cw / 2}" y="${y(h.realizado * 100) - 6}" text-anchor="middle" font-size="11.5" fill="var(--tinta)">${pc(h.realizado, 0)}</text>`;
+    s += `<text x="${x + cw / 2}" y="${top + hB + 16}" text-anchor="middle" font-size="12" fill="${h.mes === mesN() ? "var(--verde)" : "var(--mudo)"}">${MN[h.mes]}</text>`;
+    if (h.meta) { meta += `${ab ? "L" : "M"}${x} ${y(h.meta * 100)} L${x + cw} ${y(h.meta * 100)} `; ab = true; } else ab = false;
+  });
+  s += `<path d="${meta}" fill="none" stroke="var(--tinta)" stroke-width="1.8" stroke-dasharray="6 4"/>`;
+  return `<div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--linha)"><div class="rola"><svg viewBox="0 0 ${W} ${top + hB + 24}" width="100%" style="min-width:700px" role="img" aria-label="PR por mês">${s}</svg></div>
+    <div class="legenda"><span><i style="background:var(--ok)"></i>PR do mês (a cor pela meta)</span><span><i style="border-top:2px dashed var(--tinta);height:0;border-radius:0"></i>meta</span><span>o PR do BD; o do topo é o do Gerencial</span></div></div>`;
+}
+function tabelaInversores() {
+  const l = [...U.invs].sort((a, b) => (a.pr ?? 9) - (b.pr ?? 9)), alvo = U.alvo ?? (l.find(v => v.alvo != null) || {}).alvo;
+  const corC = c => c == null ? "var(--linha2)" : c < .05 ? "var(--critico)" : c < .93 ? "var(--severo)" : c < .97 ? "color-mix(in srgb,var(--alerta) 70%,transparent)" : "color-mix(in srgb,var(--ok) 32%,transparent)";
+  const nomeAnt = MESES[mesN() === 1 ? 12 : mesN() - 1];
+  const rows = l.map(v => {
+    const pr = v.pr, a = v.alvo ?? alvo, aberto = INV_ABERTO === v.n, d = pr != null && a ? (pr - a) * 100 : null, sg = sem3(pr != null && a ? pr / a : null);
+    const ocs = U.ocorr.filter(o => nrm(o.escopo) === nrm(v.n)), pv = ocs.reduce((s2, o) => s2 + (o.perda || 0), 0) / 1000;
+    const det = ocs.length ? `${ocs.length} dia${ocs.length > 1 ? "s" : ""} com ocorrência do COS (OS ${[...new Set(ocs.map(o => o.os))].join(", ")}): ${n1(pv, 1)} MWh pelos outros inversores.${v.esp != null ? ` O BD esperava ${n1(v.esp)} MWh dele; gerou ${n1(v.ger)}.` : ""}`
+      : `PR ${pc(pr)}${v.out != null ? `; em ${nomeAnt} foi ${pc(v.out)}` : ""}.${v.esp != null ? ` Gerou ${n1(v.ger)} de ${n1(v.esp)} MWh esperados pelo alvo.` : ""}`;
+    const ob = v.obs && v.obs.txt;
+    return `<tr class="l" data-inv="${esc(v.n)}"><td class="esq" style="font-weight:500">${esc(v.n)}</td>
+      <td><span class="prb"><i style="width:${Math.min(100, (pr || 0) * 100)}%;background:${COR[sg]}"></i>${a ? `<u style="left:${Math.min(100, a * 100)}%"></u>` : ""}</span><b class="num" style="color:${COR[sg]};font-weight:600">${pc(pr)}</b></td>
+      <td class="num" style="color:${COR[sg]}">${d == null ? "—" : pp(d)}</td>
+      <td class="num" style="color:var(--mudo)">${v.out == null ? "—" : pc(v.out)}</td>
+      <td><span class="dias">${(v.cel || []).map(([dia, c]) => `<i style="background:${corC(c)}" title="${dd2(dia)}/${dd2(mesN())} · ${c == null ? "sem dado" : n1(c * 100, 0) + "% dos outros inversores"}"></i>`).join("")}</span></td>
+      <td class="num" style="${v.disp != null && v.disp < 98 ? "color:var(--critico)" : ""}">${v.disp == null ? "—" : n1(v.disp) + "%"}</td>
+      <td class="num">${v.os.length ? v.os.join(", ") : "—"}</td>
+      <td class="obs" data-obs="${esc(v.n)}" title="${PODE ? "Clique para escrever (vale para a equipe)" : ""}${ob ? ` · ${esc(v.obs.quem)} em ${esc(v.obs.ts)}` : ""}">${OBS_ED === v.n ? `<input class="obs-in" data-obsin="${esc(v.n)}" value="${esc(ob || "")}" placeholder="Escreva e dê Enter" autocomplete="off" maxlength="300">` : ob ? esc(ob) : PODE ? `<span class="obs-add">+ observação</span>` : "—"}</td></tr>
+      ${aberto ? `<tr class="det"><td colspan="8"><div>${det}</div></td></tr>` : ""}`;
+  }).join("");
+  return `<div class="rola"><table class="iv"><thead><tr><th class="esq">Inversor</th><th>PR${alvo ? ` · <span style="text-transform:none">traço = alvo ${pc(alvo)}</span>` : ""}</th><th>× alvo</th><th>${esc(nomeAnt[0].toUpperCase() + nomeAnt.slice(1))}</th><th>Dia a dia × os outros</th><th>Disp.</th><th>OS</th><th class="esq">Observação</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="legenda" style="margin-top:8px"><span>Dia a dia × os outros:</span><span><i style="background:color-mix(in srgb,var(--ok) 32%,transparent)"></i>junto dos outros</span><span><i style="background:color-mix(in srgb,var(--alerta) 70%,transparent)"></i>3 a 7% abaixo</span><span><i style="background:var(--severo)"></i>mais de 7% abaixo</span><span><i style="background:var(--critico)"></i>parado</span><span>clique na linha para o detalhe</span></div>`;
+}
+function fontes() {
+  const f = U.frescor || {};
+  return `<details class="fontes"><summary>De onde vem cada número</summary><ul>
+    <li>Geração × P50, PR e meta do topo: o Gerencial${f.gerencial ? ` (lido às ${esc(String(f.gerencial).slice(0, 5))})` : ""}, a mesma régua da visão inicial.</li>
+    <li>O dia a dia (geração, POA e PR) e o PR de cada inversor: o BD, dias fechados${f.bd_ult ? ` até ${dd2(f.bd_ult)}/${dd2(mesN())}` : ""}.</li>
+    <li>Disponibilidade e ocorrências: a régua do COS (o índice da Disponibilidade${f.disp ? `, até ${dataBR(f.disp[1])}` : ""}). A perda de cada ocorrência: o inversor pelos outros inversores do dia; a queda pela POA da hora antes e depois; sem curva, a estimativa pelo dia típico.</li>
+    <li>Strings sem corrente, trackers parados e as OS de string: o pacote da Falhas do mês${f.falhas ? ` (montado em ${esc(String(f.falhas).slice(0, 16).replace("T", " "))})` : ""}; os chamados de tracker, os Tickets.</li>
+    <li>Vegetação e sujidade: a última ronda na Zeladoria do Nexus (nexus_zeladoria).</li>
+    <li>Para onde foi a energia: a cascata do Gerencial. Expurgos = sol abaixo do previsto e queda de rede; operação = equipamento e trackers.</li>
+    <li>As curvas do dia e o Comparar inversores: o banco da Thopen ou o scadaGridco, só no clique (nada de fonte paga). O gêmeo: o serviço do gêmeo digital.</li></ul>
+    <div style="color:var(--fraco);font-size:12px;margin-top:6px">Montado em ${esc(U.montado_em || "")}${U.montado_s != null ? ` em ${n1(U.montado_s, 1)} s` : ""}; vale por 10 minutos.</div></details>`;
+}
+function diagnostico() {
+  if (ULENDO || (!U && !UERR)) return `<div class="topo"><div><div class="olho"><button class="volta" data-view="geral">← Análise das usinas</button></div><h1>Lendo o diagnóstico…</h1><div class="ficha">o Gerencial, o BD, a régua do COS, a Falhas e a ronda</div></div></div>`;
+  if (UERR) return `<div class="topo"><div><div class="olho"><button class="volta" data-view="geral">← Análise das usinas</button></div><h1>Diagnóstico</h1></div></div><div class="toast" style="border-left-color:var(--critico)">O diagnóstico não montou: ${esc(UERR)}.</div>`;
+  return topoUsina() + parecer() + kpisUsina() + achados() + ponte() + diaADia() + prEInversores() + fontes();
+}
+
+/* ── o PDF da usina, no molde do Criador de relatório: seções numeradas, capa com o selo, quadros, a leitura em texto,
+   os ofensores, a contabilidade de energia, as ocorrências e o que tiraram, os inversores em barras na horizontal ── */
+function wfPdf(steps, W, H) {
+  const padT = 26, padB = 46, padL = 6, max = Math.max(...steps.filter(s => s.k === "a").map(s => s.v), ...steps.map((_, i) => steps.slice(0, i + 1).reduce((a, s) => s.k === "a" ? s.v : a + s.v, 0))) * 1.08;
+  const ph = H - padT - padB, y = v => padT + ph - v / max * ph, slot = (W - padL * 2) / steps.length, bw = slot * .58;
+  let run = 0, s = "";
+  for (let g = 0; g <= 4; g++) { const gy = padT + ph * g / 4; s += `<line x1="${padL}" y1="${gy}" x2="${W - padL}" y2="${gy}" stroke="#eef0f3"/>`; }
+  steps.forEach((st, i) => {
+    const cx = padL + slot * i + slot / 2, x0 = cx - bw / 2; let a, b;
+    if (st.k === "a") { a = st.v; b = 0; run = st.v; } else { a = run; b = run + st.v; run = b; }
+    const yT = y(Math.max(a, b)), hh = Math.max(2, y(Math.min(a, b)) - yT), forte = st.k === "a";
+    s += `<rect x="${x0}" y="${yT}" width="${bw}" height="${hh}" rx="3" fill="${st.c}"/>`
+      + `<text x="${cx}" y="${yT - 5}" text-anchor="middle" fill="${forte ? "#1a1d24" : "#5b6472"}" font-size="${forte ? 11 : 10}" font-weight="${forte ? 700 : 600}">${forte ? "" : st.v < 0 ? "−" : "+"}${n1(Math.abs(st.v), forte ? 0 : 1)}</text>`
+      + st.l.map((l, k) => `<text x="${cx}" y="${H - padB + 13 + k * 11}" text-anchor="middle" fill="${forte ? "#3a3f49" : "#5b6472"}" font-size="9.5" font-weight="${forte ? 600 : 400}">${l}</text>`).join("")
+      + (st.sub ? `<text x="${cx}" y="${H - padB + 13 + st.l.length * 11}" text-anchor="middle" fill="${st.sub === "expurgo" ? "#c9870d" : "#9aa1ad"}" font-size="8.5">${st.sub}</text>` : "");
+    if (i < steps.length - 1) { const nx = padL + slot * (i + 1) + slot / 2 - bw / 2, yr = y(run); s += `<line x1="${cx + bw / 2}" y1="${yr}" x2="${nx}" y2="${yr}" stroke="#c9ccd3" stroke-dasharray="3 3"/>`; }
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block;margin:4px auto">${s}</svg>`;
+}
+function graficoPdf() {
+  const W = 760, H = 230, x0 = 34, top = 10, b = 26, n = U.dias.length, cw = (W - x0 - 6) / Math.max(n, 1);
+  const gmax = Math.max(1, ...U.dias.map(d => (d.ger || 0) + perdaDia(d.d))), pg = gmax > 40 ? 10 : gmax > 15 ? 5 : gmax > 6 ? 2 : .5, max = Math.ceil(gmax / pg) * pg, y = v => top + (H - top - b) * (1 - v / max);
+  let s = "";
+  for (let t = 0; t <= max + 1e-9; t += pg) s += `<line x1="${x0}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#eef0f3"/><text x="${x0 - 5}" y="${y(t) + 4}" text-anchor="end" font-size="9.5" fill="#8a929e">${n1(t, pg < 1 ? 1 : 0)}</text>`;
+  U.dias.forEach((d, i) => { const x = x0 + i * cw + cw * .2, bw = cw * .6, pi = perdaTipo(d.d, "inv"), pq = perdaTipo(d.d, "queda"), ger = d.ger || 0;
+    s += `<rect x="${x}" y="${y(ger)}" width="${bw}" height="${y(0) - y(ger)}" fill="#2b6cb0"/>`;
+    if (pi > 0) s += `<rect x="${x}" y="${y(ger + pi)}" width="${bw}" height="${y(ger) - y(ger + pi)}" fill="#f2c14e"/>`;
+    if (pq > 0) s += `<rect x="${x}" y="${y(ger + pi + pq)}" width="${bw}" height="${Math.max(1.5, y(ger + pi) - y(ger + pi + pq))}" fill="#e8743b"/>`;
+    if (d.sem_expl) s += `<rect x="${x - 1}" y="${top}" width="${bw + 2}" height="${H - top - b}" fill="none" stroke="#d64550" stroke-dasharray="3 2"/>`;
+    s += `<text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle" font-size="9.5" fill="${d.sem_expl ? "#d64550" : "#8a929e"}">${d.d}</text>`; });
+  if (U.p50_dia) s += `<line x1="${x0}" x2="${W}" y1="${y(U.p50_dia)}" y2="${y(U.p50_dia)}" stroke="#1a1d24" stroke-dasharray="5 4"/><text x="${W - 4}" y="${y(U.p50_dia) - 5}" text-anchor="end" font-size="9.5" fill="#1a1d24">P50 ${n1(U.p50_dia)} MWh/dia</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%">${s}</svg><div class="leg"><span><i style="background:#2b6cb0"></i>gerado</span><span><i style="background:#f2c14e"></i>o que o inversor parado tirou</span><span><i style="background:#e8743b"></i>o que as quedas tiraram</span><span><i style="background:#fff;border:1px dashed #d64550"></i>dia sem explicação</span><span>(MWh por dia)</span></div>`;
+}
+const secPdfU = (n, t, s) => `<div class="sec"><div class="sechead"><span class="n">${n}</span>Análise da usina</div><div class="sectitle">${t}</div>${s ? `<div class="secsub">${s}</div>` : ""}`;
+function barrasInvPdf() {
+  const l = U.invs.filter(v => v.pr != null).sort((a, b) => a.pr - b.pr);
+  if (!l.length) return `<div class="leitura">Sem o PR por inversor no BD neste mês.</div>`;
+  const W = 720, lh = 26, x0 = 96, xr = 150, H = l.length * lh + 30, X = v => x0 + (W - x0 - xr) * Math.min(1, Math.max(0, v));
+  const alvo = U.alvo ?? l[0].alvo ?? 0;
+  let s = alvo ? `<line x1="${X(alvo)}" x2="${X(alvo)}" y1="4" y2="${H - 22}" stroke="#1a1d24" stroke-dasharray="5 4"/><text x="${X(alvo)}" y="${H - 8}" text-anchor="middle" font-size="9.5" fill="#1a1d24">alvo ${pc(alvo)}</text>` : "";
+  [0, .25, .5, .75, 1].forEach(t => { s += `<line x1="${X(t)}" x2="${X(t)}" y1="4" y2="${H - 22}" stroke="#eef0f3"/><text x="${X(t)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#8a929e">${t * 100}%</text>`; });
+  l.forEach((r, i) => { const y = 6 + i * lh, pr = r.pr, a = r.alvo ?? alvo, cor = a && pr < a * .85 ? "#d64550" : a && pr < a * .95 ? "#e0a800" : "#4f9a0a";
+    s += `<text x="${x0 - 8}" y="${y + 13}" text-anchor="end" font-size="10.5" fill="#1a1d24" font-weight="600">${esc(r.n)}</text>`;
+    s += `<rect x="${x0}" y="${y + 2}" width="${Math.max(1.5, X(pr) - x0)}" height="15" rx="3" fill="${cor}"/>`;
+    if (r.out != null) s += `<line x1="${X(r.out)}" x2="${X(r.out)}" y1="${y}" y2="${y + 19}" stroke="#2b6cb0" stroke-width="2"/>`;
+    s += `<text x="${W - xr + 8}" y="${y + 13}" font-size="10.5" fill="#1a1d24"><tspan font-weight="700">${pc(pr)}</tspan>${a ? ` <tspan fill="${pr < a ? "#d64550" : "#4f7d0a"}">${pp((pr - a) * 100)}</tspan>` : ""}${r.os.length ? ` <tspan fill="#8a929e">OS ${r.os.join(", ")}</tspan>` : ""}</text>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%">${s}</svg><div class="leg"><span><i style="background:#d64550"></i>abaixo de 85% do alvo</span><span><i style="background:#e0a800"></i>85 a 95%</span><span><i style="background:#4f9a0a"></i>no alvo</span><span><i style="background:#2b6cb0;width:2px"></i>o PR dele no mês anterior</span><span>tracejado: o alvo</span></div>`;
+}
+function htmlPdfUsina() {
+  const g = U.ger, c = (UE && UE.cascata && UE.cascata.ok) ? UE.cascata : null, pm = perdaMes(), gm = geradoMes();
+  const at = g.at, rpr = g.pr != null && g.meta ? g.pr / g.meta : null;
+  const verd = at == null ? ["SEM DADO", "#eef0f3", "#5b6472"] : at >= 98 && (rpr == null || rpr >= .95) ? ["ÓTIMO", "#e6f4d9", "#4f7d0a"] : at >= 90 && (rpr == null || rpr >= .85) ? ["BOM", "#eaf3fb", "#2b6cb0"] : ["ABAIXO DO ESPERADO", "#fdeaec", "#d64550"];
+  const ult = (U.frescor || {}).bd_ult, per = `01/${dd2(mesN())}/${ano()} a ${dd2(ult || 1)}/${dd2(mesN())}/${ano()}`;
+  const pInv = U.ocorr.filter(o => !ehQueda(o)).reduce((a, o) => a + (o.perda || 0), 0) / 1000, pQ = U.ocorr.filter(ehQueda).reduce((a, o) => a + (o.perda || 0), 0) / 1000;
+  const quedas = U.ocorr.filter(ehQueda);
+  let h = `<div class="sec"><div class="sechead" style="color:#8a929e">Grid Co. · Performance UFV · Análise da usina</div>
+    <div class="capa-n">${esc(U.usina)}</div><div class="capa-s">${U.kwp ? n1(U.kwp / 1000, 2) + " MWp · " : ""}${esc(U.cliente)}${U.local ? " · " + esc(U.local) : ""} · ${per}${U.mob ? " · mobilizada em " + brData(U.mob) : ""}</div>
+    <div style="margin:16px 0"><span class="badge" style="background:${verd[1]};color:${verd[2]}">${verd[0]}</span></div>
+    <div class="tiles">${tilePdf("Geração vs P50", g.prod == null ? "—" : n1(g.prod, 1) + " MWh", at == null ? "" : `${n1(at, 1)}% · meta ${n1(g.p50, 0)} MWh`)}
+      ${tilePdf("Performance Ratio", g.pr == null ? "—" : n1(g.pr) + "%", g.meta ? "meta " + n1(g.meta) + "%" : "", g.pr != null && g.meta && g.pr < g.meta - .2 ? "#d64550" : "#4f7d0a")}
+      ${tilePdf("Disponibilidade", U.disp.mes == null ? "—" : n1(U.disp.mes) + "%", "pelas ocorrências do COS")}
+      ${tilePdf("Perda nas ocorrências", n1(pm, 1) + " MWh", g.prod != null ? `sem elas: ${n1(g.prod + pm, 1)} MWh` : "", "#c9870d")}</div>
+    <div class="leitura">${g.prod == null ? "Sem a geração do mês no Gerencial." : `A usina gerou <b>${n1(g.prod, 1)} MWh</b> no período, <b>${n1(at, 1)}%</b> da meta P50 (${n1(g.p50, 1)} MWh). O PR foi <b>${n1(g.pr)}%</b>${g.meta ? ` contra a meta de <b>${n1(g.meta)}%</b> (${pp(g.pr - g.meta)})` : ""}.`}
+      ${U.disp.mes != null ? ` A disponibilidade, pelas ocorrências do COS, foi <b>${n1(U.disp.mes)}%</b>: ${n1(U.disp.h, 1)} horas equivalentes perdidas.` : ""}${pm > 0 ? ` Sem essas ocorrências, a usina teria gerado mais <b>${n1(pm, 1)} MWh</b>: o inversor parado tirou ${n1(pInv, 1)} MWh e as quedas, ${n1(pQ, 1)} MWh.` : ""}
+      ${U.sem_expl.length ? ` <b>${U.sem_expl.length} dia${U.sem_expl.length > 1 ? "s" : ""} sem explicação</b> (${U.sem_expl.map(dd2).join(", ")}): o PR ficou abaixo de 85% da meta mesmo devolvendo as ocorrências.` : ""}</div>
+    ${U.ofensores.length ? `<div class="kicker">Ofensores</div>${U.ofensores.map((a, i) => `<div class="pt"><b>${i + 1}.</b> <b class="t">${esc(a.t)}</b> (${esc(a.s)}). <i>${esc(a.cob.txt)}.</i> Próximo passo: ${esc(a.p)}</div>`).join("")}` : ""}
+    ${U.observacoes.length ? `<div class="kicker">Observações</div>${U.observacoes.map(o => `<div class="pt" style="background:#f3f6fa;border-color:#d9e1ec"><b class="t">${esc(o.t)}</b> (${esc(o.s)}). ${esc(o.p)}</div>`).join("")}` : ""}
+    <div class="foot"><span>Equipe de Performance · Grid Co.</span><span>Emitido em ${new Date().toLocaleDateString("pt-BR")}</span></div></div>`;
+  let n = 2;
+  const sec = (t, s) => secPdfU(dd2(n++), t, s);
+  if (c) h += sec("Recurso solar", "Quanto sol houve no período. O efeito do sol é separado do da operação: sol abaixo do previsto é expurgo, não falha da usina.")
+    + `<div class="tiles">${c.poa != null ? tilePdf("POA no período", n1(c.poa, 1) + " kWh/m²", c.poa_prev ? pp((c.poa / c.poa_prev - 1) * 100).replace(" p.p.", "%") + " vs previsto" : "") : ""}${c.poa_prev ? tilePdf("POA previsto", n1(c.poa_prev, 1) + " kWh/m²", "referência") : ""}
+      ${tilePdf("Possível com o sol", n1(c.possivel, 1) + " MWh", "o P50 ajustado ao sol medido")}${tilePdf("Efeito do sol", (c.possivel >= c.p50 ? "+" : "−") + n1(Math.abs(c.possivel - c.p50), 1) + " MWh", c.possivel >= c.p50 ? "mais energia que o P50" : "expurgo")}</div>
+    <div class="leitura">${c.possivel >= c.p50 ? "O sol veio acima do previsto: a meta do mês deveria ser mais fácil de bater." : `O sol veio abaixo do previsto: parte da distância para o P50 é do tempo (${n1(c.p50 - c.possivel, 1)} MWh), não da usina.`}</div></div>`;
+  h += sec("Qualidade da performance e equipamentos", "O PR tira o efeito do sol; aberto por inversor contra o alvo. A disponibilidade sai das ocorrências do COS.")
+    + `<div class="tiles">${tilePdf("PR realizado", g.pr == null ? "—" : n1(g.pr) + "%", g.meta ? "meta " + n1(g.meta) + "%" : "")}${tilePdf("Disponibilidade", U.disp.mes == null ? "—" : n1(U.disp.mes) + "%", U.disp.h != null ? n1(U.disp.h, 1) + " h equivalentes perdidas" : "")}${tilePdf("Inversor parado", n1(pInv, 1) + " MWh", "o que deixou de gerar no mês")}</div>
+      <div class="kicker">PR por inversor${U.alvo ? " · contra o alvo de " + pc(U.alvo) : ""}</div>${barrasInvPdf()}
+      ${U.invs.some(v => v.obs && v.obs.txt) ? `<div class="kicker">Observações dos inversores</div>${U.invs.filter(v => v.obs && v.obs.txt).map(v => `<div class="pt" style="background:#f3f6fa;border-color:#d9e1ec"><b class="t">${esc(v.n)}</b>: ${esc(v.obs.txt)}</div>`).join("")}` : ""}</div>`;
+  if (c) h += sec("Contabilidade de energia", "Do P50 ao gerado, degrau por degrau. Expurgo (sol abaixo e queda de rede) separado do que é da operação (equipamento e trackers).")
+    + wfPdf([{l: ["P50"], v: c.p50, k: "a", c: "#8b93a8", sub: "meta"}, {l: [c.possivel >= c.p50 ? "Sol acima" : "Sol abaixo"], v: c.possivel - c.p50, c: c.possivel >= c.p50 ? "#9cc3ea" : "#f2c14e", sub: c.possivel >= c.p50 ? "mais energia" : "expurgo"},
+      {l: ["Queda", "de rede"], v: -(c.perda_rede || 0), c: "#f0b27a", sub: "expurgo"}, {l: ["Equipa-", "mento"], v: -(c.perda_equip || 0), c: "#d64550", sub: "operação"}, {l: ["Trackers"], v: -(c.perda_trk || 0), c: "#c9870d", sub: "operação"},
+      {l: ["Não", "explicado"], v: -(c.nao_explicado || 0), c: "#c2c7d0", sub: "o resto"}, {l: ["Gerado"], v: c.geracao, k: "a", c: "#4f7d0a", sub: "BD"}], 720, 290)
+    + `<div class="leitura">Expurgos: <b>${n1((c.perda_rede || 0) + Math.max(0, c.p50 - c.possivel), 1)} MWh</b>. Operação: <b>${n1((c.perda_equip || 0) + (c.perda_trk || 0), 1)} MWh</b>. Não explicado: <b>${n1(c.nao_explicado, 1)} MWh</b>${c.nao_explicado < 0 ? ", negativo: a cascata pôs mais perda em equipamento do que a usina perdeu; corrigir antes de usar como nota" : ""}.
+      Pelas ocorrências do COS, a conta fica: quedas ${n1(pQ, 1)} MWh (a cascata diz ${n1(c.perda_rede, 1)}) e o inversor parado ${n1(pInv, 1)} MWh (a cascata diz ${n1(c.perda_equip, 1)} de equipamento).</div></div>`;
+  h += sec("Ocorrências do COS e o que elas tiraram", "Cada ocorrência do COS no período e quanto a usina geraria sem ela. A barra inteira do gráfico é a usina sem as ocorrências.")
+    + graficoPdf()
+    + (quedas.length ? `<div class="kicker">Quedas da usina</div><table><thead><tr><th>Dia</th><th>OS</th><th>Tipo</th><th>Janela</th><th>Proteção</th><th>Geraria (MWh)</th><th>Gerou (MWh)</th><th>Perda (MWh)</th><th class="e">Como</th></tr></thead><tbody>
+      ${quedas.map(o => `<tr><td>${dd2(o.d)}/${dd2(mesN())}</td><td>${esc(o.os)}</td><td>${esc(o.tipo)}</td><td>${esc(o.trechos)}</td><td>${o.prot || "—"}</td><td>${n1((o.geraria || 0) / 1000, 2)}</td><td>${o.gerou == null ? "—" : n1(o.gerou / 1000, 2)}</td><td><b>${n1((o.perda || 0) / 1000, 2)}</b></td><td class="e">${esc(COMO(o.metodo))}${o.limitada ? " (limitada ao que faltou no dia)" : ""}</td></tr>`).join("")}
+      <tr style="font-weight:700"><td>Total</td><td></td><td>${quedas.length} quedas</td><td></td><td></td><td></td><td></td><td>${n1(pQ, 2)}</td><td></td></tr></tbody></table>` : "")
+    + (U.ocorr.some(o => !ehQueda(o)) ? `<div class="kicker">Equipamento parado</div><table><thead><tr><th>OS</th><th>Equipamento</th><th>Aberta desde</th><th>Dias no período</th><th>Geraria (MWh)</th><th>Perda (MWh)</th><th class="e">Como</th></tr></thead><tbody>
+      ${[...new Set(U.ocorr.filter(o => !ehQueda(o)).map(o => o.os + "|" + o.escopo))].map(k => { const [f, e] = k.split("|"), l = U.ocorr.filter(o => o.os === f && o.escopo === e); return `<tr><td>${esc(f)}</td><td>${esc(e)}</td><td>${brData(l[0].ini)}</td><td>${l.length}</td><td>${n1(l.reduce((a, o) => a + (o.geraria || 0), 0) / 1000, 1)}</td><td><b>${n1(l.reduce((a, o) => a + (o.perda || 0), 0) / 1000, 1)}</b></td><td class="e">${esc(COMO(l[0].metodo))}</td></tr>`; }).join("")}</tbody></table>` : "")
+    + (U.ocorr.length ? "" : `<div class="leitura">Nenhuma ocorrência do COS no período.</div>`) + `</div>`;
+  h += sec("Comportamento diário", "Gerado, o que as ocorrências tiraram, PR, sol e disponibilidade de cada dia.")
+    + `<table><thead><tr><th>Dia</th><th>Gerado</th><th>Perda nas ocorr.</th><th>Sem as ocorr.</th><th>PR</th><th>POA (kWh/m²)</th><th>Disp. (COS)</th></tr></thead><tbody>
+      ${U.dias.map(d => `<tr><td>${dd2(d.d)}/${dd2(mesN())}${d.sem_expl ? " *" : ""}</td><td>${n1(d.ger, 2)}</td><td>${perdaDia(d.d) ? n1(perdaDia(d.d), 2) : "—"}</td><td>${n1((d.ger || 0) + perdaDia(d.d), 2)}</td><td style="color:${metaPr() && d.pr != null && d.pr < metaPr() * .85 ? "#d64550" : "inherit"}">${pc(d.pr)}</td><td>${n1(d.poa, 2)}</td><td>${d.disp == null ? "—" : n1(d.disp) + "%"}</td></tr>`).join("")}
+      <tr style="font-weight:700"><td>Total</td><td>${n1(gm, 1)}</td><td>${n1(pm, 1)}</td><td>${n1(gm + pm, 1)}</td><td>${g.pr == null ? "—" : n1(g.pr) + "%"}</td><td>${n1(U.dias.reduce((a, d) => a + (d.poa || 0), 0), 1)}</td><td>${U.disp.mes == null ? "—" : n1(U.disp.mes) + "%"}</td></tr></tbody></table>
+      ${U.sem_expl.length ? `<div class="leitura">* dia sem explicação: o PR do dia, devolvidas as perdas das ocorrências do COS, ficou abaixo de 85% da meta.</div>` : ""}</div>`;
+  if (UM && UM.meses) { const Hs = UM.meses.filter(x => x.ok);
+    h += sec(`Mês a mês em ${ano()}`, "A mesma contabilidade de cada mês: o que foi expurgo (sol e rede), o que foi da operação e o PR contra a meta.")
+      + `<table><thead><tr><th>Mês</th><th>P50</th><th>Gerado</th><th>× P50</th><th>Sol abaixo</th><th>Rede</th><th>Equip.</th><th>Trackers</th><th>Não expl.</th><th>PR</th><th>Meta</th></tr></thead><tbody>
+        ${Hs.map(x => `<tr${x.m === mesN() ? ' style="font-weight:700"' : ""}><td>${MESES[x.m]}</td><td>${n1(x.p50, 0)}</td><td>${n1(x.geracao, 0)}</td><td>${x.p50 ? pc(x.geracao / x.p50, 0) : "—"}</td><td>${n1(Math.max(0, x.p50 - x.possivel), 1)}</td><td>${n1(x.perda_rede, 1)}</td><td>${n1(x.perda_equip, 1)}</td><td>${n1(x.perda_trk, 1)}</td><td style="color:${x.nao_explicado < 0 ? "#d64550" : "inherit"}">${n1(x.nao_explicado, 1)}</td><td>${pc(x.pr_real)}</td><td>${pc(x.pr_meta)}</td></tr>`).join("")}</tbody></table></div>`; }
+  h += sec("Metodologia e de onde vem cada número", "Como cada indicador é calculado e a fonte.")
+    + `<div class="metod">
+      <div><b>Geração, P50, PR e meta (capa)</b>: o Gerencial, dias fechados; a mesma régua da visão inicial.</div>
+      <div><b>Dia a dia e inversores</b>: o BD (BD_Thopen para a Thopen, BD_Performance para as demais).</div>
+      <div><b>Disponibilidade</b>: 1 − horas equivalentes perdidas ÷ horas de sol, pelas ocorrências do COS: cada ocorrência pesa a fração da potência que parou.</div>
+      <div><b>Perda de uma queda</b>: a relação potência ÷ POA da hora antes e da hora depois, vezes a POA de cada 5 minutos da janela, menos o que a usina gerou nela.</div>
+      <div><b>Perda de inversor parado</b>: a geração mediana dos outros inversores no dia, menos a dele.</div>
+      <div><b>Sem curva no banco</b>: a geração do dia vezes a fatia que a janela tem do sol de um dia típico; marcada como estimativa.</div>
+      <div><b>Teto do dia</b>: a perda das quedas de um dia nunca passa do que faltou na geração do dia (a POA × a potência × o PR típico da usina no mês, menos o gerado).</div>
+      <div><b>Dia sem explicação</b>: o PR do dia, somadas as perdas das ocorrências, abaixo de 85% da meta.</div>
+      <div><b>Ofensores</b>: inversor parado pela ocorrência do COS; tracker parado e string sem corrente pela Falhas do mês, cobertos pelo chamado de tracker e pela OS de string; vegetação pela última ronda (Zeladoria do Nexus).</div>
+      <div><b>Contabilidade de energia</b>: a cascata do Gerencial (P50 → sol → rede → equipamento → trackers → não explicado → gerado).</div></div></div>`;
+  return h;
+}
+
+/* ── os eventos do diagnóstico ───────────────────────────────────────────────────────────────────────────────────── */
+document.addEventListener("mousemove", e => {
+  if (VIEW !== "usina" || !U) return;
+  if (e.target.closest && e.target.closest("#svg-cmp")) {
+    const h = tipComparar(e);
+    if (!h) { tip.hidden = true; return; }
+    tip.innerHTML = h; tip.hidden = false;
+    const w = tip.offsetWidth, hh = tip.offsetHeight;
+    tip.style.left = (e.clientX + w + 24 > innerWidth ? e.clientX - w - 16 : e.clientX + 16) + "px";
+    tip.style.top = Math.max(8, Math.min(innerHeight - hh - 8, e.clientY - hh / 2)) + "px";
+    return;
+  }
+  const guia = $("#cmp-guia"); if (guia) guia.setAttribute("visibility", "hidden");
+  const g = e.target.closest && e.target.closest("#svg-dia [data-dia]");
+  if (!g) { tip.hidden = true; return; }
+  const d = U.dias.find(x => x.d === +g.getAttribute("data-dia"));
+  if (!d) { tip.hidden = true; return; }
+  tip.innerHTML = tipDia(d); tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(innerWidth - w - 8, e.clientX + 16) + "px";
+  tip.style.top = (e.clientY + h + 20 > innerHeight ? e.clientY - h - 14 : e.clientY + 18) + "px";
+});
+document.addEventListener("click", e => {
+  if (VIEW !== "usina") return;
+  const t = e.target, q = s => t.closest(s);
+  let x;
+  if ((x = q("[data-view]"))) { voltarGeral(); return; }
+  if (!U) return;
+  if ((x = q("[data-modo]"))) { MODO_DIA = x.getAttribute("data-modo"); tudo(); return; }
+  if ((x = q("[data-ser]"))) { const k = x.getAttribute("data-ser"); SER[k] = !SER[k]; tudo(); return; }
+  if ((x = q("[data-cmpg]"))) { CMP_G = x.getAttribute("data-cmpg"); tudo(); return; }
+  if ((x = q("[data-ponte]"))) { PONTE = x.getAttribute("data-ponte"); tudo(); return; }
+  if ((x = q("[data-prmm]"))) { PR_MM = !PR_MM; tudo(); return; }
+  if ((x = q("[data-achrec]"))) { ACH_REC = !ACH_REC; tudo(); return; }
+  if ((x = q("[data-ach]"))) { const i = +x.getAttribute("data-ach"); ACH = ACH === i ? null : i; tudo(); return; }
+  if ((x = q("#svg-dia [data-dia]"))) { DIA = +x.getAttribute("data-dia"); tudo(); return; }
+  if ((x = q("[data-obsin]"))) return;
+  if ((x = q("td[data-obs]"))) { if (!PODE) return; OBS_ED = x.getAttribute("data-obs"); tudo(); foca(`[data-obsin="${OBS_ED}"]`); const f = $(`[data-obsin="${OBS_ED}"]`); if (f) f.select(); return; }
+  if ((x = q("tr.l[data-inv]"))) { const n = x.getAttribute("data-inv"); INV_ABERTO = INV_ABERTO === n ? null : n; tudo(); return; }
+});
+document.addEventListener("keydown", e => {
+  if (!(e.target.hasAttribute && e.target.hasAttribute("data-obsin")) || !(e.key === "Enter" || e.key === "Escape")) return;
+  const n = e.target.getAttribute("data-obsin"), v = e.target.value.trim();
+  OBS_ED = null;
+  if (e.key === "Enter") { const atual = ((U.invs.find(i => i.n === n) || {}).obs || {}).txt || ""; if (v !== atual) { gravaObs(n, v); return; } }
+  tudo();
+});
+window.addEventListener("popstate", () => {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get("usina")) lerUsina(qs.get("usina"), qs.get("mes") || hojeMes, false);
+  else { VIEW = "geral"; tudo(); }
+});
+(() => {                                             // o link direto: ?usina=<nome>&mes=AAAA-MM abre o diagnóstico
+  const qs = new URLSearchParams(location.search);
+  if (qs.get("usina")) { if (qs.get("mes") && /^\d{4}-\d{2}$/.test(qs.get("mes"))) MES = qs.get("mes"); lerUsina(qs.get("usina"), MES, false); }
+  ler();
+})();
 </script>
 </body>
 </html>

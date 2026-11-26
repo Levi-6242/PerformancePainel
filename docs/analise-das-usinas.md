@@ -46,11 +46,17 @@ menu passa a levar à Análise e as telas antigas viram redirecionamento.
    seletores de usina e mês (estilo Nexus); "Exportar relatório (PDF)". Sempre o mês atual; o mês a mês só no botão.
 2. **Parecer** numa linha e **5 números**: geração × P50, PR × meta, disponibilidade (ocorrências do COS), perda nas
    ocorrências (e quanto geraria sem elas), ocorrências do COS (nº, abertas, quedas).
-3. **Ofensores** (recolhível): inversor parado, tracker parado, string sem corrente; cada um com **o que já o cobre** e
-   o próximo passo; e **Observações** à parte (a meta de PR que mudou, a conta dos expurgos que estourou). Regra da
-   cobertura (Levi, 25/11): **desligamento** (inversor, cabine, usina) = a ocorrência do COS; **string** = a OS de
-   recomposição ou verificação de string do Fracttal naquele inversor; **tracker** = o chamado de tracker da usina. A
-   mesma regra decide o "já tem" das sugestões do gêmeo.
+3. **Ofensores** (recolhível): inversor parado, tracker parado, string sem corrente e **vegetação alta**; cada um com
+   **o que já o cobre** e o próximo passo; e **Observações** à parte (a meta de PR que mudou, a conta dos expurgos que
+   estourou, a última ronda, os dias sem explicação). Regra da cobertura (Levi, 25/11): **desligamento** (inversor,
+   cabine, usina) = a ocorrência do COS; **string** = a OS de recomposição ou verificação de string do Fracttal naquele
+   inversor; **tracker** = o chamado de tracker da usina. A mesma regra decide o "já tem" das sugestões do gêmeo.
+   **Vegetação** (Levi, 26/11/2026: "incluir a vegetação também [...] essa informação tem nas rondas, a última ronda
+   feita"): o nível da última ronda (a Zeladoria que o Nexus publica, `nexus_zeladoria · zeladoria_semana`) acima de 3 é
+   ofensor, coberto quando a supressão está programada ou feita; a última ronda (vegetação, sujidade, a OS, a última
+   supressão e limpeza) vai sempre nas observações. Na tela real os ofensores de tracker e de string saem do **pacote
+   da Falhas do mês** (a régua da plataforma), não do gêmeo; o inversor que zerou num dia **sem** ocorrência do COS
+   entra descoberto.
 4. **Para onde foi a energia**: a cascata do mês (P50 → sol → queda de rede → equipamento → trackers → não explicado →
    gerado), com expurgos × operação × não explicado ao lado e a conferência pelas ocorrências do COS; "Mês a mês" no
    botão (as perdas empilhadas de jan a hoje, com os números).
@@ -100,6 +106,10 @@ menu passa a levar à Análise e as telas antigas viram redirecionamento.
 
 ## Entregas
 
+Situação em 26/11/2026: 1 no ar (d8ee8c9 + Nexus e98dda37); **2 e 3 no código** (o diagnóstico, as curvas no clique, o
+gêmeo na faixa do dia, a observação e o PDF), provadas na bancada com o dado do servidor; a troca das telas antigas (a
+segunda metade da 4) espera o OK do Levi depois de ele usar o diagnóstico.
+
 1. **Visão inicial** completa (cards, filtros, ocultar, lista simples, PDF da visão) + `/api/analise/usinas` + testes.
 2. **Diagnóstico**: cabeçalho, 5 números, ofensores, para onde foi a energia (+ mês a mês), dia a dia com as perdas e a
    faixa do dia, PR e inversores + `/api/analise/usina` + `analise_usinas.py` com testes das contas (a Santarém 2 de
@@ -123,6 +133,17 @@ Cada entrega sobe fora do período solar, em lote (a regra do deploy), com a pro
   de mês): o degrau de equipamento pelas perdas das ocorrências do COS e o de trackers filtrado pelo mês. Muda também o
   Gerencial e o Criador de relatório. Até lá a tela avisa nos meses em que a conta estoura.
 - **O plano das 4 entregas está aprovado**; as telas antigas seguem em paralelo até o OK dele.
+
+## Como ficou na tela real (26/11/2026)
+
+- `GET /api/analise/usina?usina=&mes=`: o diagnóstico inteiro numa chamada (10 min de cópia); a cascata e o mês a mês à
+  parte em `GET /api/analise/usina/energia` (a do mês corrente leva uns 24 s na 1ª vez, medido no servidor); as curvas
+  (`/api/analise/curvas`) e o gêmeo (`/api/analise/gemeo`) só no clique, sob `/api/analise` (o gestor lê).
+- As curvas só de fonte gratuita (o banco da Thopen e o scadaGridco): a usina que só tem curva na API PV ou na SunOp
+  mostra o motivo no lugar do gráfico.
+- A perda da queda sem curva no banco usa a POA dos outros dias de queda do mês; sem nenhuma, o dia de céu limpo (o seno
+  das 06 às 18 h), marcada "estimativa".
+- O mês a mês do PR é o do BD (`/api/g/mensal`); o PR do topo é o do Gerencial.
 
 ## Achados de dado no caminho (para conferir)
 
