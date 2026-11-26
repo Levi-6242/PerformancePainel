@@ -2664,9 +2664,15 @@ Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py
 - `GET /api/analise/usina/energia?usina=&mes=[&meses=1]`: a cascata do mês (e a de cada mês do ano, em paralelo) À PARTE,
   porque a do mês corrente leva uns 24 s na 1ª vez (medido no servidor em 26/11; os meses fechados, 0,3 s).
 - `GET /api/analise/curvas?usina=&dia=`: só no clique (o Comparar inversores e o dia sem explicação): a potência de cada
-  inversor e a POA, e as strings no banco da Thopen. **Só fonte gratuita** (`_AU_FONTES_CURVA`: o banco e o scadaGridco);
-  a usina que só tem curva na API PV ou na SunOp volta `sem_curva` com o motivo. A usina se acha pelo Tempo real da fonte
-  e, sem ele, pelo catálogo do gêmeo (`fonte_ref` = o plant_id do banco).
+  inversor e a POA, e as strings (banco da Thopen e scadaGridco). **Só fonte gratuita** (`_AU_FONTES_CURVA`: o banco e
+  o scadaGridco). **A Athon que já está no SCADA da Grid** (CPP100, SMP100, TIM200 e MAB200, `_athon_sg_cfg`, fonte
+  `athonscada`) lê de lá (Levi, 26/11/2026: "fui nas da Athon e está dizendo que é uma fonte paga, sendo que é a própria
+  [SCADA] da Grid"); a Athon que só está na SunOp (JCD100, MRO100, TIM100, MAB100, MTS100, MTS200) diz que a SunOp tem cota
+  e a tela não a gasta; a da API PV diz que é paga. O scadaGridco não traz a POA: a tela diz. A queda pela curva só se
+  calcula no banco (ela precisa da POA). A usina se acha pelo Tempo real da fonte e, sem ele, pelo catálogo do gêmeo
+  (`fonte_ref` = o plant_id do banco).
+- O dia a dia não inventa: POA zerada é falta de dado (a linha para, não despenca a zero; Levi, 26/11/2026), o PR de
+  sensor ruim (fora de 0 a 150%) some, e os dias do fim do mês que o BD ainda não fechou (geração 0, sem POA) saem.
 - `GET /api/analise/gemeo?usina=&dia=`: a curva do gêmeo (medido × o que o sol pedia) e as sugestões do dia, pelo serviço
   do gêmeo com a senha do servidor (o `/gemeo/` direto não está na lista do gestor; esta rota está, sob `/api/analise`).
 - `POST /api/analise/observacao {usina, inversor, texto}`: a observação do inversor, para a equipe (`analise_obs` no

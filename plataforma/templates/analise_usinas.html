@@ -1063,6 +1063,7 @@ function curvaInversores(d) {
     s += `<path d="${cam(c.pot[n], yA)}" fill="none" stroke="${baixo ? "var(--critico)" : "rgba(124,183,255,.55)"}" stroke-width="${baixo ? 2.2 : 1.2}"><title>${esc(n)}: ${n1(meds[n] / 1000, 2)} MWh${medE ? " · " + n1(meds[n] / medE * 100, 0) + "% da mediana" : ""}</title></path>`; });
   const baixos = nomes.filter(n => medE && meds[n] < medE * .93);
   return `<div class="rola"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:720px" role="img" aria-label="Curva da usina e dos inversores">${s}</svg></div>
+    ${c.poa.length ? "" : `<div class="sub" style="color:var(--mudo)">Esta fonte não traz a POA: só as curvas dos inversores.</div>`}
     <div class="legenda" style="margin-top:4px"><span><i style="background:var(--tinta)"></i>usina (soma dos inversores, escala própria)</span><span><i style="background:rgba(124,183,255,.7)"></i>cada inversor (kW, à esquerda)</span><span><i style="background:var(--critico)"></i>inversor mais de 7% abaixo da mediana no dia</span><span><i style="border-top:2px dashed var(--c-poa);height:0;border-radius:0"></i>POA (W/m², à direita)</span></div>
     <div style="color:var(--mudo);font-size:12.5px;margin-top:6px">${baixos.length ? `Abaixo dos outros no dia: <b style="color:var(--critico)">${baixos.map(n => `${esc(n)} (${n1(meds[n] / medE * 100, 0)}%)`).join(", ")}</b>. Passe o mouse na linha para o nome.` : "Nenhum inversor mais de 7% abaixo dos outros: a queda é da usina inteira (sol, sujeira, sombra, rede ou o sensor de POA)."}</div>`;
 }
@@ -1116,7 +1117,8 @@ function compararInversores() {
     + (CMP_G === "str" ? `<span>cada linha é uma string; mais forte = abaixo de 90% da mediana</span>` : "");
   return ctl + `<div class="rola" style="margin-top:12px"><svg id="svg-cmp" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:760px" role="img" aria-label="Inversores sobrepostos">${s}</svg></div>
     <div class="legenda" style="margin-top:4px">${leg}<span>passe o mouse para os valores do instante</span></div>
-    ${CMP_G === "str" && semStr ? `<div class="sub" style="color:var(--mudo)">Strings só nas usinas do banco da Thopen; nesta fonte, use a Potência.</div>` : ""}${sem ? `<div class="sub" style="color:var(--mudo)">${esc(sem.motivo || sem.erro || "")}</div>` : ""}`;
+    ${!dias.some(d => C_(d).poa.length) ? `<div class="sub" style="color:var(--mudo)">Esta fonte não traz a POA: só as curvas dos inversores.</div>` : ""}
+    ${CMP_G === "str" && semStr ? `<div class="sub" style="color:var(--mudo)">Sem a curva por string desta fonte neste dia; use a Potência.</div>` : ""}${sem ? `<div class="sub" style="color:var(--mudo)">${esc(sem.motivo || sem.erro || "")}</div>` : ""}`;
 }
 function tipComparar(e) {
   const g = CMP_GEO, svg = $("#svg-cmp"); if (!g || !svg) return null;

@@ -88,6 +88,9 @@ VIEWS = {"/api/g/diario": DIARIO, "/api/g/mensal": {"pontos": []}, "/api/g/ticke
                                                              {"inversor": "Inversor 1.2", "pr": 0.40, "alvo": 0.833, "ger_mwh": 5}]}}
 
 
+_CURVA_FONTE = app._au_curva_fonte          # a de verdade (a fixture `diag` a troca por "sem curva")
+
+
 @pytest.fixture
 def diag(cli, monkeypatch):
     monkeypatch.setattr(app, "_au_view", lambda fn, rota, **q: VIEWS[rota])
@@ -135,3 +138,34 @@ def test_a_observacao_do_inversor_grava_para_a_equipe_e_texto_vazio_apaga(diag):
     diag.post("/api/analise/observacao", json={"usina": "usina a", "inversor": "Inversor 1.2", "texto": ""})
     assert json.load(open(app.STATE_PATH, encoding="utf-8"))["analise_obs"]["Usina A"] == {}
     assert diag.post("/api/analise/observacao", json={"usina": "Usina A"}).status_code == 400
+
+
+def test_a_athon_no_scada_da_grid_le_as_curvas_de_la_e_a_da_sunop_diz_a_cota(diag, monkeypatch):
+    # Levi, 26/11/2026: "fui nas da Athon e está dizendo que é uma fonte paga, sendo que é a própria [SCADA] da Grid"
+    monkeypatch.setattr(app, "_au_curva_fonte", _CURVA_FONTE)
+    monkeypatch.setattr(app, "INFO_GERAL", {"cpp100": {"usina": "CPP100", "cliente": "Athon"}, "jcd100": {"usina": "JCD100", "cliente": "Athon"},
+                                            "tucano 2": {"usina": "Tucano 2", "cliente": "SEMP"}})
+    monkeypatch.setattr(app, "_athon_sg_cfg", lambda u, inst="gridco": {"id": "cpp_100", "usina": "CPP100"} if u == "CPP100" else None)
+    pedidos = []
+    monkeypatch.setattr(app, "_pa_dia", lambda fam, fonte, pid, dia, agora=None: pedidos.append((fam, fonte, pid, dia.isoformat()))
+                        or {"inversores": [{"nome": "Inversor 1.1", "pontos": [[600, 50.0], [610, 52.0]]}]})
+    monkeypatch.setattr(app._sg, "usina_cfg", lambda fonte, pid: {"id": pid, "usina": "CPP100"})
+    monkeypatch.setattr(app, "_sg_equips", lambda fonte, cfg: ["1"])
+    monkeypatch.setattr(app, "_sg_curva_inversor", lambda fonte, cfg, eq, dia: {
+        "nome": "Inversor 1.1", "curva": {"7": {"x": ["10:00", "10:10"], "y": [8.1, 8.3]}}, "strings": [{"nome": "7", "ativa": True}]})
+    j = diag.get("/api/analise/curvas?usina=CPP100&dia=2026-11-06").get_json()
+    assert pedidos == [("scadagridco", "athonscada", "cpp_100", "2026-11-06")] and j["fonte"] == "athonscada" and not j["sem_curva"]
+    assert j["pot"]["Inversor 1.1"] == [[600, 50.0], [610, 52.0]] and j["poa"] == []
+    assert j["str"]["Inversor 1.1"]["s"] == {"ST 07": [8.1, 8.3]} and j["str"]["Inversor 1.1"]["info"] == {"ST 07": [None, True]}
+    m = diag.get("/api/analise/curvas?usina=JCD100&dia=2026-11-06").get_json()
+    assert m["sem_curva"] and "SCADA da Grid" in m["motivo"] and "SunOp" in m["motivo"]
+    assert "API PV" in diag.get("/api/analise/curvas?usina=Tucano 2&dia=2026-11-06").get_json()["motivo"]
+
+
+def test_a_poa_zerada_e_falta_de_dado_e_o_dia_vazio_do_fim_sai(diag, monkeypatch):
+    d = dict(DIARIO, pontos=DIARIO["pontos"] + [{"dia": 3, "realizado": None, "geracao": 25.0, "poa": 0},
+                                                 {"dia": 4, "realizado": 11.7, "geracao": 15.0, "poa": 0.38},
+                                                 {"dia": 5, "realizado": None, "geracao": 0, "poa": 0}])
+    monkeypatch.setitem(VIEWS, "/api/g/diario", d)
+    j = diag.get("/api/analise/usina?usina=Usina A&mes=2026-11").get_json()
+    assert [(x["d"], x["poa"], x["pr"]) for x in j["dias"][2:]] == [(3, None, None), (4, 0.38, None)]   # 5 saiu; PR de 1.170% não é dado

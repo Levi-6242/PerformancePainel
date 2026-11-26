@@ -32321,7 +32321,16 @@ def _au_zeladoria():
 
 def _au_curva_fonte(usina):
     """(fonte, família, plant_id) da usina numa fonte de curva gratuita (o banco da Thopen e o scadaGridco), pelo nome do
-    Tempo real; sem ela, pelo catálogo do gêmeo (o plant_id do banco). None = a usina só tem curva em fonte paga."""
+    Tempo real; sem ela, pelo catálogo do gêmeo (o plant_id do banco). None = a usina só tem curva em fonte paga ou com
+    cota. A Athon que já está no SCADA da Grid (CPP100, SMP100, TIM200 e MAB200, o de-para fechado pelo valor em
+    25/11/2026) lê de lá (Levi, 26/11/2026: "é a própria [SCADA] da Grid"); as outras da Athon seguem só na SunOp."""
+    try:
+        cfg = _athon_sg_cfg(next((x.get("usina") for x in (INFO_GERAL or {}).values() if _au_mesma(x.get("usina"), usina)), usina))
+        cfg = cfg or _athon_sg_cfg(usina)
+    except Exception:                                        # noqa: BLE001
+        cfg = None
+    if cfg:
+        return ATHON_SG_FONTE, "scadagridco", cfg["id"]
     fam = {f["fonte"]: f["familia"] for f in _pa.FONTES}
     for f in _AU_FONTES_CURVA:
         try:
@@ -32411,7 +32420,9 @@ def _au_perdas(ocorr, inv_dias, dias_bd, curva):
     a queda pela POA (as curvas do dia, em paralelo, só dos dias de queda) e, sem curva, a estimativa pelo dia típico."""
     quedas = sorted({o["dia"] for o in ocorr if not _au.e_inversor(o["escopo"])})
     curvas = {}
-    if curva and quedas:
+    # só o banco da Thopen: a queda pela curva precisa da POA, e o scadaGridco não a tem (lá seriam um pedido por inversor
+    # e por dia, em série, só para cair na estimativa)
+    if curva and quedas and curva[1] == "pg":
         from concurrent.futures import ThreadPoolExecutor
         fonte, fam, pid = curva
         with ThreadPoolExecutor(max_workers=4) as ex:
@@ -32475,8 +32486,12 @@ def _au_diagnostico(usina, mes):
         if k >= agora.strftime("%Y-%m-%d") and not p.get("geracao") and not p.get("poa"):
             continue                    # o BD_Performance traz o mês inteiro: o dia que ainda não fechou sai do gráfico
         dd = (ddisp or {}).get(k) or {}
-        dias.append({"d": int(p["dia"]), "ger": p.get("geracao"), "poa": p.get("poa"), "pr": p.get("realizado"),
+        poa = p.get("poa") if (p.get("poa") or 0) > 0 else None
+        pr = p.get("realizado") if poa is not None and p.get("realizado") is not None and 0 <= p["realizado"] <= 1.5 else None
+        dias.append({"d": int(p["dia"]), "ger": p.get("geracao"), "poa": poa, "pr": pr,
                      "disp": dd.get("disp") if dd else (100.0 if cobre and k <= disp["periodo"][1] else None)})
+    while dias and not dias[-1]["ger"] and dias[-1]["poa"] is None:
+        dias.pop()                      # o dia que o BD ainda não fechou (geração 0 e sem POA) não vira barra no fim do mês
     ocorr = _au.ocorrencias_usina(disp, nome, agora.date())
     inv_dias = _au_inv_dias(nome, a, m)
     curva = _au_curva_fonte(nome)
@@ -32629,17 +32644,25 @@ def api_analise_curvas():
         return jsonify({"erro": "usina e dia (AAAA-MM-DD)"}), 400
     cf = _au_curva_fonte(usina)
     if not cf:
+        ig = next((x for x in (INFO_GERAL or {}).values() if _au_mesma(x.get("usina"), usina)), None) or {}
+        athon = "athon" in _au.nrm(ig.get("cliente"))
         return jsonify({"dia": dia, "sem_curva": True,
-                        "motivo": "a curva desta usina só existe numa fonte paga (API PV ou SunOp); a tela não a consulta"})
+                        "motivo": ("esta usina da Athon ainda não está no SCADA da Grid: a curva só existe na SunOp, que "
+                                   "tem cota de pedidos, e a tela não a gasta" if athon else
+                                   "a curva desta usina só existe na API PV (fonte paga); a tela não a consulta")})
     fonte, fam, pid = cf
     c = _au_curva_dia(fam, fonte, pid, dia)
     janela = lambda m_: 330 <= m_ <= 1110
     pot = {n: [[m_, round(v, 1)] for m_, v in sorted(p.items()) if janela(m_) and m_ % 10 == 0] for n, p in c["pot"].items()}
     poa = [[m_, round(v)] for m_, v in sorted(c["poa"].items()) if janela(m_) and m_ % 10 == 0]
     strs = {}
-    if fam == "pg":
+    if fam in ("pg", "scadagridco"):
         try:
-            cv = _pg_curva_com_copia(int(pid), dia, None)
+            if fam == "pg":
+                cv = _pg_curva_com_copia(int(pid), dia, None)
+            else:                                            # o scadaGridco: a mesma curva por string da aba Curva
+                cfg = _sg.usina_cfg(fonte, pid)
+                cv = {"inversores": [_sg_curva_inversor(fonte, cfg, eq, dia) for eq in _sg_equips(fonte, cfg)] if cfg else []}
             for inv in cv.get("inversores") or []:
                 ss, grade = {}, set()
                 for nome_s, s in (inv.get("curva") or {}).items():
@@ -32648,11 +32671,12 @@ def api_analise_curvas():
                         m_ = _au.minuto(x)
                         if janela(m_) and m_ not in vis:
                             vis[m_] = y
-                    ss[nome_s] = vis
+                    ss[f"ST {int(nome_s):02d}" if str(nome_s).isdigit() else nome_s] = vis
                     grade |= set(vis)
                 g_ = sorted(grade)
                 strs[inv["nome"]] = {"x": g_, "s": {n: [None if v.get(m_) is None else round(v[m_], 1) for m_ in g_] for n, v in sorted(ss.items())},
-                                     "info": {x["nome"]: [x.get("pct"), x.get("ativa")] for x in inv.get("strings") or []}}
+                                     "info": {(f"ST {int(x['nome']):02d}" if str(x["nome"]).isdigit() else x["nome"]): [x.get("pct"), x.get("ativa")]
+                                              for x in inv.get("strings") or []}}
         except Exception as e:                                   # noqa: BLE001
             print(f"[analise] strings {pid} {dia}: {type(e).__name__}: {e}")
     return jsonify({"dia": dia, "fonte": fonte, "pot": pot, "poa": poa, "str": strs, "sem_curva": not pot})
