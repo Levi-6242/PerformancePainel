@@ -169,3 +169,17 @@ def test_sem_a_metadata_da_sunop_a_usina_do_scadagridco_monta_a_dela(athon, monk
     por = {i["id"]: i for i in app._sunop_plant_build(U, "gridco")}
     assert athon["sunop"] == 0 and por["INV_2"]["strings_ativas"] == 2
     app._athon_sg_meta_memo.pop(U, None)
+
+
+def test_com_a_sunop_pausada_a_tabela_da_athon_do_scadagridco_segue_sendo_montada(monkeypatch):
+    """25/11/2026: a SunOp no teto às 14:50 e o worker pulava TODAS as tarefas dela, a tabela da Athon junto: as usinas
+    do scadaGridco ficaram paradas até o dia seguinte. Na pausa, a tabela da Athon segue (sem tocar a SunOp); o resto da
+    SunOp (ETM, trackers, Axis) continua pulado. Sem usina pelo scadaGridco, tudo como antes."""
+    tarefas = [("SunOp", None), ("Axis", None), ("SunOp ETM", None), ("SunOp trackers", None), ("GreenYellow", None)]
+    monkeypatch.setattr(app, "_sunop_pausa", lambda *a, **k: "teto")
+    monkeypatch.setattr(app, "SUNOP_COLETA", "completa")
+    monkeypatch.setattr(sg, "configurado", lambda: True)
+    monkeypatch.delenv("ATHON_SCADA", raising=False)
+    assert [t[0] for t in app._prewarm_filtra_noturno(tarefas)] == ["SunOp", "GreenYellow"]
+    monkeypatch.setenv("ATHON_SCADA", "0")
+    assert [t[0] for t in app._prewarm_filtra_noturno(tarefas)] == ["GreenYellow"]

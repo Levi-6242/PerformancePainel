@@ -1880,6 +1880,10 @@ de utilizar".
   esperadas, nos mesmos nomes de path), guardada 6 h FORA do `meta` da SunOp (quando ela volta, vale a dela), e entra na
   tabela mesmo sem a lista de usinas da SunOp (`_athon_sg_usinas`). Medido às 22:11 nesse estado: as quatro pelo
   scadaGridco em 2,5 s, o drill em 0,1 s.
+- **A pausa da SunOp não para a tabela da Athon** (`_prewarm_filtra_noturno`): na pausa (domingo, teto do dia) o worker
+  pula as tarefas da SunOp; a tabela da Athon ("SunOp") segue quando há usina pelo scadaGridco (25/11/2026: a SunOp no
+  teto às 14:50 e a tabela parada até o dia seguinte com o supervisório respondendo). Não toca a SunOp: o `_sunop_req` não
+  vai à rede na pausa, e as usinas dela seguram a última linha boa. ETM, trackers e Axis seguem pulados.
 - **A SunOp parada** (domingo, teto do dia, borda): com parte da tabela pelo scadaGridco, ela tem leitura e o
   `_sunop_guarda_vazio` (que segurava a tabela INTEIRA quando nenhuma linha lia) não dispara. `_athon_retem_linhas` faz o
   mesmo usina a usina: a da SunOp sem leitura fica com a última linha boa dela (`retido`) se a SunOp está pausada ou se a

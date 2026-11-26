@@ -26869,10 +26869,14 @@ def _prewarm_filtra_noturno(tarefas):
     de andar."""
     pausa = _sunop_pausa(considera_ronda=False)  # domingo / teto do dia (04/10/2026): nenhuma tarefa da SunOp
     if pausa:
-        pulou = [t[0] for t in tarefas if t[0] in _SUNOP_TAREFAS_TODAS]
+        # menos a tabela da Athon com usinas pelo scadaGridco (25/11/2026: a SunOp no teto desde 14:50 e a tabela parada
+        # até o dia seguinte, com o supervisório respondendo). Montá-la na pausa não toca a SunOp (o `_sunop_req` não vai à
+        # rede na pausa) e as usinas dela seguram a última linha boa (`_athon_retem_linhas`)
+        fica = {"SunOp"} if SUNOP_COLETA != "ronda" and _athon_sg_usinas("gridco") else set()
+        pulou = [t[0] for t in tarefas if t[0] in _SUNOP_TAREFAS_TODAS and t[0] not in fica]
         if pulou:
             print(f"[prewarm] SunOp pausada ({_SUNOP_PAUSA_TXT[pausa]}): {', '.join(pulou)}")
-        return [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_TODAS]
+        return [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_TODAS or t[0] in fica]
     if SUNOP_COLETA == "ronda":                  # o PC: só os trackers da Athon, que a ronda usa (ver SUNOP_COLETA)
         tarefas = [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_TODAS or t[0] in _SUNOP_TAREFAS_RONDA]
     if _sunop_janela_curva():
