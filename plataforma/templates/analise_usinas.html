@@ -162,13 +162,15 @@
   .parecer .selo{flex:none;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:2px 9px}
   .parecer p{margin:0;font-size:15px;line-height:1.55}
   .parecer strong{font-weight:600}
-  .ponte-g{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px;align-items:center}
+  .ponte-g{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:center}
   svg text{font-family:inherit}
   .resumo{display:flex;flex-direction:column;gap:12px}
   .resumo .it{border-left:3px solid var(--linha2);padding:2px 0 2px 12px}
   .resumo .r{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mudo);font-weight:500}
   .resumo .v{font-size:20px;font-weight:600}
   .resumo .e{font-size:12px;color:var(--mudo)}
+  .resumo.linha{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:14px}
+  @media (max-width:760px){.resumo.linha{grid-template-columns:minmax(0,1fr)}}
   .legenda{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--mudo);font-size:12px}
   .legenda i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
   .alerta-l{margin-top:10px;border:1px solid color-mix(in srgb,var(--critico) 45%,transparent);border-radius:8px;padding:8px 12px;font-size:13px}
@@ -853,7 +855,7 @@ function ponte() {
     {r: "Queda de rede", s: "expurgo", v: -(c.perda_rede || 0), tipo: "delta", cor: "url(#hx)"},
     {r: "Equipamento", s: "operação", v: -(c.perda_equip || 0), tipo: "delta", cor: "var(--critico)"},
     {r: "Trackers", s: "operação", v: -(c.perda_trk || 0), tipo: "delta", cor: "var(--alerta)"},
-    {r: "Não explicado", s: "o resto", v: -(c.nao_explicado || 0), tipo: "delta", cor: "var(--neutro)"},
+    {r: "Não explicado", s: "o resto", v: -(c.nao_explicado || 0), tipo: "delta", cor: "var(--neutro)", brilho: true},
     {r: "Gerado", s: "BD", v: c.geracao, tipo: "total", cor: "var(--c-ger)"},
   ];
   const topo = Math.max(c.p50, c.possivel, c.geracao, c.possivel - (c.perda_rede || 0) + Math.max(0, -(c.nao_explicado || 0)));
@@ -867,21 +869,76 @@ function ponte() {
     let a, b;
     if (p.tipo === "total") { a = 0; b = p.v; acc = p.v; } else { a = acc; b = acc + p.v; acc = b; }
     const ya = y(Math.max(a, b)), yb = y(Math.min(a, b));
-    s += `<rect x="${x}" y="${ya}" width="${bw}" height="${Math.max(2, yb - ya)}" rx="3" fill="${p.cor}"><title>${p.r}: ${n1(p.v)} MWh</title></rect>`;
+    if (p.brilho) s += `<rect x="${x - 4}" y="${ya - 4}" width="${bw + 8}" height="${Math.max(2, yb - ya) + 8}" rx="6" fill="var(--critico)" fill-opacity=".4"/>`;
+    s += `<rect x="${x}" y="${ya}" width="${bw}" height="${Math.max(2, yb - ya)}" rx="3" fill="${p.cor}"${p.brilho ? ` stroke="var(--critico)" stroke-width="2"` : ""}><title>${p.r}: ${n1(p.v)} MWh</title></rect>`;
     s += `<text x="${x + bw / 2}" y="${ya - 7}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--tinta)">${p.tipo === "total" ? n1(p.v) : (p.v > 0 ? "+" : p.v < 0 ? "−" : "") + n1(Math.abs(p.v))}</text>`;
     s += `<text x="${x + bw / 2}" y="${Hh - bot + 17}" text-anchor="middle" font-size="12" fill="var(--tinta)">${p.r}</text><text x="${x + bw / 2}" y="${Hh - bot + 32}" text-anchor="middle" font-size="10.5" fill="${p.s === "expurgo" ? "var(--severo)" : "var(--fraco)"}">${p.s}</text>`;
     if (i < P.length - 1) s += `<line x1="${x + bw}" x2="${x + bw + gap}" y1="${y(acc)}" y2="${y(acc)}" stroke="var(--fraco)" stroke-dasharray="2 3"/>`;
   });
   const pq = U.ocorr.filter(ehQueda).reduce((a, o) => a + (o.perda || 0), 0) / 1000, pi = U.ocorr.filter(o => !ehQueda(o)).reduce((a, o) => a + (o.perda || 0), 0) / 1000;
   const exp = (c.perda_rede || 0) + Math.max(0, -sol), op = (c.perda_equip || 0) + (c.perda_trk || 0);
-  const lado = `<div class="resumo">
+  const lado = `<div class="resumo linha">
       <div class="it" style="border-color:var(--severo)"><div class="r">Expurgos</div><div class="v num">${n1(exp)} MWh</div><div class="e">${sol < 0 ? `sol abaixo ${n1(-sol)} · ` : ""}queda de rede ${n1(c.perda_rede)} · pelas ocorrências do COS ${n1(pq)}</div></div>
       <div class="it" style="border-color:var(--critico)"><div class="r">Operação</div><div class="v num">${n1(op)} MWh</div><div class="e">equipamento ${n1(c.perda_equip)} · trackers ${n1(c.perda_trk)} · inversor parado pelas ocorrências ${n1(pi)}</div></div>
       <div class="it" style="border-color:var(--neutro)"><div class="r">Não explicado</div><div class="v num" style="${c.nao_explicado < 0 ? "color:var(--critico)" : ""}">${n1(c.nao_explicado)} MWh</div>
         <div class="e">${c.nao_explicado < 0 ? "negativo: a conta estourou" : "o que a conta não atribui"}</div></div></div>`;
-  return `<section class="bloco" id="ponte">${cab}<div class="ponte-g"><div class="rola"><svg viewBox="0 0 ${W} ${Hh}" width="100%" style="min-width:640px" role="img" aria-label="Do P50 ao gerado">${s}</svg></div>${lado}</div>
+  return `<section class="bloco" id="ponte">${cab}<div class="ponte-g"><div class="rola"><svg viewBox="0 0 ${W} ${Hh}" width="100%" style="min-width:640px" role="img" aria-label="Do P50 ao gerado">${s}</svg></div>${barraSeNao(c)}</div>${lado}
      ${c.nao_explicado < 0 ? `<div class="alerta-l">Neste mês a conta estourou: a cascata pôs mais perda em equipamento do que a usina perdeu (conta cada hora de OS como a usina inteira parada). Corrigir antes de usar como nota.</div>` : ""}
      <div class="sub" style="margin-top:6px;color:var(--mudo)">A cascata tem a régua dela (PR ${pc(c.pr_real)}); os números do topo são os do Gerencial.</div></section>`;
+}
+/* A barra "se não tivesse" (Levi, 26/11/2026: "uma barra do gerado e as barras em cima [...] do que poderia ter sido
+   feito se não tivesse tido problema de sol, se não tivesse tido queda"; o não explicado "com uma linha vermelha [...] com
+   60% de transparência atrás"). A pilha: o gerado, o não explicado (quando positivo), trackers, equipamento, queda de rede
+   e, com o sol abaixo do P50, o sol. Não explicado negativo = a pilha passa do P50 (ou do possível, com o sol acima): o
+   colchete vermelho, a conta que estourou (MRO100 em novembro: 57,9 MWh). */
+function barraSeNao(c) {
+  const g = c.geracao || 0, ne = c.nao_explicado || 0, sol = c.possivel - c.p50;
+  const seg = [["n", "não explicado", Math.max(0, ne), "var(--neutro)"], ["t", "sem tracker parado", c.perda_trk || 0, "var(--alerta)"],
+    ["e", "sem equipamento parado", c.perda_equip || 0, "var(--critico)"], ["r", "sem queda de rede", c.perda_rede || 0, "url(#hx3)"],
+    ["s", "sem o sol abaixo", Math.max(0, -sol), "url(#hi3)"]];
+  const topo = g + seg.reduce((a, x) => a + x[2], 0), ref = sol < 0 ? c.p50 : c.possivel;
+  const max = Math.max(topo, c.p50 || 0, c.possivel || 0, 1) * 1.04;
+  const W = 340, H = 300, t0 = 30, b0 = 12, x0 = 70, bw = 56, xl = x0 + bw + 18;
+  const y = v => t0 + (H - t0 - b0) * (1 - v / max);
+  let s = `<defs><pattern id="hx3" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,143,60,.22)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--severo)" stroke-width="2.4"/></pattern>
+    <pattern id="hi3" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(124,183,255,.2)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--info)" stroke-width="2.4"/></pattern></defs>`;
+  s += `<text x="0" y="14" font-size="13" font-weight="600" fill="var(--tinta)">Se não tivesse cada problema</text>`;
+  s += `<rect x="${x0}" y="${y(g)}" width="${bw}" height="${Math.max(2, y(0) - y(g))}" rx="3" fill="var(--c-ger)"><title>Gerado: ${n1(g)} MWh</title></rect>`;
+  let acc = g;
+  const rot = [];
+  seg.forEach(([k, r, v, cor]) => {
+    if (v <= 0.05) return;
+    const ya = y(acc + v), yb = y(acc), h = Math.max(2, yb - ya);
+    if (k === "n") s += `<rect x="${x0 - 4}" y="${ya - 4}" width="${bw + 8}" height="${h + 8}" rx="6" fill="var(--critico)" fill-opacity=".4"/>`;
+    s += `<rect x="${x0}" y="${ya}" width="${bw}" height="${h}" fill="${cor}"${k === "n" ? ` stroke="var(--critico)" stroke-width="2"` : ""}><title>+${n1(v)} MWh ${r}</title></rect>`;
+    rot.push({y: ya + h / 2, t: `+${n1(v)} ${r}`, cor: k === "n" ? "var(--critico)" : "var(--tinta)", forte: k === "n"});
+    acc += v;
+  });
+  if (ne < -0.05) {                       // a pilha passou da referência: a conta estourou
+    const ya = y(topo), yb = y(ref);
+    s += `<rect x="${x0 - 5}" y="${ya - 2}" width="${bw + 10}" height="${Math.max(4, yb - ya + 4)}" rx="4" fill="none" stroke="var(--critico)" stroke-width="2" stroke-dasharray="4 3"/>`;
+    rot.push({y: (ya + yb) / 2, t: `passou ${n1(-ne)} do ${sol < 0 ? "P50" : "possível"}`, cor: "var(--critico)", forte: true,
+              sub: "não explicado negativo"});
+  }
+  // o P50 (a meta) e, com o sol acima, o possível no topo
+  const yp = y(c.p50);
+  s += `<line x1="${x0 - 8}" x2="${x0 + bw + 8}" y1="${yp}" y2="${yp}" stroke="var(--info)" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="${x0 - 12}" y="${yp - 3}" text-anchor="end" font-size="11" fill="var(--mudo)">P50</text><text x="${x0 - 12}" y="${yp + 11}" text-anchor="end" font-size="11" fill="var(--mudo)">${n1(c.p50)}</text>`;
+  // os rótulos: de cima para baixo, sem um cobrir o outro
+  rot.sort((a, b) => a.y - b.y);
+  let ant = t0 - 4;
+  rot.forEach(r => { r.ly = Math.max(r.y + 4, ant + 18); ant = r.ly + (r.sub ? 17 : 0); });
+  rot.forEach(r => {
+    s += `<line x1="${x0 + bw + 2}" x2="${xl - 4}" y1="${r.y}" y2="${r.ly - 4}" stroke="var(--fraco)"/>`;
+    s += `<text x="${xl}" y="${r.ly}" font-size="12" fill="${r.cor}"${r.forte ? ` font-weight="600"` : ""}>${esc(r.t)}</text>`;
+    if (r.sub) s += `<text x="${xl}" y="${r.ly + 14}" font-size="11" fill="var(--mudo)">${esc(r.sub)}</text>`;
+  });
+  let yn = ant + 24;
+  if (sol >= 0.05) { s += `<text x="${xl}" y="${yn}" font-size="11" fill="var(--mudo)">o sol veio ${n1(sol)} acima do P50</text><text x="${xl}" y="${yn + 14}" font-size="11" fill="var(--mudo)">(não é perda)</text>`; yn += 34; }
+  const yg = Math.min(H - 22, Math.max(yn + 8, (y(g) + y(0)) / 2));
+  s += `<text x="${xl}" y="${yg}" font-size="13" font-weight="600" fill="var(--tinta)">Gerado ${n1(g)} MWh</text>
+    <text x="${xl}" y="${yg + 16}" font-size="11.5" fill="var(--mudo)">${c.p50 ? pc(g / c.p50, 0) + " do P50" : ""}</text>`;
+  return `<div class="rola"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:300px;max-width:400px;display:block;margin:0 auto" role="img" aria-label="O que a usina teria gerado sem cada problema">${s}</svg></div>`;
 }
 function mesAMes() {
   if (!UM) { lerMeses(); return `<div class="toast">Calculando a conta de energia de cada mês do ano…</div>`; }

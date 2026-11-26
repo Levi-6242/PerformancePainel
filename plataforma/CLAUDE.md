@@ -2665,6 +2665,7 @@ Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py
   porque a do mês corrente leva uns 24 s na 1ª vez (medido no servidor em 26/11; os meses fechados, 0,3 s). O "Sol
   abaixo" dela é a POA meta menos a real em energia: (POA real × potência × PR meta) − P50 (MRO100 em novembro: 161,2
   kWh/m² contra 198,0 previstos = −184,6 MWh, expurgo).
+- **A barra "Se não tivesse cada problema"** (`barraSeNao`, ao lado da cascata; os três cartões descem para uma linha): o gerado na base e, em cima, o não explicado (positivo), trackers, equipamento, queda de rede e o sol abaixo do P50, cada degrau com o rótulo; o não explicado com a sombra vermelha a 60% de transparência, também na cascata (Levi, 26/11/2026: "uma barra do gerado e as barras em cima [...] do que poderia ter sido feito"). Não explicado negativo = a pilha passa do P50 (ou do possível, com o sol acima): o colchete vermelho tracejado.
 - **Velocidade (26/11/2026, Levi: "está demorando muito para calcular os expurgos").** A cascata é a do Gerencial
   (`_cascata_usina`) e faz coisas ao vivo dentro da página: o Fracttal da usina (10 min de cópia), o livro de paradas de
   tracker quando a cópia do web passa de 1 h e a lista de strings ainda abertas, que pode baixar a curva de string do
