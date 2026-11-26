@@ -970,7 +970,7 @@ def test_a_usina_le_strings_trackers_e_estacao_ao_mesmo_tempo():
     ler = html[html.index("async function lerUsina(u, calada) {"):html.index("// (g) O que o SCADA da Grid tem desta usina AGORA")]
     assert ler.index("if (EPT[sk]) extras.push(pega(EPT[sk]") < ler.index("try { pl = await pega(urlPl, 90000); }")           # os trackers saem antes de esperar as strings
     assert ler.index("if (EPE[sk]) extras.push((ETMS[sk]") < ler.index("try { pl = await pega(urlPl, 90000); }")              # e a estação também
-    assert "if (!manter) PRE[u.u] = dr;" in ler and "D.drill[u.u] = dr; delete PRE[u.u];" in ler and "dr.inv = inv; dr.em = Date.now()" in ler
+    assert "if (!manter) PRE[u.u] = dr;" in ler and "D.drill[u.u] = dr; delete PRE[u.u];" in ler and "dr.inv = inv; delete dr.cos; dr.em = Date.now()" in ler
     assert "} catch (e) { delete PRE[u.u];" in ler                                                                    # a usina que falhou não deixa resto
     assert 'const dr = D.drill[u.u] || ((ABA === "trk" || ABA === "etm") && !FALHOU[u.u] ? PRE[u.u] : undefined), cp = $("corpo");' in html
     # os cartões de string: valores no centro e 20% mais estreitos (62 → 50 px)
@@ -1327,7 +1327,8 @@ def test_a_usina_com_logger_no_cos_mostra_as_strings_sem_esperar_a_api_pv():
     import shutil
     import subprocess
     html = _html()
-    junto = 'if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => { if (SEL.u === u.u && ABA === "str" && !D.drill[u.u]) redesenhar(); });'
+    # desde 26/11/2026 a leitura do logger vira o drill no formato de sempre (`cosParaDrill`, test_sala_cos_reserva_26_11)
+    junto = 'if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => cosParaDrill(u, dr));'
     assert html.count(junto) == 1 and html.index(junto) < html.index("try { pl = await pega(urlPl, 90000); }")     # ANTES da fonte
     assert 'const prov = ABA === "str" ? cosProv(u) : "";' in html and "</div>`) + prov; return; }" in html          # embaixo do "lendo" e do erro
     if not shutil.which("node"):

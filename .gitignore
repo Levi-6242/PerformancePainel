@@ -203,6 +203,8 @@ sala_visto.json
 sala_visto.json.tmp
 sala_arranjo.json
 sala_arranjo.json.tmp
+sala_cos_conferencia.json
+sala_cos_conferencia.json.tmp
 falhas_pv_dev.json
 falhas_os_abertas.json
 # o estado do ciclo das falhas (18/11/2026): runtime do worker; os testes que montam o pacote tambem gravam

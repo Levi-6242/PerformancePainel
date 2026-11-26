@@ -932,7 +932,7 @@ async function lerUsina(u, calada) {
   const pinta = aba => { if (SEL.u === u.u && (D.drill[u.u] === dr || PRE[u.u] === dr) && (!aba || ABA === aba)) redesenhar(); };
   const extras = [];
   // a usina da API PV com logger no COS não espera a fonte para mostrar as strings (ver `cosProv`)
-  if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => { if (SEL.u === u.u && ABA === "str" && !D.drill[u.u]) redesenhar(); });
+  if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => cosParaDrill(u, dr));
   try {
     if (EPT[sk]) extras.push(pega(EPT[sk] + "/" + encodeURIComponent(pid), 90000).then(tk => { if (tk && tk.tem_trackers !== false && (tk.trackers || []).length) dr.trk = {total: tk.total, parados: tk.parados, com: tk.parados_com, sem: tk.parados_sem, severos: tk.severos, lido: tk.ultima_leitura || "", semHist: !!tk.sem_historico, propDesde: tk.curva_propria_desde || "",
       l: tk.trackers.filter(x => x.status !== "normal" || x.sem_comunicacao).map(x => [x.id, x.atual, x.alvo, x.disparidade, x.status, x.ticket_status, !!x.sem_comunicacao])}; else dr.trk = {fora: true, l: []}; }).catch(() => { dr.trk = {fora: true, erro: true, l: []}; }).finally(() => pinta("trk")));
@@ -947,19 +947,18 @@ async function lerUsina(u, calada) {
     let pl;
     try { pl = await pega(urlPl, 90000); }
     catch (e1) { if (PLANT[sk] === "/api/plant/") throw e1; await new Promise(r => setTimeout(r, 1500)); pl = await pega(urlPl, 90000); }
-    const inv = (pl.inversores || []).map(i => ({n: i.nome, id: i.id, kw: i.active_power, eday: i.eday, desl: !!i.desligado, fc: !!i.falha_comunicacao, esp: i.str_esp, at: i.strings_ativas, dif: i.diferenca, fora: !!i.fora_da_conta, temp: i.temp,
-      s: (i.strings || []).map(s => [s.id, s.corrente, s.status || (s.trancada ? "trancada" : s.ativa === false ? "sem_corrente" : "ativa")])}));
+    const inv = (pl.inversores || []).map(invDoDrill);
     // As strings aparecem assim que a leitura da usina chega (Levi, 16/11/2026: "por que as da Thopen em banco de dados
     // demoram tanto para carregar as strings?"). Medido no servidor: a usina responde em 0,1 a 1,5 s; quem levava de 9 a
     // 30 s era a leitura dos trackers da mesma usina, e a tela esperava por ela (e pela estação) para mostrar qualquer
     // coisa. Agora cada um chega na sua hora: a aba dele diz "lendo" e o resto já está na tela.
-    dr.inv = inv; dr.em = Date.now() - (pl.da_tabela ? (pl.idade_s || 0) * 1000 : 0); dr.g = u.g; dr.tabela = pl.da_tabela ? (pl.lido_em || "") : ""; D.drill[u.u] = dr; delete PRE[u.u];
+    dr.inv = inv; delete dr.cos; dr.em = Date.now() - (pl.da_tabela ? (pl.idade_s || 0) * 1000 : 0); dr.g = u.g; dr.tabela = pl.da_tabela ? (pl.lido_em || "") : ""; D.drill[u.u] = dr; delete PRE[u.u];
     recontaStrings(u.u, u.g, inv);
     // a trava recém-gravada vale até a leitura concordar com ela (há fonte que responde do cache por alguns minutos)
     Object.keys(TRANCA).forEach(k => { if (!k.startsWith(u.u + "|")) return; const [, n, sid] = k.split("|"), iv = inv.find(i => i.n === n), s = iv && iv.s.find(x => String(x[0]) === sid); if (!s || (s[2] === "trancada") === TRANCA[k]) delete TRANCA[k]; });
     levaCurvasCos(u, dr);
     pinta();
-    if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => { if (SEL.u === u.u && ABA === "str") redesenhar(); });   // os inversores do logger, para conferir as strings
+    if (COSU[u.g + "|" + u.u] && ehApiPv(sk, pid)) lerCosInv().then(() => { enviaConfCos(u, dr); if (SEL.u === u.u && ABA === "str") redesenhar(); });   // os inversores do logger, para conferir as strings
     if (!calada && D.ger.usina !== u.u) lerGer(u);              // sai dos BDs em memória do servidor (não é fonte paga): o PR do mês no cabeçalho e a aba Geração já prontos
     extras.push((ESTADO = ESTADO || pega("/api/state", 30000)).then(st => { const k = VKEY[u.g] + ":" + pid; D.estado.acomp[u.u] = +((st.tracking || {})[k]) || 0;
       D.estado.coment[u.u] = comentDe((st.comments_thread || {})[k]); pinta("str"); }).catch(() => { ESTADO = null; }));
@@ -969,7 +968,7 @@ async function lerUsina(u, calada) {
       D.estado.os[u.u] = (o.os || []).map(x => ({os: x.os, nota: x.nota, status: x.status, data: x.data, sub: x.sub, inv: invDaOs(x, nomes)})).filter(x => !x.inv || nomes.has(x.inv));
       delete D.estado.osErro[u.u]; if (SEL.u === u.u && ABA === "str") redesenhar(); }).catch(e => { D.estado.osErro[u.u] = String(e && e.message || e); if (SEL.u === u.u && ABA === "str") redesenhar(); });
     await Promise.all(extras);
-  } catch (e) { delete PRE[u.u]; if (!calada) FALHOU[u.u] = String(e && e.message || e); if (SEL.u === u.u && !D.drill[u.u]) desenhar(); }
+  } catch (e) { delete PRE[u.u]; if (!calada) FALHOU[u.u] = String(e && e.message || e); if (SEL.u === u.u && (!D.drill[u.u] || D.drill[u.u].cos)) desenhar(); }
   finally { delete LENDO[u.u]; }
 }
 // (g) O que o SCADA da Grid tem desta usina AGORA (trackers e estação), para aparecer mesmo quando a fonte dela no Tempo
@@ -1107,6 +1106,52 @@ function levaCurvasCos(u, dr) {
 // - Sem cor de defeito: o logger não sabe quais entradas não têm cabo. A entrada sem corrente (até 0,1 A) fica em cinza.
 // - As esperadas, as trancadas, as OS e a conta de strings fora são da leitura da fonte: chegam com ela, e o quadro some.
 // - Vale também quando a fonte falha: o erro em cima e o logger embaixo.
+// AS STRINGS PELO LOGGER DO COS NO FORMATO DE SEMPRE (26/11/2026). Levi, na Santo Anastácio com a API PV fora: o quadro
+// cru do logger (abaixo) estava "completamente fora do padrão criado, sendo que os dados que a gente puxa do COS tem dado
+// histórico". A leitura de agora do logger vai ao servidor, que a põe nos nomes, nas esperadas, nas trancadas e na régua
+// da API PV (`/api/sala/cos/strings`, sala_cos.py): a aba Strings é a de sempre, com o aviso de onde veio, e a curva do
+// inversor sai do histórico do logger (`curvaCos`). A API PV, quando responde, entra no lugar. A corrente do logger vai na
+// string de MESMO número; o inversor em que as duas leituras já discordaram fica fora (a Rodrigues 1 de 17/11/2026), e o
+// que a tela confere entre as duas fica guardado no servidor (`enviaConfCos`). O quadro cru segue só quando isso não dá.
+const invDoDrill = i => ({n: i.nome, id: i.id, kw: i.active_power, eday: i.eday, desl: !!i.desligado, fc: !!i.falha_comunicacao, esp: i.str_esp, at: i.strings_ativas, dif: i.diferenca, fora: !!i.fora_da_conta, temp: i.temp,
+  cos: i.cos || "", semCos: !!i.sem_cos, s: (i.strings || []).map(s => [s.id, s.corrente, s.status || (s.trancada ? "trancada" : s.ativa === false ? "sem_corrente" : "ativa")])});
+const COSDR = {};           // a usina em que o formato de sempre pelo logger não deu, e por quê (fica o quadro cru)
+async function cosParaDrill(u, dr) {
+  const atual = D.drill[u.u];
+  if (atual && !atual.cos) return;                              // a API PV já respondeu: vale ela
+  const doCos = invsCos(u); if (!doCos.length) return;
+  try {
+    const r = await grava("/api/sala/cos/strings", {plant_id: u.pid, inversores: doCos.map(s => ({ch: s.ch, nome: s.nome || s.id, kw: s.kw, ss: s.ss || []}))});
+    const ag = D.drill[u.u]; if (ag && !ag.cos) return;          // a API PV chegou no meio
+    const d = ag || dr;
+    d.inv = (r.inversores || []).map(invDoDrill); d.em = Date.now(); d.g = u.g; d.tabela = ""; d.cos = {lido: r.lido_em || "", fora: r.fora || []};
+    D.drill[u.u] = d; if (PRE[u.u] === d) delete PRE[u.u]; delete COSDR[u.u];
+    recontaStrings(u.u, u.g, d.inv);
+    extrasDaUsina(u, d.inv);
+    if (SEL.u === u.u) redesenhar();
+  } catch (e) { COSDR[u.u] = String(e && e.message || e); if (SEL.u === u.u && ABA === "str" && !D.drill[u.u]) redesenhar(); }
+}
+// o acompanhamento, os comentários e as OS da usina, que a leitura da fonte pede ao chegar: com o drill do logger na frente,
+// pedidos uma vez (a API PV que chega depois pede de novo, como sempre)
+function extrasDaUsina(u, inv) {
+  if (!(u.u in D.estado.acomp)) (ESTADO = ESTADO || pega("/api/state", 30000)).then(st => { const k = VKEY[u.g] + ":" + u.pid; D.estado.acomp[u.u] = +((st.tracking || {})[k]) || 0;
+    D.estado.coment[u.u] = comentDe((st.comments_thread || {})[k]); if (SEL.u === u.u && ABA === "str") redesenhar(); }).catch(() => { ESTADO = null; });
+  if (!(u.u in D.estado.os)) pega("/api/os-performance?usina=" + encodeURIComponent(fisU(u)), 45000).then(o => { const nomes = new Set(inv.map(i => i.n));
+    D.estado.os[u.u] = (o.os || []).map(x => ({os: x.os, nota: x.nota, status: x.status, data: x.data, sub: x.sub, inv: invDaOs(x, nomes)})).filter(x => !x.inv || nomes.has(x.inv));
+    delete D.estado.osErro[u.u]; if (SEL.u === u.u && ABA === "str") redesenhar(); }).catch(e => { D.estado.osErro[u.u] = String(e && e.message || e); if (SEL.u === u.u && ABA === "str") redesenhar(); });
+}
+// O que a tela vê ao comparar a API PV com o logger (o `confereCos`) fica guardado: é o que decide, com a API PV fora, se o
+// inversor entra pelo logger. Só o conclusivo (4 strings ou mais, e iguais ou "não batem"), uma vez a cada 10 min por usina.
+const CONF_ENV = {};
+function enviaConfCos(u, dr) {
+  if (!dr || dr.cos || !dr.inv.length || Date.now() - (CONF_ENV[u.u] || 0) < 600000) return;
+  const pr = paresCos(u, dr); if (!pr || !pr.pares) return;
+  const pares = pr.pares.map(p => { const v = confereCos(p); return {ch: chaveInv(p.iv.n), ok: !!v.ok, zer: v.zer || 0, comp: v.comp || 0, motivo: v.motivo || ""}; })
+    .filter(x => x.ch && x.comp >= 4 && (x.ok || /não batem/.test(x.motivo)));
+  if (!pares.length) return;
+  CONF_ENV[u.u] = Date.now();
+  grava("/api/sala/cos/conferencia", {plant_id: u.pid, pares}).catch(() => { delete CONF_ENV[u.u]; });
+}
 function cosProv(u) {
   if (!COSU[u.g + "|" + u.u] || !ehApiPv(SKEY[u.g], u.pid)) return "";
   if (!COSI) { if (!lerCosInv.p) lerCosInv().then(() => { if (SEL.u === u.u && ABA === "str" && !D.drill[u.u]) redesenhar(); });
@@ -2052,7 +2097,7 @@ function detalhe(u, bx) {
   let h = `<div class="abas">${aba("str", "Strings", u.sf)}${aba("trk", "Trackers", u.tp)}${aba("etm", "ETM", Math.max(dr && dr.etm ? dr.etm.flags.filter(f => f.tipo === "crit").length : 0, u.etmA.length))}${temOc ? aba("oc", "Ocorrências", ocs.filter(o => o.aberta).length) : ""}${aba("bx", "Abaixo dos demais", bx.filter(b => b.sem).length)}${aba("gp", "Geração e PR")}${aba("pot", "Potência")}${aba("dp", "De-para")}${aba("fal", "Falhas do mês")}${PODE ? botaoCriarOS() : ""}<a class="btnl" style="margin-left:${PODE ? "8px" : "auto"};align-self:center;text-decoration:none" target="_blank" rel="noopener" href="/t/comando/usinas/abrir?nome=${encodeURIComponent(fisU(u))}" title="Abre o prontuário desta usina no Nexus (Comando > Usinas), em outra aba">Prontuário da usina</a></div>`;
   // a usina ainda sendo lida não segura a Geração e o De-para, que não dependem dela (há fonte que leva meio minuto)
   if (!dr && ABA === "cf" && FALHOU[u.u]) { cp.innerHTML = h + `<div class="erro"><b>Não consegui ler esta usina na fonte dela.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + cosConf(u, null); return; }
-  if (!dr && !["gp", "dp", "fal"].includes(ABA)) { const prov = ABA === "str" ? cosProv(u) : ""; cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : `<div class="carrega"${prov ? ' style="padding:16px 0 0"' : ""}>${ABA === "str" ? (prov ? "Lendo os inversores e as strings desta usina na fonte dela (a API PV leva de 10 a 60 s)… Enquanto ela não responde, a leitura de agora do logger do COS:" : "Lendo os inversores e as strings desta usina… (os trackers e a estação já estão sendo lidos ao mesmo tempo)") : "Lendo esta usina…"}</div>`) + prov; return; }
+  if (!dr && !["gp", "dp", "fal"].includes(ABA)) { const prov = ABA === "str" ? cosProv(u) : ""; cp.innerHTML = h + (FALHOU[u.u] ? `<div class="erro"><b>Não consegui ler esta usina.</b> ${esc(FALHOU[u.u])} <button class="btnl" data-denovo="1" style="margin-left:10px">Tentar de novo</button></div>` + (ABA === "trk" || ABA === "etm" ? scadaBloco(u, ABA) : `<div class="aviso">Se o SCADA da Grid tiver esta usina, os trackers e a estação dela aparecem nas abas Trackers e ETM mesmo com a fonte fora.</div>`) : `<div class="carrega"${prov ? ' style="padding:16px 0 0"' : ""}>${ABA === "str" ? (prov ? "Lendo os inversores e as strings desta usina na fonte dela (a API PV leva de 10 a 60 s)… Enquanto ela não responde, a leitura de agora do logger do COS" + (COSDR[u.u] ? " (no formato de sempre não deu: " + esc(COSDR[u.u]) + ")" : "") + ":" : "Lendo os inversores e as strings desta usina… (os trackers e a estação já estão sendo lidos ao mesmo tempo)") : "Lendo esta usina…"}</div>`) + prov; return; }
   if (ABA === "str") {
     // o que o Tempo real já guarda da usina: a quantidade em acompanhamento (digitada) e as OS de performance
     const ac = D.estado.acomp[u.u] || 0;
@@ -2087,10 +2132,12 @@ function detalhe(u, bx) {
     const osBox = i => OSINV === i.n ? `<div class="osbox">${osRecentes(u.u, i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag n">${esc(o.status)}</span> · recomposição de string<br>${esc(o.desc)}${o.strings.length ? " · strings " + o.strings.join(", ") : ""}<br>criada em ${dm(o.criada)}${o.concluida ? " · concluída em " + dm(o.concluida) : ""}</div>`).join("")}${osDe(i.n).map(o => `<div><b>OS ${esc(o.os)}</b> · <span class="tag ${/andamento/i.test(o.status) ? "a" : "n"}">${esc(o.status)}</span><br>${esc(o.nota)}<br>aberta em ${dm(o.data)} · ${esc(o.sub || "")}</div>`).join("")}</div>` : "";
     // a fonte que não manda leitura nova (23/11/2026, a Cipó-Guaçu: "não está aparecendo as strings", e a API PV calada
     // desde as 11:01): as strings abaixo são as da última leitura, sem contagem; a tela diz isso em vez de "Todas gerando"
+    if (dr.cos) { const nNum = dr.inv.filter(i => i.cos === "numeracao").length, nCos = dr.inv.filter(i => !i.semCos).length;
+      h += `<div class="aviso" style="border-left:3px solid var(--info)"><b>Strings pelo logger do COS</b>${dr.cos.lido ? " · lido às " + esc(dr.cos.lido) : ""}: ${FALHOU[u.u] ? "a API PV não respondeu (" + esc(FALHOU[u.u]) + ")" : "a API PV ainda não respondeu (leva de 10 a 60 s) e entra no lugar quando chegar"}. Nomes, esperadas, trancadas e OS são os da API PV; a corrente de cada string é a do logger, na string de mesmo número (${nCos} de ${dr.inv.length} inversores${nNum ? `, ${nNum} com a numeração conferida` : ""}).${dr.cos.fora.length ? " Fora: " + esc(dr.cos.fora.map(f => f.nome + " (" + f.motivo + ")").join("; ")) + "." : ""}${FALHOU[u.u] ? ' <button class="btnl" data-cosapi="1" style="margin-left:6px">Ler a API PV de novo</button>' : ""}</div>`; }
     if (u.st === "sem_comm") h += `<div class="aviso" style="border-left:3px solid var(--critico)"><b>Sem leitura nova da fonte</b>${u.causa ? " · " + esc(u.causa) : ""}. As strings abaixo são as da última leitura que chegou e não entram na conta enquanto a fonte não voltar.</div>`;
     h += `<div class="diasel barrafix" style="gap:8px"><span>Dia</span><input type="date" class="campo" style="background:var(--sup);padding:4px 8px" data-sdia-campo="1" value="${dia}" max="${hoje}" aria-label="Dia da curva das strings"><button class="btnl ${SOLAR ? "on" : ""}" data-solar="1" title="${SOLAR ? "Mostrando só de 06 às 18h: clique para ver o dia inteiro" : "Mostrando o dia inteiro: clique para ver só de 06 às 18h"}">Período solar (06–18h)</button>
       <span style="color:var(--mudo);font-size:12.5px;margin-left:8px" title="Clique no inversor para abrir a curva dele embaixo da linha; dá para abrir vários">OS de performance <b style="color:var(--tinta)">${osAgrupadas(oss).length}</b> ${oss.length ? esc(osAgrupadas(oss).join(" · ")) : D.estado.osErro[u.u] ? "· não consegui ler agora" : !(u.u in D.estado.os) ? "· lendo…" : "· nenhuma em aberto"}</span>
-      ${(() => { if (!COSU[u.g + "|" + u.u] || !ehApiPv(SKEY[u.g], u.pid)) return ""; const pr = paresCos(u, dr), l = pr && pr.pares ? pr.pares.map(p => ({n: p.iv.n, v: confereCos(p)})) : [], ok = l.filter(x => x.v.ok).length;
+      ${(() => { if (!COSU[u.g + "|" + u.u] || !ehApiPv(SKEY[u.g], u.pid) || dr.cos) return ""; const pr = paresCos(u, dr), l = pr && pr.pares ? pr.pares.map(p => ({n: p.iv.n, v: confereCos(p)})) : [], ok = l.filter(x => x.v.ok).length;
         return `<span class="tag ${ok ? "i" : "n"}" style="margin-left:8px" title="${!COSI ? "Lendo os inversores no logger do COS…" : !pr || !pr.pares ? "Nenhum inversor do logger do COS tem o nome de um inversor desta usina" : esc([l.filter(x => !x.v.ok).map(x => x.n + ": " + x.v.motivo).join(" · "), dr.inv.length > l.length ? (dr.inv.length - l.length) + " sem inversor de mesmo nome no logger" : "",
             (z => z ? z + " com string parada igual nas duas leituras (numeração provada)" : "")(l.filter(x => x.v.ok && x.v.zer).length)].filter(Boolean).join(" · ") || "Todos conferidos")}">COS: ${ok} de ${dr.inv.length} inversores conferidos</span>`; })()}
       ${(() => { if (!dr.tabela) return "";
@@ -2106,7 +2153,8 @@ function detalhe(u, bx) {
         l.map(i => { const r = faltaDe(i), bx1 = i.s.filter(s => est(i, s) === "baixa_perf").length, tr1 = i.s.filter(s => est(i, s) === "trancada").length, cls = i.desl || i.fc ? "n" : r ? "c" : bx1 ? "s" : "", nv = novasS(u.u, i.n), gr = GRAF.has(u.u + "|" + i.n), ab = EXPI.has(u.u + "|" + i.n) || OSINV === i.n || nv.length > 0, sd = D.sdI[u.u + "|" + i.n] || 0;      // o inversor com ocorrência nova já vem com as strings abertas ("já carrega as strings e fica pulsando o inversor")
           const k = u.u + "|" + i.n, cri = CRIADAS[k], o = osRecentes(u.u, i.n)[0], qv = quemViu(u.u, i.n), extra = [];
           if (tr1) extra.push(tr1 + " trancada" + (tr1 > 1 ? "s" : "")); if (qv) extra.push(qv); if (cri) extra.push("<b>OS criada por você</b> às " + cri); else if (o) extra.push("<b>OS " + esc(o.os) + "</b> há " + diasAte(o.criada) + " dias · " + esc(o.status));
-          const sit = (i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : i.at === 0 ? "Sem geração agora" : i.at == null && i.s.length ? (u.st === "sem_comm" ? "Sem leitura nova da fonte" : "Strings sem contagem agora") : "Todas gerando") + (bx1 && !i.desl && !i.fc ? " · " + bx1 + " com corrente baixa" : "");
+          if (dr.cos && i.cos && i.cos !== "numeracao") extra.push(`<span title="A corrente vai na string de mesmo número do logger; a numeração deste inversor ainda não foi provada (${i.cos === "inversor" ? "as duas leituras já bateram, mas sem string parada igual nas duas" : "a API PV e o logger ainda não foram comparados com sol"})">numeração do logger</span>`);
+          const sit = (i.semCos ? "Sem leitura do logger agora" : i.desl ? "Desligado" : i.fc ? "Sem comunicação" : r ? r + " string" + (r > 1 ? "s" : "") + " fora" : i.at === 0 ? "Sem geração agora" : i.at == null && i.s.length ? (u.st === "sem_comm" ? "Sem leitura nova da fonte" : "Strings sem contagem agora") : "Todas gerando") + (bx1 && !i.desl && !i.fc ? " · " + bx1 + " com corrente baixa" : "");
           return `<div class="il ${cls} ${gr ? "on" : ""} ${nv.length || (FOCO.u === u.u && FOCO.inv.has(i.n)) ? "pulsa" : ""} ${MARC.has(i.n) ? "marc" : ""}" role="button" tabindex="0" data-inv="${esc(i.n)}" aria-expanded="${gr}" title="${gr ? "Clique para fechar a curva deste inversor" : "Clique para abrir a curva das strings deste inversor aqui embaixo (dá para abrir vários)"}">
             <span><input type="checkbox" class="selinv" data-sel="${esc(i.n)}" ${MARC.has(i.n) ? "checked" : ""} title="Escolher para criar OS" aria-label="Escolher ${esc(i.n)} para criar OS"></span>
             <span class="n">${esc(i.n)}${nv.length ? '<span class="nv">nova</span>' : ""}${osDe(i.n).length || osRecentes(u.u, i.n).length || cri ? `<button class="ferr" data-os="${esc(i.n)}" title="OS de performance deste inversor" aria-label="OS de performance deste inversor"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></button>` : ""}</span>
@@ -2568,6 +2616,7 @@ document.addEventListener("click", e => {
   if ((x = q(".dchip"))) { ABA = "str"; INV = x.dataset.inv; GRAF.add(SEL.u + "|" + INV); DIA = x.dataset.dia; desenhar(); scrollTo(0, 0); return; }
   if ((x = q("tr[data-tp]"))) { TRK.ini = TRK.fim = x.dataset.td; TRK.soUm = x.dataset.tp; TRK.hide = {}; TRK.filtro = "custom"; desenhar(); const pn = document.querySelector(".painel"); if (pn) pn.scrollIntoView({block: "start"}); return; }
   if ((x = q("[data-denovo]"))) { delete FALHOU[SEL.u]; desenhar(); return; }
+  if ((x = q("[data-cosapi]"))) { delete FALHOU[SEL.u]; delete D.drill[SEL.u]; desenhar(); return; }      // o drill do logger sai e a leitura da API PV recomeça
   if ((x = q("tr[data-bx]"))) { if (!SEL.u && x.dataset.bg === "?") { toast("A " + x.dataset.bu + " não está no Tempo real com este nome: não há usina para abrir"); return; }
     if (!SEL.u) { abrirUsina(x.dataset.bg === "?" ? SEL.g : x.dataset.bg, x.dataset.bu); ABA = "bx"; BXA = x.dataset.bx; scrollTo(0, 0); } else BXA = BXA === x.dataset.bx ? null : x.dataset.bx; desenhar(); return; }
   if (q("[data-etmdenovo]")) { Object.keys(ETMD.dias).forEach(d => { if (ETMD.dias[d] && ETMD.dias[d].erro) delete ETMD.dias[d]; }); desenhar(); return; }

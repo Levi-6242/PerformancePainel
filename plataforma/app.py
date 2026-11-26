@@ -5482,7 +5482,8 @@ def _pv_plant_inversores(plant_id, force=False):
             raise
 
 
-def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=False):
+def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=False, memo=True, combiner=True,
+                                guardado=None):
     """Inversores da usina (API PV) com strings classificadas. Reusado pelo endpoint /api/plant
     e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede.
 
@@ -5518,8 +5519,12 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=Fal
             raise RuntimeError(f"API PV respondeu {r.status_code} no day_inverter: {str(corpo)[:160]}")
         return corpo
 
+    # `guardado` = (o nome da usina no cadastro, {id: nome do dispositivo}) já resolvidos sem rede por quem chama (a Sala
+    # pelo logger do COS, 26/11/2026, `_sala_cos_guardado`)
     def _nome_api():
         # nome da usina (para lookup no ESPERADO_INV) — SEMPRE (mesmo sem leitura hoje)
+        if guardado is not None:
+            return guardado[0]
         if so_cache:                              # a lista que a volta da tabela acabou de usar, de qualquer idade
             lst = _plants_cache.get("data")
             if lst is None:
@@ -5533,6 +5538,8 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=Fal
     def _nomes_dispositivos():
         # .strip(): a API às vezes retorna o nome com espaço no fim (ex.: "INVERSOR 04 "),
         # o que quebrava o match com a planilha (nome/esperada caíam no cru). Normaliza aqui.
+        if guardado is not None:
+            return dict(guardado[1])
         devs = _pv_devs_guardados(plant_id) if so_cache else _pv_plant_devices(plant_id)
         if devs is None:
             raise _PvSemCopia("dispositivos")
@@ -5648,7 +5655,9 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=Fal
             _gera = isinstance(_pac_ult, (int, float)) and _pac_ult >= MACRO_POT_INV_MIN
             if _ipv_reais <= 1 and (plant_nome_api in STRING_BOX or _gera):
                 # API PV primeiro, Plataforma de reserva; no detalhe do ciclo, o que a linha da usina acabou de ler
-                cmb = _combiner_guardada(plant_id, inv_id) if so_cache else _combiner_strings(plant_id, inv_id)
+                # `combiner=False` = as leituras são do logger do COS (a Sala, 26/11/2026): a combiner guardada é da API
+                # PV, e misturar as duas fontes no mesmo inversor seria pior que o "sem visão"
+                cmb = (_combiner_guardada(plant_id, inv_id) if so_cache else _combiner_strings(plant_id, inv_id)) if combiner else None
                 if cmb:
                     scj = dict(scj)                       # não polui o cj original (Temp/Eday ficam)
                     scj.update(dict(cmb["strings"]))
@@ -5788,6 +5797,8 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=Fal
             inv["rampa"], inv["strings_ativas"], inv["diferenca"] = True, None, None   # neutro, como a rampa da String Box
         if inv["fora_da_conta"]:
             inv["diferenca"] = None       # fora da conta não deve nada — como na linha da usina e no drill da Athon
+    if not memo:              # o drill montado com as leituras do logger do COS (26/11/2026): não é leitura da API PV
+        return inversores
     with _pv_plant_memo_lock:
         _PV_PLANT_MEMO[plant_id] = (time.time(), inversores)
     return _PV_PLANT_MEMO[plant_id][1]
@@ -32858,6 +32869,106 @@ def api_sala_arranjo():
         return jsonify({"ok": True, **_SALA_ARRANJO.ler()})
     except (OSError, ValueError) as e:
         return jsonify({"ok": False, "motivo": f"o arquivo dos nomes e grupos não abriu ({type(e).__name__})"}), 500
+
+
+# ── As strings pelo logger do COS no formato da API PV (26/11/2026) ─────────────────────────────────────────────────
+#   Levi, na Santo Anastácio com a API PV fora: o quadro cru do logger "completamente fora do padrão criado"; e "sim" à
+#   proposta de fazer do COS a reserva por dentro da Sala. A tela manda a leitura de agora do logger (a `/cos/inversores`
+#   do Nexus, que só ela alcança, com a sessão do Nexus) e recebe o drill no formato da API PV, montado pela MESMA
+#   `_pv_plant_inversores_busca` (os nomes, as esperadas, as trancadas e a régua), com os dispositivos e a lista de usinas
+#   guardados (nenhuma chamada à API PV, que é paga). A regra pura: `sala_cos.py`.
+import sala_cos as _sala_cos  # noqa: E402
+
+_SALA_COS_CONF = _sala_cos.Conferencias(_p_dado("sala_cos_conferencia.json"), _replace_atomico)
+SALA_COS_MAX_INV = 400
+
+
+def _sala_cos_guardado(pid) -> tuple:
+    """(o nome da usina como o cadastro a chama, {id: nome do dispositivo na API PV}) SEM rede. Os dispositivos pelo
+    `_pv_nomes_guardados` (a cópia do plant_devices em memória e, sem ela, a cópia em disco das Falhas, de 7 dias); o nome
+    pela lista de usinas em memória e, sem ela, pelo `nome_api` da mesma cópia em disco, pela mesma ponte do /plants. A
+    lista de usinas não vai ao disco: o processo recém-reiniciado com a API PV fora (justamente quando a reserva importa)
+    não a teria, e a Sala ficaria no quadro cru."""
+    nomes = _pv_nomes_guardados(pid)
+    p = next((x for x in (_plants_cache.get("data") or []) if x.get("id") == pid), None)
+    if p is None:
+        try:
+            mt = os.path.getmtime(_FALHAS_PV_DEV)
+            if _PV_NOMES_FALHAS["mtime"] != mt:
+                _PV_NOMES_FALHAS.update(mtime=mt, dados=_falhas_ler(_FALHAS_PV_DEV) or {})
+            api = str((_PV_NOMES_FALHAS["dados"].get(str(pid)) or {}).get("nome_api") or "").strip()
+        except OSError:
+            api = ""
+        p = _pv_nome_do_cadastro([{"id": pid, "nome": api}])[0] if api else None
+    return (str((p or {}).get("nome") or "").strip(), nomes)
+
+
+def _sala_cos_pid(body):
+    try:
+        return int(body.get("plant_id"))
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/api/sala/cos/conferencia", methods=["GET", "POST"])
+def api_sala_cos_conferencia():
+    """GET ?plant_id=: {chave: {ok_em, zer_em, falhou_em, motivo}} da usina. POST {"plant_id", "pares": [{ch, ok, zer,
+    comp, motivo}]}: o que a tela concluiu ao comparar a leitura da API PV com a do logger (o `confereCos`); só o
+    conclusivo muda alguma coisa. O id vai no corpo: o portão do gestor libera POST de consulta pelo caminho exato."""
+    try:
+        if flask_request.method == "POST":
+            body = flask_request.get_json(force=True, silent=True) or {}
+            plant_id, pares = _sala_cos_pid(body), body.get("pares")
+            if plant_id is None:
+                return jsonify({"ok": False, "motivo": "plant_id: o id da usina na API PV"}), 400
+            if not isinstance(pares, list) or len(pares) > SALA_COS_MAX_INV:
+                return jsonify({"ok": False, "motivo": "pares: uma lista"}), 400
+            n = _SALA_COS_CONF.gravar(plant_id, pares, datetime.now().isoformat(timespec="seconds"))
+            return jsonify({"ok": True, "mudou": n})
+        plant_id = _sala_cos_pid(flask_request.args)
+        if plant_id is None:
+            return jsonify({"ok": False, "motivo": "plant_id: o id da usina na API PV"}), 400
+        return jsonify({"ok": True, "conferencia": _SALA_COS_CONF.ler(plant_id)})
+    except (OSError, ValueError) as e:
+        return jsonify({"ok": False, "motivo": f"o registro da conferência não abriu ({type(e).__name__})"}), 500
+
+
+@app.route("/api/sala/cos/strings", methods=["POST"])
+def api_sala_cos_strings():
+    """POST {"plant_id", "inversores": [{ch, nome, kw, ss: [[entrada, A]]}]} (a leitura de agora do logger do COS) → o drill no
+    formato do `/api/plant/<id>`, com `da_cos`, `lido_em`, `fora` (o que do logger não entrou, e por quê) e, em cada
+    inversor, `cos` (a prova da ligação: numeracao, inversor, sem_prova) ou `sem_cos` (o logger não trouxe ele). 409 =
+    não dá para montar (a API PV nunca deu a lista de inversores desta usina neste servidor, ou nada do logger casou)."""
+    body = flask_request.get_json(force=True, silent=True) or {}
+    plant_id, invs = _sala_cos_pid(body), body.get("inversores")
+    if plant_id is None:
+        return jsonify({"ok": False, "motivo": "plant_id: o id da usina na API PV"}), 400
+    if not isinstance(invs, list) or len(invs) > SALA_COS_MAX_INV:
+        return jsonify({"ok": False, "motivo": "inversores: uma lista"}), 400
+    plant_nome_api, dev_names = _sala_cos_guardado(plant_id)
+    if not plant_nome_api or not dev_names:
+        return jsonify({"ok": False, "motivo": "este servidor ainda não tem guardados os inversores desta usina na API PV; "
+                                               "sem eles não há como pôr o logger nos nomes dela"}), 409
+    mapa = _sala_cos.mapa_dispositivos(dev_names, lambda api: _equip_lookup(EQUIP_NAMES.get(plant_nome_api), api) or api)
+    conf = _SALA_COS_CONF.ler(plant_id)
+    agora = datetime.now()
+    recs, usados, fora = _sala_cos.registros(invs, mapa, conf, agora.strftime("%Y-%m-%d %H:%M:%S"))
+    if not recs:
+        return jsonify({"ok": False, "motivo": "nenhum inversor do logger casou com um da API PV pelo nome", "fora": fora}), 409
+    try:
+        lista = _pv_plant_inversores_busca(plant_id, records=recs, so_cache=True, memo=False, combiner=False,
+                                           guardado=(plant_nome_api, dev_names))
+    except _PvSemCopia as e:
+        return jsonify({"ok": False, "motivo": f"falta em memória {e}: abra a usina de novo quando a API PV responder"}), 409
+    out = []
+    for inv in _pv_det_com_travas(plant_id, lista):
+        if inv.get("id") in usados:
+            out.append(dict(inv, cos=_sala_cos.estado(conf, usados[inv["id"]]) or "sem_prova"))
+        else:   # o logger não trouxe este inversor: sem leitura, NÃO desligado
+            out.append(dict(inv, sem_cos=True, desligado=False, falha_comunicacao=False, strings=[], strings_ativas=None,
+                            diferenca=None, fora_da_conta=False))
+    return jsonify({"ok": True, "plant_id": plant_id, "inversores": out, "da_cos": True, "lido_em": agora.strftime("%H:%M"),
+                    "fora": fora})
 
 
 @app.route("/api/sala/depara")

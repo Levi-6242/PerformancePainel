@@ -217,7 +217,10 @@ _GET_GESTOR = (
 # e, da Sala de controle (16/11/2026): o Excel do que a tela mostra, e o visto, que é o que a PESSOA já olhou e não dado
 # da Performance (o gestor também marca)
 POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os", "/api/painel/falhas/exportar", "/api/sala/visto",
-                                                "/api/sala/exportar"}
+                                                "/api/sala/exportar",
+                                                # as strings pelo logger do COS na Sala (26/11/2026): a montagem do drill
+                                                # e o que a tela conferiu entre a API PV e o logger
+                                                "/api/sala/cos/strings", "/api/sala/cos/conferencia"}
 
 # o que as telas do mapa gravam além do que a ponte já listava (documentação e teste): para o gestor, tudo é 403
 GRAVACOES_GESTOR = GRAVACOES + (

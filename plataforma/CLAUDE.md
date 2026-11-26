@@ -3005,7 +3005,30 @@ concluída em 09/11 para as strings 6, 8, 12, 16 e 18, as mesmas que estavam for
     `CURVC`, `lerCurvaCos`, a `/cos/entradas`; "mas gera gráfico? só vi cards e strings"), em cinza e com a numeração
     do logger; ao chegar a lista da fonte, a curva segue aberta no inversor de mesmo nome só se a ligação conferir
     (`levaCurvasCos`), senão fecha (a tela não pede sozinha a curva à fonte paga). A conversão da resposta do logger
-    é uma só (`cosCurvaDe`), a do `curvaCos`.
+    é uma só (`cosCurvaDe`), a do `curvaCos`. **Desde 26/11 este quadro cru é só a reserva da reserva** (o item abaixo).
+  - **As strings pelo logger do COS NO FORMATO DE SEMPRE (26/11/2026; `sala_cos.py`, `/api/sala/cos/strings`,
+    `cosParaDrill`).** Levi, na Santo Anastácio com a API PV fora: o quadro cru estava "completamente fora do padrão
+    criado, sendo que os dados que a gente puxa do COS tem dado histórico"; e "sim" à proposta de fazer do COS a reserva
+    por dentro da Sala. A leitura de agora do logger (o `/cos/inversores` que a tela já pedia) vai ao servidor, que monta
+    o drill pela MESMA `_pv_plant_inversores_busca` (registros no formato do `day_inverter`, `so_cache`, `memo=False`,
+    `combiner=False`): nomes, esperadas, trancadas, régua das strings e OS são os da API PV, e a aba Strings é a de
+    sempre, com o aviso "Strings pelo logger do COS · lido às HH:MM" e o motivo (a API PV ainda lendo, ou o erro dela,
+    com "Ler a API PV de novo"). A curva do inversor sai do histórico do logger (`curvaCos`). Chegou a API PV, ela entra
+    no lugar. Regras:
+    - **Ligação pelo NOME** (`chave_inv` = `chaveInv`/`chaveCos`: "SKID 1 - INV03" = "Inversor 1.3"); chave de dois
+      dispositivos não liga nenhum. A corrente do logger vai na string de MESMO número ("Ipv7" = a entrada 7).
+    - **O que o logger não trouxe fica "Sem leitura do logger agora", NUNCA desligado**; o que não casou vai em `fora`,
+      com o motivo, no aviso.
+    - **A prova fica guardada** (`sala_cos_conferencia.json`, `/api/sala/cos/conferencia`): com as duas leituras na
+      tela, o `confereCos` conclusivo (4 strings ou mais; igual, ou "não batem") vai ao servidor a cada 10 min por
+      usina (`enviaConfCos`). `numeracao` = string parada igual nas duas (prova a numeração), `inversor` = bateu com tudo
+      ligado, `sem_prova` = nunca comparadas com sol: os dois últimos ganham a marca "numeração do logger" na linha. **O
+      inversor em que as duas DISCORDARAM fica fora até nova prova** (a Rodrigues 1 de 17/11, entrada 14); a prova de
+      numeração de antes de uma discordância não vale mais.
+    - Sem os dispositivos da API PV em memória (o servidor nunca leu a usina) ou sem nenhum inversor casado: 409, e fica o
+      quadro cru, dizendo por quê. Usina de String Box sai "sem visão" (a combiner guardada é da API PV: não se mistura).
+    - Nenhuma ida à API PV (paga) nem ao memo dela; o gestor (só leitura) alcança as duas rotas
+      (`POSTS_DE_CONSULTA_GESTOR`). Prova: `tests/test_sala_cos_reserva_26_11.py`.
   - **O selo do COS não some calado (18/11, 13:50; `atualizaCos`, `cosAviso`, `#cosfora`).** Levi: "não está aparecendo
     nenhum selo do COS nessas que são API PV; parece que tapa um buraco e abre outro". O selo, o **!** das fontes que
     não batem e o quadro do logger saem de UM pedido ao Nexus (`/cos/usinas`) por volta de 5 min; falhando uma vez (o
