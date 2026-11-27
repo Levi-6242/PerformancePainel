@@ -235,3 +235,24 @@ def test_o_diagnostico_diz_o_tempo_de_cada_etapa(diag):
     j = diag.get("/api/analise/usina?usina=usina a&mes=2026-11").get_json()
     assert set(j["tempos"]) == {"gerencial", "bd", "cos", "inversores_dia", "fonte_curva", "perdas", "disp_inversor", "falhas",
                                 "ronda", "gemeo"} and j["nome_bd"] is None
+
+
+def test_o_pr_expurgado_conta_so_a_queda_dos_dias_que_o_pr_conta(diag, monkeypatch):
+    # a Colider 1 (26/11/2026): POA em 4 dias e 9 OS de religamento abertas o mês todo; a queda do mês inteiro sobre a
+    # geração de 4 dias deu PR expurgado de 105%. Só a queda do dia com POA entra
+    d = dict(DIARIO, pontos=DIARIO["pontos"] + [{"dia": 3, "realizado": None, "geracao": 10.0, "poa": 0}])
+    monkeypatch.setitem(VIEWS, "/api/g/diario", d)
+    base = {"tipo": "religamento", "origem": "rede", "escopo": "Usina inteira", "h": 1.0, "prot": None, "aberta": False,
+            "ini": None, "fim": None, "dias_aberta": None}
+    oc = [dict(base, os="8", dia="2026-11-01", trechos="10:00-11:00"), dict(base, os="9", dia="2026-11-03", trechos="10:00-12:00")]
+    monkeypatch.setattr(app._au, "ocorrencias_usina", lambda disp, nome, hoje: [dict(o) for o in oc])
+
+    def perdas(ocorr, *a):
+        for o in ocorr:
+            o.update(perda=2000.0 if o["os"] == "8" else 9000.0, metodo="curva", geraria=None, gerou=None)
+        return ocorr
+    monkeypatch.setattr(app, "_au_perdas", perdas)
+    j = diag.get("/api/analise/usina?usina=Usina A&mes=2026-11").get_json()
+    px = j["ger"]["pr_exp"]
+    # o PR do Gerencial é 69,8% sobre 349,4 MWh; o dia 3 não tem POA e a queda dele (9 MWh) fica fora
+    assert px["mwh"] == 2.0 and px["quedas"] == 1 and px["pr"] == round(69.8 * 351.4 / 349.4, 2)

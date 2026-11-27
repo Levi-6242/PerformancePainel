@@ -32638,8 +32638,11 @@ def _au_diagnostico(usina, mes):
                "p50": row.get("p50"), "dias": row.get("dias_cob"), "motivo": row.get("pr_motivo") or row.get("anomalia_txt"),
                "mwp": row.get("pot_mwp")}
     # o PR expurgado (26/11/2026): a energia das quedas da rede (as ocorrências do COS que não são de inversor, a perda de
-    # cada uma) devolvida à geração que casa com a POA do PR (`prod_pr`; sem ela, a do mês)
-    quedas = [o for o in ocorr if not _au.e_inversor(o["escopo"])]
+    # cada uma) devolvida à geração que casa com a POA do PR (`prod_pr`; sem ela, a do mês). Só a queda dos dias que o PR
+    # conta, os com POA: a Colider 1 tinha POA em 4 dias e 9 OS de religamento abertas o mês todo, e a queda do mês inteiro
+    # sobre a geração de 4 dias dava 105%
+    dias_poa = {d["d"] for d in dias if d.get("poa") is not None}
+    quedas = [o for o in ocorr if not _au.e_inversor(o["escopo"]) and int(o["dia"][-2:]) in dias_poa]
     ger_row["pr_exp"] = _au.pr_expurgado(row.get("pr"), _ger_prod_pr(row),
                                          sum((o.get("perda") or 0) for o in quedas) / 1000.0)
     if ger_row["pr_exp"]:

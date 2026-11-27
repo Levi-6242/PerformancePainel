@@ -2696,7 +2696,9 @@ Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py
 - **O PR expurgado** (26/11/2026, Levi: "Tem a geração com expurgos, mas e o PR com expurgos"): o 6º número do topo e o
   tile do PDF. `analise_usinas.pr_expurgado` = PR do Gerencial × (geração que casa com a POA + energia das quedas da rede)
   ÷ essa geração, a mesma conta da nota do contrato no Nexus (`nexus/comando/expurgos.py`, `aplicar`). A queda é a
-  ocorrência do COS que não é de inversor, com a perda de cada uma (`ocorr[].perda`, a da curva ou a estimativa com teto).
+  ocorrência do COS que não é de inversor, com a perda de cada uma (`ocorr[].perda`, a da curva ou a estimativa com teto),
+  **só dos dias que o PR conta** (com POA): na Colider 1 (POA em 4 dias, 9 OS de religamento abertas o mês todo) a queda
+  do mês inteiro sobre a geração de 4 dias dava 105%.
   O sol abaixo não entra (o PR já tira o sol); a limitação imposta (o cadastro de Performance › Limitações do Nexus) ainda
   não, porque a plataforma não lê esse cadastro. `ger.pr_exp` = {pr, delta, mwh, quedas}.
 - **O nome do BD** (`_au_nome_bd`): o Gerencial escreve 'Piracicaba I' e 'Marajoara I' (o PG) e a aba do BD_Thopen é
