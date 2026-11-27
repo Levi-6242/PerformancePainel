@@ -116,6 +116,8 @@ def test_o_diagnostico_junta_o_gerencial_o_bd_a_regua_do_cos_e_a_perda_de_cada_o
     # o limite é 85% de 83,3% = 70,8%. Dia 1: PR 70%, sem ocorrência nenhuma = sem explicação. Dia 2: PR 50% + 6,1 MWh ÷
     # (7,4 × 3,256) = 75,3%: o inversor parado explica
     assert j["sem_expl"] == [1] and j["dias"][0]["sem_expl"] and not j["dias"][1]["sem_expl"]
+    # o PR expurgado: a ocorrência é de inversor, não de queda da rede: igual ao PR do Gerencial
+    assert j["ger"]["pr_exp"] == {"pr": 69.8, "delta": 0.0, "mwh": 0.0, "quedas": 0}
     assert j["ofensores"][0]["t"] == "Inversor parado" and j["curva"] is None
     assert [o["t"] for o in j["observacoes"]] == ["Dias sem explicação"]
     assert [i["n"] for i in j["invs"]] == ["Inversor 1.1", "Inversor 1.2", "Inversor 1.3"] and j["invs"][1]["os"] == ["7"]

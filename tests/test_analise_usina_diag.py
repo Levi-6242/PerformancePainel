@@ -182,3 +182,11 @@ def test_a_ocorrencia_que_nao_bate_com_a_geracao_vira_observacao():
           {"os": "18501", "limitada": True, "perda": 300}, {"os": "16958", "perda": 2000}]
     ob = A.observacoes({"pontos": []}, 2026, 11, None, None, [], oc)
     assert [o["t"] for o in ob] == ["Ocorrência que não bate com a geração"] and ob[0]["s"].startswith("OS 17732, 17740:")
+
+
+def test_o_pr_expurgado_devolve_a_energia_das_quedas_da_rede():
+    # Levi, 26/11/2026: "Tem a geração com expurgos, mas e o PR com expurgos". PR 70% com 100 MWh e 5 MWh de queda da rede
+    # = 70 × 105 ÷ 100 = 73,5%; sem queda, igual ao PR; sem PR ou sem geração, não há conta
+    assert A.pr_expurgado(70.0, 100.0, 5.0) == {"pr": 73.5, "delta": 3.5, "mwh": 5.0}
+    assert A.pr_expurgado(70.0, 100.0, 0) == {"pr": 70.0, "delta": 0.0, "mwh": 0.0}
+    assert A.pr_expurgado(None, 100.0, 5.0) is None and A.pr_expurgado(70.0, 0, 5.0) is None

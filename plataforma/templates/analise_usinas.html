@@ -58,7 +58,7 @@
   .btn:hover{border-color:var(--verde)}
   .btn[aria-expanded="true"]{border-color:var(--verde);color:var(--verde)}
   /* KPIs */
-  .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:0}
+  .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;padding:0}
   .kpi{padding:14px 18px;border-left:1px solid var(--linha);min-width:0}
   .kpi:first-child{border-left:0}
   .kpi .r{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mudo);font-weight:500}
@@ -816,11 +816,13 @@ function parecer() {
   return `<section class="bloco parecer" style="border-left-color:${COR[cor]}"><span class="selo" style="color:${COR[cor]};border:1px solid ${COR[cor]}">${cor === "ok" ? "No esperado" : cor === "neutro" ? "Sem dado" : "Abaixo do esperado"}</span><p>${txt}</p></section>`;
 }
 function kpisUsina() {
-  const g = U.ger, at = g.at != null ? g.at / 100 : null, pm = perdaMes(), oss = new Set(U.ocorr.map(o => o.os));
+  const g = U.ger, at = g.at != null ? g.at / 100 : null, pm = perdaMes(), oss = new Set(U.ocorr.map(o => o.os)), px = g.pr_exp;
   const ab = new Set(U.ocorr.filter(o => o.aberta).map(o => o.os)), qd = new Set(U.ocorr.filter(ehQueda).map(o => o.os));
   const k = [
     ["Geração × P50", at == null ? "—" : n1(g.at) + "%", at == null ? "neutro" : sem3(at), at == null ? esc(g.motivo || "sem dado") : `<b>${n1(g.prod)}</b> de ${n1(g.p50)} MWh · ${g.dias || "—"} dias`],
     ["PR", g.pr == null ? "—" : n1(g.pr) + "%", g.pr != null && g.meta ? sem3(g.pr / g.meta) : "neutro", g.meta ? `meta <b>${n1(g.meta)}%</b>${g.pr != null ? " · " + pp(g.pr - g.meta) : ""}` : "sem meta"],
+    // o PR expurgado (Levi, 26/11/2026: "e o PR com expurgos"): o PR com a energia das quedas da rede (COS) devolvida
+    ["PR expurgado", px ? n1(px.pr) + "%" : "—", px && g.meta ? sem3(px.pr / g.meta) : "neutro", !px ? "sem o PR do mês" : px.mwh > 0 ? `<b>${pp(px.delta)}</b> das quedas da rede · ${n1(px.mwh, 1)} MWh em ${px.quedas} OS` : "sem queda da rede no mês: igual ao PR"],
     ["Disponibilidade", U.disp.mes == null ? "—" : n1(U.disp.mes) + "%", semDisp(U.disp.mes), U.disp.mes == null ? "a régua do COS não cobre a usina" : `${n1(U.disp.h, 1)} h perdidas · ocorrências do COS`],
     ["Perda nas ocorrências", n1(pm) + " MWh", pm <= 0 ? "ok" : g.prod && pm / (g.prod + pm) > .05 ? "critico" : "alerta", g.prod ? `sem elas geraria <b>${n1(g.prod + pm)}</b> MWh${g.p50 ? " · " + n1((g.prod + pm) / g.p50 * 100, 0) + "% do P50" : ""}` : ""],
     ["Ocorrências do COS", String(oss.size), oss.size ? "alerta" : "ok", `${ab.size} aberta${ab.size === 1 ? "" : "s"} · ${qd.size} queda${qd.size === 1 ? "" : "s"} no mês`],
@@ -1340,7 +1342,7 @@ function htmlPdfUsina() {
       ${tilePdf("Possível com o sol", n1(c.possivel, 1) + " MWh", "o P50 ajustado ao sol medido")}${tilePdf("Efeito do sol", (c.possivel >= c.p50 ? "+" : "−") + n1(Math.abs(c.possivel - c.p50), 1) + " MWh", c.possivel >= c.p50 ? "mais energia que o P50" : "expurgo")}</div>
     <div class="leitura">${c.possivel >= c.p50 ? "O sol veio acima do previsto: a meta do mês deveria ser mais fácil de bater." : `O sol veio abaixo do previsto: parte da distância para o P50 é do tempo (${n1(c.p50 - c.possivel, 1)} MWh), não da usina.`}</div></div>`;
   h += sec("Qualidade da performance e equipamentos", "O PR tira o efeito do sol; aberto por inversor contra o alvo. A disponibilidade sai das ocorrências do COS.")
-    + `<div class="tiles">${tilePdf("PR realizado", g.pr == null ? "—" : n1(g.pr) + "%", g.meta ? "meta " + n1(g.meta) + "%" : "")}${tilePdf("Disponibilidade", U.disp.mes == null ? "—" : n1(U.disp.mes) + "%", U.disp.h != null ? n1(U.disp.h, 1) + " h equivalentes perdidas" : "")}${tilePdf("Inversor parado", n1(pInv, 1) + " MWh", "o que deixou de gerar no mês")}</div>
+    + `<div class="tiles">${tilePdf("PR realizado", g.pr == null ? "—" : n1(g.pr) + "%", g.meta ? "meta " + n1(g.meta) + "%" : "")}${g.pr_exp ? tilePdf("PR expurgado", n1(g.pr_exp.pr) + "%", g.pr_exp.mwh > 0 ? pp(g.pr_exp.delta) + " das quedas da rede (" + n1(g.pr_exp.mwh, 1) + " MWh)" : "sem queda da rede no mês") : ""}${tilePdf("Disponibilidade", U.disp.mes == null ? "—" : n1(U.disp.mes) + "%", U.disp.h != null ? n1(U.disp.h, 1) + " h equivalentes perdidas" : "")}${tilePdf("Inversor parado", n1(pInv, 1) + " MWh", "o que deixou de gerar no mês")}</div>
       <div class="kicker">PR por inversor${U.alvo ? " · contra o alvo de " + pc(U.alvo) : ""}</div>${barrasInvPdf()}
       ${U.invs.some(v => v.obs && v.obs.txt) ? `<div class="kicker">Observações dos inversores</div>${U.invs.filter(v => v.obs && v.obs.txt).map(v => `<div class="pt" style="background:#f3f6fa;border-color:#d9e1ec"><b class="t">${esc(v.n)}</b>: ${esc(v.obs.txt)}</div>`).join("")}` : ""}</div>`;
   if (c) h += sec("Contabilidade de energia", "Do P50 ao gerado, degrau por degrau. Expurgo (sol abaixo e queda de rede) separado do que é da operação (equipamento e trackers).")

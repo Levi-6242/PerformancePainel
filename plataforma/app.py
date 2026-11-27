@@ -4400,23 +4400,47 @@ def get_plants(token: str, force=False) -> list:
             # com o mesmo formato, para todo o resto do app (overview, drill, curva, ronda)
             # continuar funcionando sem saber que existe uma 2ª conta.
             if PV_OEM_USERNAME:
+                _ids = {p.get("id") for p in data}
+                extra = None
                 try:
-                    _ids = {p.get("id") for p in data}
                     _t2 = get_token_oem()
                     if _t2:
                         _o = _http().get(f"{BASE_URL}/plants",
                                           headers={"x-access-token": _t2}, timeout=30).json()
-                        extra = [p for p in (_o if isinstance(_o, list) else [])
-                                 if p.get("id") in PV_OEM_PLANTS and p.get("id") not in _ids]
-                        if extra:
-                            data = data + extra
-                            print(f"[API PV/OEM] +{len(extra)} usina(s) da conta OEM: "
-                                  f"{[p.get('nome') or p.get('name') for p in extra]}")
+                        if isinstance(_o, list) and _o:
+                            extra = [p for p in _o if p.get("id") in PV_OEM_PLANTS and p.get("id") not in _ids]
                 except Exception as e:
                     print(f"[API PV/OEM] não consegui juntar as usinas da conta OEM: {e}")
+                if extra is not None:
+                    _plants_cache["oem"] = [dict(p) for p in extra]
+                    if extra:
+                        print(f"[API PV/OEM] +{len(extra)} usina(s) da conta OEM: "
+                              f"{[p.get('nome') or p.get('name') for p in extra]}")
+                else:
+                    # A lista da conta OEM não veio (26/11/2026, a API PV a 55 s por login): sem isto, a lista ficava 5 min
+                    # só com a Thopen, a tabela da 2C, da SEMP e da Alves Lima saía VAZIA por cima da última boa e as três
+                    # sumiam da Sala de controle (Levi: "É sempre para mostrar. O que a gente já teve dado"). Vale a última
+                    # lista boa; sem ela (processo recém-subido), as usinas da última leitura de cada uma.
+                    extra = [p for p in (_plants_cache.get("oem") or _pv_oem_da_ultima_leitura())
+                             if p.get("id") not in _ids]
+                    if extra:
+                        print(f"[API PV/OEM] a lista da conta OEM não veio: seguem as {len(extra)} da última lista boa")
+                if extra:
+                    data = data + extra
             data = _pv_nome_do_cadastro(data)          # a API renomeia planta; o cadastro vai pelo id
             _plants_cache["data"], _plants_cache["ts"] = data, time.time()
         return data
+
+
+def _pv_oem_da_ultima_leitura() -> list:
+    """As usinas da conta OEM pela última leitura de cada uma (`_last_known`, que vai para o disco): [{id, nome}] com o
+    nome que a API escreve, quando a linha o guardou. É a reserva da reserva da lista da conta OEM."""
+    out = []
+    for pid in sorted(PV_OEM_PLANTS):
+        r = _last_known.get(pid)
+        if r and (r.get("nome_api") or r.get("usina")):
+            out.append({"id": pid, "nome": str(r.get("nome_api") or r.get("usina")).strip()})
+    return out
 
 
 def parse_cj(raw) -> dict:
@@ -7159,6 +7183,11 @@ def _build_data_payload(fonte: str = None):
     `fonte` recorta as usinas por ABA/cliente (ver PV_FONTES): None = a principal (Thopen),
     "semp" = a Tucano, "alveslima" = a Morada Nova. Mesmo motor, só o recorte muda."""
     rows = fetch_all(fonte)
+    if not rows and fonte in PV_FONTES:
+        # nenhuma usina da fonte na lista de agora (a da conta OEM não veio): ficam as da última leitura, como sem dado,
+        # e o laço abaixo as troca pela linha histórica (com o "sem comunicação"), em vez de a fonte sumir (26/11/2026)
+        rows = [{"usina": _last_known[pid].get("usina"), "plant_id": pid, "sem_dados": True}
+                for pid in sorted(PV_FONTES[fonte]) if pid in _last_known]
     # Salva último dado conhecido para cada usina com dados reais
     for r in rows:
         if not r.get("sem_dados"):
@@ -27404,6 +27433,8 @@ def _cache_save():
         "plat_view":    {str(k): v for k, v in list(_plat_view_cache.items())},
         # Os dispositivos das usinas da API PV (19/11/2026): com eles em disco, o detalhe por inversor do ciclo é montado
         # já na 1ª volta depois de um reinício, sem pedir o `plant_devices` de ninguém (ver `_pv_det_guarda`).
+        # a lista de usinas da conta OEM (26/11/2026): a reserva de `get_plants` quando a de agora não vem
+        "pv_oem":       list(_plants_cache.get("oem") or []),
         "pv_devs":      {str(k): {"ts": v.get("ts", 0.0), "devs": v.get("devs")} for k, v in list(_pv_devs_cache.items())
                          if isinstance(v, dict) and isinstance(v.get("devs"), list)},
         # Metadata do SunOp/Axis (pathnames por usina). O WEB é reiniciado com o meta VAZIO e o
@@ -27518,6 +27549,8 @@ def _cache_load():
             continue
         _plat_view_cache[_kk] = v
     n += 1 if _pvw else 0
+    if ex.get("pv_oem") and not _plants_cache.get("oem"):
+        _plants_cache["oem"] = [p for p in ex["pv_oem"] if isinstance(p, dict) and p.get("id") is not None]
     # Os dispositivos da API PV, nos DOIS processos (19/11/2026). A idade é a de quando foram lidos: a rota ao vivo
     # continua relendo depois de 30 min; o detalhe do ciclo usa de qualquer idade. O que a memória tem de mais novo fica.
     for k, v in (ex.get("pv_devs") or {}).items():
@@ -32604,6 +32637,13 @@ def _au_diagnostico(usina, mes):
     ger_row = {"at": row.get("atingimento"), "pr": row.get("pr"), "meta": row.get("pr_meta"), "prod": row.get("prod"),
                "p50": row.get("p50"), "dias": row.get("dias_cob"), "motivo": row.get("pr_motivo") or row.get("anomalia_txt"),
                "mwp": row.get("pot_mwp")}
+    # o PR expurgado (26/11/2026): a energia das quedas da rede (as ocorrências do COS que não são de inversor, a perda de
+    # cada uma) devolvida à geração que casa com a POA do PR (`prod_pr`; sem ela, a do mês)
+    quedas = [o for o in ocorr if not _au.e_inversor(o["escopo"])]
+    ger_row["pr_exp"] = _au.pr_expurgado(row.get("pr"), _ger_prod_pr(row),
+                                         sum((o.get("perda") or 0) for o in quedas) / 1000.0)
+    if ger_row["pr_exp"]:
+        ger_row["pr_exp"]["quedas"] = len({o["os"] for o in quedas})
     gid = _au_gemeo_id(nome)
     _marca("gemeo")
     return {"usina": nome, "cliente": cli, "nome_bd": nbd if nbd != nome else None, "tempos": tempos, "local": ig.get("estado") or "", "kwp": ig.get("potencia_kwp") or (pot or 0) * 1000 or None,

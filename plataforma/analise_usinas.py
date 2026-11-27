@@ -264,6 +264,17 @@ def parados_sem_ocorrencia(inv_dias: dict, ocorr, minimo_kwh=50.0) -> list:
     return out
 
 
+def pr_expurgado(pr, prod_mwh, expurgo_mwh):
+    """O PR do mês com a energia que o expurgo devolve (Levi, 26/11/2026: "Tem a geração com expurgos, mas e o PR com
+    expurgos"): PR × (geração + expurgo) ÷ geração, a mesma conta da nota do contrato no Nexus (`expurgos.aplicar`). O sol
+    abaixo do previsto não entra: o PR já tira o efeito do sol. → {pr, delta, mwh} ou None (sem PR ou sem geração)."""
+    if pr is None or not prod_mwh or prod_mwh <= 0:
+        return None
+    e = max(0.0, float(expurgo_mwh or 0.0))
+    v = pr * (prod_mwh + e) / prod_mwh
+    return {"pr": round(v, 2), "delta": round(v - pr, 2), "mwh": round(e, 3)}
+
+
 def dias_sem_explicacao(dias, perda_mwh: dict, pot_mwp, meta) -> list:
     """Os dias de baixa performance sem explicação (Levi, 25/11/2026: "85% tá ok"): o PR do dia, devolvidas as perdas
     das ocorrências do COS (MWh ÷ POA × potência), ainda abaixo de 85% da meta. Dia sem POA ou sem PR fica de fora."""

@@ -2323,6 +2323,23 @@ principal e, no servidor às 23h de 19/10, Tucano e Araputanga voltavam "Invalid
 Sem tracker na usina, o quadro de Trackers do card diz "sem leitura", como na RenoGrid. Teste:
 `tests/test_alveslima_tempo_real.py` e `tests/test_entrada_so_os_cards_escolhidos.py`.
 
+## A conta oem@ não some com a API PV lenta (26/11/2026)
+
+Com a API PV a 55 s por login, a lista de usinas da conta oem@ (o 2º `/plants` dentro do `get_plants`) não vinha, a lista
+ficava 5 min só com a Thopen, a tabela da 2C, da SEMP e da Alves Lima saía **vazia por cima da última boa** e as três sumiam
+da Sala de controle (Levi: "É sempre para mostrar. O que a gente já teve dado"). Agora: a lista da conta oem@ que vem é
+guardada (`_plants_cache["oem"]`, e no disco, extra `pv_oem` do snapshot) e vale quando a de agora não vem; sem ela (processo
+recém-subido), as usinas da última leitura (`_pv_oem_da_ultima_leitura`, pelo `_last_known`). E a tabela de uma fonte de
+`PV_FONTES` nunca sai vazia por cima da última leitura: sem nenhuma usina na lista, ficam as do `_last_known` como linha
+histórica, com o "sem comunicação". Teste: `tests/test_oem_nao_some_26_11.py`.
+
+**A 2C no SCADA da Grid (26/11/2026, ainda NÃO ligada no tempo real):** o scadaGridco tem a `araputanga` (10 inversores, 20
+strings, a ETM `etm-01` desde 26/11 10:17 e 59 trackers) e a `ipixuna_do_para` ("Ipixuna do para 2C": 20 inversores, 28
+strings, 122 trackers, sem ETM). De-para **fechado pelo valor** (a energia do dia de cada equipamento contra o kWh da aba
+do BD_Performance, diferença 0,0 em todos os dias): Araputanga, de 21 a 24/11, equipamento N = Inversor 1.N; Ipixuna do
+Pará, de 22 a 24/11, 1–8 = 1.1–1.8 (Santa Cecilia 1), 9–14 = 2.1–2.6 (Santa Cecilia 2), 15–20 = 3.1–3.6 (Santa Cecilia 3).
+Sete Lagoas, Tupi Paulista, Tucano e Morada Nova não estão no supervisório.
+
 ## Fonte `2capi`: as três usinas da 2C pela API PV
 
 Desde 11/09/2026 Araputanga (18771898), "Sete Lagoa" (18771901 — singular na API, "Sete Lagoas" no cadastro) e Tupi
@@ -2676,6 +2693,12 @@ Fracttal na hora (`_au_diagnostico` no `app.py`; as contas em `analise_usinas.py
   usina de cada cliente depois de um reinício é a **série do BD carregando na memória do web** (`serie`: 26 s a Athon
   pelo BD_Performance, `_g_get`; 66 s a Thopen pelo BD_Thopen inteiro, `fonte_api`), uma vez por cliente e por reinício
   (a segunda usina do mesmo cliente: 0,0 s). Cada deploy no meio do dia esfria isso de novo.
+- **O PR expurgado** (26/11/2026, Levi: "Tem a geração com expurgos, mas e o PR com expurgos"): o 6º número do topo e o
+  tile do PDF. `analise_usinas.pr_expurgado` = PR do Gerencial × (geração que casa com a POA + energia das quedas da rede)
+  ÷ essa geração, a mesma conta da nota do contrato no Nexus (`nexus/comando/expurgos.py`, `aplicar`). A queda é a
+  ocorrência do COS que não é de inversor, com a perda de cada uma (`ocorr[].perda`, a da curva ou a estimativa com teto).
+  O sol abaixo não entra (o PR já tira o sol); a limitação imposta (o cadastro de Performance › Limitações do Nexus) ainda
+  não, porque a plataforma não lê esse cadastro. `ger.pr_exp` = {pr, delta, mwh, quedas}.
 - **O nome do BD** (`_au_nome_bd`): o Gerencial escreve 'Piracicaba I' e 'Marajoara I' (o PG) e a aba do BD_Thopen é
   'Piracicaba 1' e 'Marajoara 1'; por aquele nome o dia a dia, o PR por inversor e a cascata vinham vazios ("sem série
   diária no período"). A rota da energia pega o cliente e o nome da linha do Gerencial (`_au_cliente`), como o diagnóstico;
