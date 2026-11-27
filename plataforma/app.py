@@ -5335,6 +5335,61 @@ def _largada_volta(v: dict) -> None:
 
 
 # ── Processa uma usina (visão geral) ──────────────────────────────────────────
+# ── A 2C pelo SCADA da Grid, a API PV de reserva (26/11/2026) ─────────────────────────────────────────────────────────
+# Levi: "tem alguns [usinas] da 2C que estão entrando ali pelo SCADA" e, à proposta de ligar o SCADA como fonte principal
+# com a API PV de reserva, "boa". As usinas e o de-para (provados pelo valor e pela numeração das strings) moram em
+# `pv_scada.py`. As leituras do dia de cada inversor vêm do /api/telemetria (uma chamada por inversor, em série, a regra
+# da Automação), guardadas e relidas só no que chegou depois (`apos_ts`), no máximo a cada PV_SG_RELER_S; viram
+# registros do day_inverter e passam pela montagem de sempre (tabela, detalhe por inversor, curvas de string, PR do dia).
+import pv_scada as _pvsg
+_PV_SG_REGS: dict = {}           # (usina no supervisório, equipamento, dia) → {"regs", "ts", "lido"}
+_PV_SG_LOCKS: dict = {}
+PV_SG_RELER_S = 60
+
+
+def _pv_scada_dia(pid):
+    """Os registros de hoje da usina da API PV pelo SCADA da Grid, no formato do day_inverter; None = a usina não está no
+    SCADA, ou ele não respondeu ou não leu nada hoje (aí vale a API PV, a reserva)."""
+    try:
+        cfg = _pvsg.USINAS.get(int(pid))
+    except (TypeError, ValueError):
+        return None
+    if not cfg or not _sg.configurado():
+        return None
+    dia = _sg.hoje()
+    por = {}
+    with _PV_SG_LOCKS.setdefault(cfg["scada"], threading.Lock()):
+        for k in [k for k in list(_PV_SG_REGS) if k[2] != dia]:
+            _PV_SG_REGS.pop(k, None)                       # o dia que virou não serve mais
+        for eq in cfg["equip"]:
+            k = (cfg["scada"], eq, dia)
+            ent = _PV_SG_REGS.get(k)
+            if ent is None or time.time() - ent["lido"] >= PV_SG_RELER_S:
+                try:
+                    novos = _sg._paginas("/api/telemetria", {"usina": cfg["scada"], "desde": dia, "ate": dia,
+                                                             "tipo": "inverter", "equipamento": eq,
+                                                             "apos_ts": (ent or {}).get("ts")}, _sg.get)
+                except Exception as e:                     # noqa: BLE001 — o SCADA fora: a API PV, a reserva
+                    print(f"[2C/SCADA] {cfg['scada']} {eq}: {type(e).__name__}: {str(e)[:160]}")
+                    return None
+                regs = list((ent or {}).get("regs") or []) + [r for r in novos if str(r.get("equipamento")) == eq]
+                ent = {"regs": regs, "lido": time.time(),
+                       "ts": max((r.get("ts") for r in regs if isinstance(r.get("ts"), (int, float))), default=None)}
+                _PV_SG_REGS[k] = ent
+            por[eq] = ent["regs"]
+    return _pvsg.registros(por, cfg, _sg.strings_de, _sg.COM_OK) or None
+
+
+def _pv_dia_do_inversor(pid, token, timeout):
+    """(registros do day_inverter da usina, "scadaGridco" | "API PV"): o SCADA da Grid primeiro (a 2C que ele lê), a API
+    PV de reserva. O erro da API PV sobe como antes."""
+    recs = _pv_scada_dia(pid)
+    if recs:
+        return recs, "scadaGridco"
+    return _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
+                        json={"id": pid}, timeout=timeout).json(), "API PV"
+
+
 def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
     pid  = plant["id"]
     nome = nome_usina(pid, plant["nome"])
@@ -5344,14 +5399,13 @@ def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
             "sem_dados": True, "falha_comunicacao": False,
             "stringbox": plant["nome"].strip() in STRING_BOX, **_pv_cadastro_da_linha(plant)}
     try:
-        records = _http().post(f"{BASE_URL}/day_inverter",
-                                headers={"x-access-token": _pv_token_for(pid)},
-                                json={"id": pid}, timeout=timeout).json()
+        records, via = _pv_dia_do_inversor(pid, _pv_token_for(pid), timeout)
     except Exception:
         return base
     if not records:
         return base
     linha = build_summary(plant, records)
+    linha["via"] = via                   # de onde veio a leitura (26/11/2026: a 2C pelo SCADA da Grid)
     _pv_det_guarda(pid, records)         # o detalhe por inversor, das mesmas leituras (ver _pv_det_guarda)
     return linha
 
@@ -5530,6 +5584,9 @@ def _pv_plant_inversores_busca(plant_id, force=False, records=None, so_cache=Fal
     token = None if so_cache else _pv_token_for(plant_id)
 
     def _leituras():
+        sg = _pv_scada_dia(plant_id)             # a 2C pelo SCADA da Grid (26/11/2026); a API PV é a reserva
+        if sg:
+            return sg
         r = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
                          json={"id": plant_id}, timeout=60)
         corpo = r.json()
@@ -23799,8 +23856,7 @@ def _pv_curvas_strings(pid, nome_api, token, entradas=None):
     """Curva de corrente por string do DIA (day_inverter/Ipv) → {inv_display: {IpvN: [(hhmm, A)]}}.
     nome_api = nome da usina NA API (chave do EQUIP_NAMES); trancadas ficam de fora. `entradas`: ver _pv_curvas_strings_de."""
     try:
-        recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
-                            json={"id": pid}, timeout=45).json()
+        recs, _via = _pv_dia_do_inversor(pid, token, 45)
     except Exception:
         return {}
     if entradas is None:
@@ -25368,8 +25424,7 @@ def _pv_pr_collect(token: str, plant: dict) -> dict:
     # `falha` = o day_inverter não respondeu (a rota /api/pv/pr/<id> responde 502 com ela; o overview só segue sem a
     # usina, como sempre). Antes a falha virava a usina sem inversor e o /api/pv/pr/<id> quebrava com KeyError.
     try:
-        recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
-                             json={"id": pid}, timeout=45).json()
+        recs, _via = _pv_dia_do_inversor(pid, token, 45)
     except Exception as e:                                                    # noqa: BLE001
         raw["falha"] = f"API PV (day_inverter): {type(e).__name__}: {str(e)[:160]}"
         return raw

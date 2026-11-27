@@ -2333,7 +2333,20 @@ recém-subido), as usinas da última leitura (`_pv_oem_da_ultima_leitura`, pelo 
 `PV_FONTES` nunca sai vazia por cima da última leitura: sem nenhuma usina na lista, ficam as do `_last_known` como linha
 histórica, com o "sem comunicação". Teste: `tests/test_oem_nao_some_26_11.py`.
 
-**A 2C no SCADA da Grid (26/11/2026, ainda NÃO ligada no tempo real):** o scadaGridco tem a `araputanga` (10 inversores, 20
+**A Ipixuna do Pará pelo SCADA da Grid, a API PV de reserva (26/11/2026, Levi: "boa"):** `pv_scada.py` (as usinas, o
+de-para e a conversão, puro) + `_pv_scada_dia` / `_pv_dia_do_inversor` no app.py: as leituras do dia de cada inversor no
+scadaGridco (`/api/telemetria`, um pedido por inversor em série, relidas só no que chegou depois, `apos_ts`, no máximo a
+cada `PV_SG_RELER_S`) viram registros do `day_inverter` com o id do inversor da API PV e passam pela montagem de sempre:
+a tabela (`process_plant`, a linha ganha `via`), o detalhe por inversor (`_pv_plant_inversores_busca`), as curvas de
+string (`_pv_curvas_strings`) e o PR do dia (`_pv_pr_collect`). A API PV só entra quando o SCADA não responde ou não leu
+nada hoje. Provado antes de ligar: o inversor pelo valor (abaixo); a numeração das strings contra o day_inverter do mesmo
+dia (0,2 a 0,4 A de diferença média pela mesma numeração, e as entradas zeradas no SCADA são as que a API PV não lista);
+as unidades (kW, kWh, °C) iguais no mesmo minuto; e a linha da tabela da Santa Cecilia 1 até 13:00 de 26/11 igual nas
+duas (138 ativas de 138). **A Araputanga FICA na API PV**: o supervisório manda só `string_1` a `string_20` e ela tem 236
+strings esperadas (~24 por inversor); pelo SCADA a linha dava 176 de 236, um déficit falso de 60 (`ARAPUTANGA_FORA`,
+para quando a Automação trouxer as outras entradas). Teste: `tests/test_2c_pelo_scada_26_11.py`.
+
+**A 2C no SCADA da Grid (o levantamento de 26/11/2026):** o scadaGridco tem a `araputanga` (10 inversores, 20
 strings, a ETM `etm-01` desde 26/11 10:17 e 59 trackers) e a `ipixuna_do_para` ("Ipixuna do para 2C": 20 inversores, 28
 strings, 122 trackers, sem ETM). De-para **fechado pelo valor** (a energia do dia de cada equipamento contra o kWh da aba
 do BD_Performance, diferença 0,0 em todos os dias): Araputanga, de 21 a 24/11, equipamento N = Inversor 1.N; Ipixuna do
