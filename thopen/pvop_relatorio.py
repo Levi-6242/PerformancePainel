@@ -89,6 +89,8 @@ MANUAL = {
     "pianco 1 1": ("Piancó 1", None),
     "pharma ii": ("Pharma II", "Pharma 2"), "pharma iii": ("Pharma III", "Pharma 3"), "pharma iv": ("Pharma IV", "Pharma 4"),
     "caroa 1": ("Caroá", None), "caroa 2": ("Caroá", None),
+    # em novembro a Caroá veio como "Caroá 1.1 (591)" e "Caroá 1.2 (591)"
+    "caroa 1.1": ("Caroá", None), "caroa 1.2": ("Caroá", None),
     "inhapi uc01": ("Inhapi", "Inhapi 1 (576)"), "inhapi uc02": ("Inhapi", "Inhapi 2 (577)"),
     "inhapi uc03": ("Inhapi", "Inhapi 3 (578)"),
     "ouro branco uc01": ("Ouro Branco I", "Ouro Branco 1 (579)"), "ouro branco uc02": ("Ouro Branco II", "Ouro Branco 2 (640)"),
@@ -250,8 +252,10 @@ def montar(dia, arquivo, planilha, debug, sup_usina, sup_kwp, agora):
         if usina is None:
             sem.append(r["nome"])
         d = debug.get(sem_id(r["nome"])) or {}
+        # o kWp sem número vai vazio (None), não "": o texto numa coluna de número fazia a API devolver 500 (05/11/2026,
+        # a Caroá, que não tem a parte no supervisório)
         disp.append({"dia": dia.isoformat(), "nome": r["nome"], "pvop_id": d.get("pvop_id") or "", "usina": usina or "",
-                     "kwp": round(kwp, 2) if kwp else "", "disp_geracao": r["disp_geracao"],
+                     "kwp": round(kwp, 2) if kwp else None, "disp_geracao": r["disp_geracao"],
                      "disp_comunicacao": r["disp_comunicacao"], "geracao": r["geracao"],
                      "prognostico_geracao": r["prognostico_geracao"], "irradiacao": r["irradiacao"],
                      "prognostico_irradiacao": r["prognostico_irradiacao"], "pr": r["pr"],

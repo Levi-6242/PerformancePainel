@@ -103,6 +103,16 @@ def test_liga_pelo_supervisorio_e_pelos_casos_a_mao():
     assert P.casar("Assis 1 (79) ", su2, sk2) == ("Assis", 75)
 
 
+def test_a_caroa_de_novembro_liga_e_o_kwp_vazio_vai_sem_texto():
+    # novembro trouxe "Caroá 1.1 (591)"; sem a parte no supervisório o kWp vai None (o "" dava 500 na API, 05/11)
+    assert P.casar("Caroá 1.1 (591) ", {}, {}) == ("Caroá", None)
+    disp, _per, sem = P.montar(DIA, "x.xlsx", [{"nome": "Caroá 1.2 (591)", "disp_geracao": 100, "disp_comunicacao": 100,
+                                                "geracao": None, "prognostico_geracao": None, "irradiacao": None,
+                                                "prognostico_irradiacao": None, "pr": None}], {}, {}, {},
+                               dt.datetime(2026, 11, 26))
+    assert sem == [] and disp[0]["usina"] == "Caroá" and disp[0]["kwp"] is None
+
+
 def test_monta_e_pondera_pelo_kwp_das_partes():
     dia, nome, plan, dbg, _a = P.ler_arquivos({"x.zip": _zip()})
     su, sk = P.depara(EQUIP)
